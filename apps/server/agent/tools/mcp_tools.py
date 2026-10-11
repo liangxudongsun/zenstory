@@ -32,6 +32,7 @@ from agent.tools.author_edit_guard import (
     request_deletes_file,
     request_deletes_folder,
     request_targets_file,
+    resolve_offer_context_file,
 )
 from agent.tools.file_ops import FileToolExecutor
 from agent.tools.file_ops.edit import (
@@ -437,6 +438,7 @@ class ToolContext:
         author_confirmed_file_ids: Iterable[str] | None = None,
         author_edit_refusals: AuthorEditRefusals | None = None,
         author_previous_offer: Iterable[OfferItem] | None = None,
+        author_previous_offer_context: Iterable[str] | None = None,
     ) -> None:
         """Set the execution context for tools (request-scoped).
 
@@ -452,7 +454,9 @@ class ToolContext:
             author_edit_refusals: 本轮因为作者手改过而没改成的文件（service 持有，
                 落库到 routing，下一轮放行）。
             author_previous_offer: 上一轮 AI 收尾时给作者的提议（选项 / 问句），作者答应或选中
-                改某个文件的那一项时放行它。以上几项见 agent/tools/author_edit_guard.py。
+                改某个文件的那一项时放行它。
+            author_previous_offer_context: 上一轮 AI 回复和作者上一条话的原文；提议没点名
+                文件时，据此找上一轮在谈的那个文件。以上几项见 agent/tools/author_edit_guard.py。
             recorded_skill_ids: 本次请求里已记录过用量的技能（显式选择的技能），
                 load_skill 不再为它们重复记用量。
             skill_tokens_used: 显式选择的技能注入 system prompt 时已占用的技能内容 token，
@@ -479,6 +483,9 @@ class ToolContext:
             "author_edit_refusals": author_edit_refusals,
             "author_previous_offer": tuple(
                 item for item in (author_previous_offer or ()) if isinstance(item, OfferItem)
+            ),
+            "author_previous_offer_context": tuple(
+                item for item in (author_previous_offer_context or ()) if isinstance(item, str) and item
             ),
             "pre_write_contents": _PreWriteContents(),
         })
@@ -599,12 +606,14 @@ class ToolContext:
         referenced = context.get("referenced_file_ids")
         confirmed = context.get("author_confirmed_file_ids")
         offer = context.get("author_previous_offer")
+        offer_context = context.get("author_previous_offer_context")
         return AuthorScope(
             messages=tuple(cls.get_author_messages()),
             referenced_file_ids=referenced if isinstance(referenced, frozenset) else frozenset(),
             confirmed_file_ids=confirmed if isinstance(confirmed, frozenset) else frozenset(),
             focus_file_id=focus if isinstance(focus, str) and focus else None,
             previous_offer=offer if isinstance(offer, tuple) else (),
+            previous_offer_context=offer_context if isinstance(offer_context, tuple) else (),
         )
 
     @classmethod
@@ -1883,6 +1892,37 @@ def _folder_descendant_files(session: Session, folder: Any, project_id: str | No
     return descendants[:_AUTHOR_GUARD_MAX_FOLDER_FILES]
 
 
+def _offer_context_file_id(session: Session, scope: AuthorScope, project_id: str) -> str | None:
+    """上一轮提议没点名文件时，上一轮在谈的那个作者手改过的文件（见 resolve_offer_context_file）。
+
+    守卫整体出错时放行写入；这一步只用来放开文件，出错时返回 None（不放开）。
+    """
+    if not scope.previous_offer_context:
+        return None
+    from models import File
+
+    def is_protected(candidate_id: str) -> bool:
+        candidate = session.get(File, candidate_id)
+        return candidate is not None and latest_text_is_authors(session, candidate)
+
+    try:
+        rows = session.exec(
+            select(File.id, File.title, File.file_type).where(
+                File.project_id == project_id,
+                File.is_deleted.is_(False),  # type: ignore[attr-defined]
+                File.file_type != "folder",
+            )
+        ).all()
+        return resolve_offer_context_file(
+            scope.previous_offer_context,
+            ((str(row[0]), str(row[1] or ""), str(row[2] or "")) for row in rows),
+            is_protected,
+        )
+    except Exception as exc:
+        logger.warning("Offer-context lookup failed; not unlocking", extra={"error": str(exc)})
+        return None
+
+
 def _author_edit_refusal(
     file_id: str,
     *,
@@ -1936,7 +1976,14 @@ def _author_edit_refusal(
                 if tool_name == "delete_file":
                     if request_deletes_file(scope, file_id=file.id, title=title):
                         return None
-                elif request_targets_file(scope, file_id=file.id, title=title, file_type=file_type, edits=edits):
+                elif request_targets_file(
+                    scope,
+                    file_id=file.id,
+                    title=title,
+                    file_type=file_type,
+                    edits=edits,
+                    offer_context_file=lambda: _offer_context_file_id(session, scope, file.project_id),
+                ):
                     return None
                 protected = (str(file.id), title)
     except Exception as exc:

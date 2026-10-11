@@ -992,6 +992,15 @@ def _expand_picks(items: tuple[OfferItem, ...], picked: list[OfferItem]) -> list
     return expanded
 
 
+def _offer_edits_unnamed_file(item: OfferItem) -> bool:
+    """这一项提议有改动的说法、却没点名任何文件（「按上面 1–5 整体调开头，我出改稿」）。"""
+    clauses = _offer_clauses(item)
+    if not clauses or _names_any_unit(_offer_normalize(item.text)):
+        return False
+    joined = "，".join(clauses)
+    return any(word in joined for word in _OFFER_EDIT_WORDS)
+
+
 def author_accepts_offer(
     text: str,
     offer: tuple[OfferItem, ...],
@@ -999,6 +1008,7 @@ def author_accepts_offer(
     title: str,
     file_type: str,
     sequence: tuple[int, str] | None,
+    context_target: Callable[[], bool] | None = None,
 ) -> bool:
     """作者这一轮是不是答应 / 选中了上一轮 AI 提议里改这个文件的那一项。
 
@@ -1006,10 +1016,12 @@ def author_accepts_offer(
       （至少 4 个字连着一样、只出现在这一项里，且复述的那一分句没点名别的文件）：选中的那几项
       里有一项要改这个文件就放行。
     - 只答应（「好的，继续」「可以」「改」「按这个改」）：按第一项提议算（问句在前、选项在后；
-      没点名任何文件的项跳过）。第一项是改这个文件才放行；第一项是「先不动」或改的是别的文件
-      （「要把第2章也改成老秦吗？」）时不放开这个文件。
+      没点名任何文件的项跳过，除非上一轮在谈的就是这个文件）。第一项是改这个文件才放行；第一项是「先不动」
+      或改的是别的文件（「要把第2章也改成老秦吗？」）时不放开这个文件。
     - 有不改的说法（不用 / 先不 / 保持 / 算了…）一律不算；答应之外又提了别的事（「好，继续写
       第五节」）不算只答应。
+    - context_target：一项提议有改动说法却没点名文件时，它改的是不是这个文件（上一轮在谈的
+      那个被保护文件就是它，见 resolve_offer_context_file）。只在需要时调用一次。
     """
     if not offer:
         return False
@@ -1020,8 +1032,19 @@ def author_accepts_offer(
     if not bare:
         return False
 
+    resolved: list[bool] = []
+
+    def context_is_this_file() -> bool:
+        if context_target is None:
+            return False
+        if not resolved:
+            resolved.append(bool(context_target()))
+        return resolved[0]
+
     def targets(item: OfferItem) -> bool:
-        return _offer_targets_file(item, title=title, file_type=file_type, sequence=sequence)
+        if _offer_targets_file(item, title=title, file_type=file_type, sequence=sequence):
+            return True
+        return _offer_edits_unnamed_file(item) and context_is_this_file()
 
     def names_another(span_text: str) -> bool:
         return _names_another_file(span_text, title=title, file_type=file_type, sequence=sequence)
@@ -1085,6 +1108,108 @@ def author_accepts_offer(
     return False
 
 
+# ------------------------------------------ 提议没点名文件时：上一轮在谈的是哪个文件
+#
+# live run 2 场景 C：作者问「第一章开头节奏有点慢，有什么具体建议？先说建议，别直接改」，AI 给了
+# 五条建议，选项是「1. 按上面 1–5 整体调开头，我出改稿给你看」。选项里没点名文件，作者回「1」
+# 被拒；回「好的，按你说的改」能放行，只因为第 2 项恰好引用了标题里的词。提议没点名文件时，
+# 改的就是上一轮在谈的那个文件：上一轮 AI 回复里点名的、或作者上一条话里提到的被保护文件。
+# 只认恰好一个；点到两个以上被保护的文件，或者说的是「其他章 / 每章」时不猜，照旧拒。
+# 「X是你手动改过的，我没动它」「先不动」「以第3章为准」这类分句里的点名不算在谈要改它。
+
+_FILE_BLOCK_RE = re.compile(r"<file\b[^>]*>.*?(?:</file>|\Z)", re.IGNORECASE | re.DOTALL)
+_CONTEXT_CLAUSE_SPLIT_RE = re.compile(r"[，,；;。！!？?]")
+_CONTEXT_MANY_FILES_RE = re.compile(
+    _OTHER_UNITS_RE.pattern
+    + "|"
+    + "|".join(re.escape(marker) for marker in _GLOBAL_SCOPE_MARKERS if marker != "全文")
+)
+
+
+def _message_text(content: Any) -> str:
+    if isinstance(content, list):
+        return "\n".join(
+            str(block.get("text") or "")
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+    return content if isinstance(content, str) else ""
+
+
+def previous_offer_context_from_history(history_messages: Iterable[Any]) -> tuple[str, ...]:
+    """上一轮在谈哪个文件的原文：上一条 assistant 回复（去掉合成段落和 <file> 正文），
+    和它前面作者的那条话。没有上一条 assistant 回复时为空。"""
+    messages = list(history_messages or [])
+    for position in range(len(messages) - 1, -1, -1):
+        message = messages[position]
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        reply = _FILE_BLOCK_RE.sub("", _assistant_reply_text(message.get("content"))).strip()
+        author = ""
+        for earlier in reversed(messages[:position]):
+            if not isinstance(earlier, dict):
+                continue
+            if earlier.get("role") == "user":
+                author = _message_text(earlier.get("content")).strip()
+            if earlier.get("role") in {"user", "assistant"}:
+                break
+        return tuple(text for text in (reply, author) if text)
+    return ()
+
+
+def _context_clauses(texts: Iterable[str]) -> list[str]:
+    """上一轮原文里在谈改动对象的分句：去掉不改 / 没动 / 交代状态的分句。"""
+    clauses: list[str] = []
+    for text in texts:
+        for clause in _CONTEXT_CLAUSE_SPLIT_RE.split(_offer_normalize(_MARKDOWN_RE.sub("", text or ""))):
+            if not clause:
+                continue
+            if _OFFER_DECLINE_RE.search(clause) or _DECLINE_RE.search(clause) or _OFFER_STATE_RE.search(clause):
+                continue
+            clauses.append(clause)
+    return clauses
+
+
+def _context_names_file(clause: str, *, title: str, file_type: str) -> bool:
+    """这一分句点名了这个文件（标题、标题里的词、第 N 章、文件类别），且不是拿它当标准。"""
+    spans = list(_title_mentions(clause, title)) if title else []
+    sequence = _title_sequence(title)
+    if sequence is not None:
+        spans.extend(
+            (start, end)
+            for numbers, start, end in _sequence_mentions(clause)
+            if sequence in numbers and not _SEQUENCE_OF_PLAN_RE.match(clause[end:])
+        )
+    if any(not _mention_is_reference(clause, start, end) for start, end in spans):
+        return True
+    markers = _FILE_TYPE_MARKERS.get(file_type)
+    return bool(markers) and _any_positive(clause, markers)
+
+
+def resolve_offer_context_file(
+    context: Iterable[str],
+    candidates: Iterable[tuple[str, str, str]],
+    is_protected: Callable[[str], bool],
+) -> str | None:
+    """上一轮在谈的、作者手改过的那个文件：恰好一个时返回它的 id，否则 None。
+
+    context：previous_offer_context_from_history 的原文；candidates：项目里的
+    (id, 标题, 类别)；is_protected：这个文件的正文最后是不是作者写的。
+    """
+    clauses = _context_clauses(context)
+    if not clauses or any(_CONTEXT_MANY_FILES_RE.search(clause) for clause in clauses):
+        return None
+    protected: list[str] = []
+    for file_id, title, file_type in candidates:
+        if not any(_context_names_file(clause, title=title, file_type=file_type) for clause in clauses):
+            continue
+        if is_protected(file_id):
+            protected.append(file_id)
+            if len(protected) > 1:
+                return None
+    return protected[0] if protected else None
+
+
 @dataclass(frozen=True)
 class AuthorScope:
     """作者这一轮说了什么、指向了哪些文件。"""
@@ -1095,6 +1220,8 @@ class AuthorScope:
     focus_file_id: str | None = None
     # 上一轮 AI 收尾时给作者的提议（previous_offer_from_history）。
     previous_offer: tuple[OfferItem, ...] = ()
+    # 上一轮在谈哪个文件的原文（previous_offer_context_from_history）：提议没点名文件时用。
+    previous_offer_context: tuple[str, ...] = ()
 
     @property
     def text(self) -> str:
@@ -1108,8 +1235,13 @@ def request_targets_file(
     title: str | None,
     file_type: str | None = None,
     edits: list[Any] | None = None,
+    offer_context_file: Callable[[], str | None] | None = None,
 ) -> bool:
-    """作者这一轮的话是否指向了这个文件（或这次修改本身就是作者要的改名 / 续写）。"""
+    """作者这一轮的话是否指向了这个文件（或这次修改本身就是作者要的改名 / 续写）。
+
+    offer_context_file：上一轮提议没点名文件时，上一轮在谈的那个被保护文件的 id
+    （resolve_offer_context_file，要查库，只在需要时调用）。
+    """
     if file_id in scope.referenced_file_ids:
         return True
 
@@ -1135,6 +1267,9 @@ def request_targets_file(
         title=title_text,
         file_type=file_type_text,
         sequence=sequence,
+        context_target=(
+            (lambda: offer_context_file() == file_id) if offer_context_file is not None else None
+        ),
     ):
         return True
 

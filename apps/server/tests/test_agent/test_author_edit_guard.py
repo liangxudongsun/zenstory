@@ -21,6 +21,7 @@ from agent.tools.author_edit_guard import (
     ends_with_conditional_offer,
     latest_text_is_authors,
     mentioned_sequences,
+    previous_offer_context_from_history,
     previous_offer_from_history,
     previous_offer_items,
     referenced_file_ids_from_metadata,
@@ -28,6 +29,7 @@ from agent.tools.author_edit_guard import (
     request_deletes_file,
     request_deletes_folder,
     request_targets_file,
+    resolve_offer_context_file,
 )
 from agent.tools.file_ops import FileCRUD
 from api import files as files_api
@@ -828,6 +830,192 @@ class TestReplyToThePreviousOffer:
         assert ends_with_conditional_offer(_OFFER_ONE_LINE) is True
         assert ends_with_conditional_offer("要改的话你说一声，我就动。") is True
         assert ends_with_conditional_offer("第4章写好了。") is False
+
+
+# ------------------------------- 提议没点名文件：看上一轮在谈的是哪个文件（live run 2 场景 C）
+#
+# 作者问「第一章开头节奏有点慢，有什么建议？先说建议，别直接改」，AI 给了几条建议，选项是
+# 「1. 按上面几条整体调开头，我出改稿给你看」，没点名文件。改动前作者回「1」被拒，回「好的」
+# 只因第 2 项碰巧引用了标题词才放行。以下文本按线上的形状另写。
+
+_ASK_CH2 = "第二章中段有点拖，你有什么具体建议？先说建议，别直接动手。"
+_SUGGEST_UNNAMED = (
+    "拖的地方在渡口那三段：等船、回忆、再等船，读者手里没有要追的问题。\n\n"
+    "1. 把等船压成一段，只留雾和铃声\n"
+    "2. 回忆挪到上船以后\n\n"
+    "另外雾是傍晚起的，后文又写成清早。要不要统一，你说一声。\n\n"
+    "你想怎么走：\n"
+    "1. 按上面几条整体调中段，我出改稿给你看\n"
+    "2. 只做第一条（压缩等船），回忆先不动\n"
+    "3. 先告诉我一件事：船夫和第一章的老人是同一个人吗？定了我再给方案"
+)
+# 收尾是「三个可选的地方」，每一项都没点名文件；文件只在开头点到。
+_LEFTOVERS_UNNAMED = (
+    "《第二章 夜渡》中段按那几条调过了，等船压成了一段。\n\n"
+    "三个可选的地方，你定了我再动：\n"
+    "1. 雾起的时辰前后还不一样，要不要统一成一种说法\n"
+    "2. 结尾两句都用了「铃声」，可以把后一句改成「水声」\n"
+    "3. 段首缩进有的有、有的没有，要不要统一一遍"
+)
+_CH2_NIGHT = {"file_id": "n2", "title": "第二章 夜渡", "file_type": "draft"}
+_CH3_NIGHT = {"file_id": "n3", "title": "第三章 上岸", "file_type": "draft"}
+
+
+def _unnamed_offer_scope(reply: str, history: list[dict]) -> AuthorScope:
+    return AuthorScope(
+        messages=(reply,),
+        previous_offer=previous_offer_from_history(history),
+        previous_offer_context=previous_offer_context_from_history(history),
+    )
+
+
+def _context_target(history: list[dict], files: list[dict], protected: set[str]) -> str | None:
+    return resolve_offer_context_file(
+        previous_offer_context_from_history(history),
+        [(item["file_id"], item["title"], item["file_type"]) for item in files],
+        lambda file_id: file_id in protected,
+    )
+
+
+class TestUnnamedOfferResolvesFromContext:
+    _HISTORY = [
+        {"role": "user", "content": _ASK_CH2},
+        {"role": "assistant", "content": _SUGGEST_UNNAMED},
+    ]
+
+    @pytest.mark.parametrize(
+        ("reply", "unlocked"),
+        [
+            ("好的，按你说的改", True),
+            ("好的", True),
+            ("1", True),
+            ("选1", True),
+            ("第一个", True),
+            ("A", True),
+            ("2", True),
+            # 第 3 项只是问问题，不是改。
+            ("3", False),
+            ("先不改", False),
+        ],
+    )
+    def test_assent_or_pick_maps_to_the_file_the_previous_turn_discussed(self, reply, unlocked):
+        target = _context_target(self._HISTORY, [_CH2_NIGHT, _CH3_NIGHT], {"n2", "n3"})
+        assert target == "n2"
+        scope = _unnamed_offer_scope(reply, self._HISTORY)
+        assert request_targets_file(scope, **_CH2_NIGHT, offer_context_file=lambda: target) is unlocked
+        # 别的文件不跟着放开。
+        assert request_targets_file(scope, **_CH3_NIGHT, offer_context_file=lambda: target) is False
+
+    def test_without_the_context_an_unnamed_offer_does_not_unlock(self):
+        scope = _unnamed_offer_scope("1", self._HISTORY)
+        assert request_targets_file(scope, **_CH2_NIGHT) is False
+
+    def test_leftover_options_resolve_from_the_file_named_earlier_in_the_reply(self):
+        history = [
+            {"role": "user", "content": "好的，按你说的改"},
+            {"role": "assistant", "content": _LEFTOVERS_UNNAMED},
+        ]
+        target = _context_target(history, [_CH2_NIGHT, _CH3_NIGHT], {"n2"})
+        assert target == "n2"
+        for reply in ("好", "3", "第三个"):
+            scope = _unnamed_offer_scope(reply, history)
+            assert request_targets_file(scope, **_CH2_NIGHT, offer_context_file=lambda: target) is True
+
+    def test_no_previous_offer_means_no_unlock(self):
+        history = [
+            {"role": "user", "content": _ASK_CH2},
+            {"role": "assistant", "content": "第二章中段拖在渡口那三段，等船和回忆叠在一起了。"},
+        ]
+        target = _context_target(history, [_CH2_NIGHT], {"n2"})
+        for reply in ("好的，按你说的改", "1"):
+            scope = _unnamed_offer_scope(reply, history)
+            assert request_targets_file(scope, **_CH2_NIGHT, offer_context_file=lambda: target) is False
+
+    def test_an_offer_naming_another_file_does_not_unlock_this_one(self):
+        history = [
+            {"role": "user", "content": _ASK_CH2},
+            {"role": "assistant", "content": "第二章中段拖。\n\n1. 把第三章开头压一压，第二章先不动\n2. 继续写第四章"},
+        ]
+        target = _context_target(history, [_CH2_NIGHT, _CH3_NIGHT], {"n2"})
+        for reply in ("1", "好"):
+            scope = _unnamed_offer_scope(reply, history)
+            assert request_targets_file(scope, **_CH2_NIGHT, offer_context_file=lambda: target) is False
+
+    def test_two_protected_files_in_the_context_are_ambiguous(self):
+        history = [
+            {"role": "user", "content": "第二章和第三章都有点拖，有什么建议？"},
+            {"role": "assistant", "content": _SUGGEST_UNNAMED},
+        ]
+        assert _context_target(history, [_CH2_NIGHT, _CH3_NIGHT], {"n2", "n3"}) is None
+        # 只有一个是作者手改过的：改的就是它（另一个本来就能改）。
+        assert _context_target(history, [_CH2_NIGHT, _CH3_NIGHT], {"n2"}) == "n2"
+        # 「其他章」也不猜。
+        others = [{"role": "user", "content": _ASK_CH2}, {"role": "assistant", "content": "其他章也有同样的问题。要不要统一一下？"}]
+        assert _context_target(others, [_CH2_NIGHT], {"n2"}) is None
+
+    def test_a_file_the_ai_said_it_left_alone_is_not_the_one_being_discussed(self):
+        # 守卫拒绝后 AI 用的固定说法：作者手改过的第3章只是被交代「没动」，问的是统一称呼。
+        history = [
+            {"role": "user", "content": "继续写"},
+            {"role": "assistant", "content": "第3章是你手动改过的，我没动它：那里摊主叫老秦，第2章写的是老周。要不要统一一下称呼？"},
+        ]
+        assert _context_target(history, [_CH3, _CH2_NUM], {"ch3"}) is None
+        # 作者拿它当标准的那一章也不算在谈要改它。
+        standard = [
+            {"role": "user", "content": "以第3章为准，看看人名哪里对不上"},
+            {"role": "assistant", "content": "有两处称呼对不上。要不要统一一下？"},
+        ]
+        assert _context_target(standard, [_CH3], {"ch3"}) is None
+
+    def test_context_skips_streamed_file_bodies_and_synthesized_sections(self):
+        history = [
+            {"role": "user", "content": "写第三章"},
+            {"role": "assistant", "content": (
+                "<file>第二章里那场雾……</file>\n第三章写好了。要不要把开头再压一压？"
+                "\n\n[此前的工具操作]\n- 编辑《第二章 夜渡》"
+            )},
+        ]
+        context = previous_offer_context_from_history(history)
+        assert all("第二章" not in text for text in context)
+        assert _context_target(history, [_CH2_NIGHT, _CH3_NIGHT], {"n2", "n3"}) == "n3"
+
+
+async def test_option_number_for_an_unnamed_offer_edits_the_discussed_file(db_session, owner_project):
+    """上一轮选项没点名文件、作者回「1」：改的是上一轮在谈的那个作者手改过的章节。"""
+    user, project = owner_project
+    chapter = _ai_chapter(db_session, project, title="第二章 夜渡", content="雾是傍晚起的。")
+    _author_saves(db_session, user, chapter, "雾是傍晚起的。他等船。")
+    other = _ai_chapter(db_session, project, title="第三章 上岸", content="上岸了。")
+    history = [
+        {"role": "user", "content": _ASK_CH2},
+        {"role": "assistant", "content": _SUGGEST_UNNAMED},
+    ]
+    context = {
+        "author_previous_offer": previous_offer_from_history(history),
+        "author_previous_offer_context": previous_offer_context_from_history(history),
+    }
+    edit = {"id": chapter.id, "edits": [{"op": "replace", "old": "他等船。", "new": "雾里有铃声。"}]}
+
+    payload = await _run(mcp_tools.edit_file, db_session, user, project, edit, message="1", **context)
+    assert payload["status"] == "success"
+
+    # 第三章也被作者手改过：上一轮在谈的是哪一章说不清（作者问的是第二章，AI 回复又点了
+    # 第三章），不猜，照旧拒。
+    db_session.expire_all()
+    _author_saves(db_session, user, db_session.get(File, chapter.id), "雾里有铃声。他还在等。")
+    _author_saves(db_session, user, db_session.get(File, other.id), "上岸了，天还没亮。")
+    ambiguous = [
+        {"role": "user", "content": _ASK_CH2},
+        {"role": "assistant", "content": _SUGGEST_UNNAMED.replace("拖的地方", "第三章开头也拖，拖的地方")},
+    ]
+    refused = await _run(
+        mcp_tools.edit_file, db_session, user, project,
+        {"id": chapter.id, "edits": [{"op": "replace", "old": "他还在等。", "new": "他不等了。"}]},
+        message="1",
+        author_previous_offer=previous_offer_from_history(ambiguous),
+        author_previous_offer_context=previous_offer_context_from_history(ambiguous),
+    )
+    assert refused["error_type"] == AUTHOR_EDIT_PROTECTED_ERROR
 
 
 async def test_agreeing_to_the_ais_own_proposal_edits_the_author_edited_file(db_session, owner_project):
