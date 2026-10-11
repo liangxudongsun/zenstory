@@ -10,6 +10,7 @@ import pytest
 
 from agent.core.workflow_events import StreamEvent, StreamEventType
 from agent.tools.mcp_tools import ToolContext
+from tests.test_agent.body_write_events import create_file_events
 
 
 @pytest.mark.unit
@@ -666,7 +667,9 @@ class TestWritingGraphAutoReviewGate:
         async def fake_run_streaming_agent(state, agent_type, **_kwargs):
             if agent_type == "writer":
                 # Simulate writer producing a deliverable draft via <file> streaming protocol.
-                yield StreamEvent(type=StreamEventType.TEXT, data={"text": f"<file>{'a' * 200}</file>"})
+                for event in create_file_events():
+                    yield event
+                yield StreamEvent(type=StreamEventType.TEXT, data={"text": f"<file>{'正' * 200}</file>"})
                 return
             if agent_type == "quality_reviewer":
                 captured_review_task["user_message"] = str(state.get("user_message") or "")
@@ -700,7 +703,7 @@ class TestWritingGraphAutoReviewGate:
 
         review_user_message = captured_review_task.get("user_message", "")
         assert "[待审查内容]" in review_user_message
-        assert "a" * 50 in review_user_message
+        assert "正" * 50 in review_user_message
         assert any(event.type == StreamEventType.WORKFLOW_COMPLETE for event in events)
 
     @pytest.mark.asyncio
@@ -1603,6 +1606,8 @@ class TestWritingGraphUserScope:
         async def fake_agent(_state, agent_type, **_kwargs):
             calls.append(agent_type)
             if agent_type == "writer":
+                for event in create_file_events(title="第1章"):
+                    yield event
                 yield StreamEvent(
                     type=StreamEventType.TEXT,
                     data={"text": f"<file>{'正' * 200}</file>\n\n第1章写好了，需要我继续写第2章吗？"},
@@ -1630,6 +1635,8 @@ class TestWritingGraphUserScope:
         async def fake_agent(_state, agent_type, **_kwargs):
             calls.append(agent_type)
             if agent_type == "writer":
+                for event in create_file_events(title="第1章"):
+                    yield event
                 yield StreamEvent(
                     type=StreamEventType.TEXT,
                     data={"text": f"<file>{'正' * 200}</file>\n\n第1章已完成。"},

@@ -12,6 +12,7 @@ import pytest
 
 from agent.core.workflow_events import StreamEvent, StreamEventType
 from agent.tools.mcp_tools import ToolContext
+from tests.test_agent.body_write_events import edit_file_events
 
 LONG_TEXT = "第五章的正文。" * 200
 
@@ -129,8 +130,8 @@ class TestRound3EmptyFileCorrectionKeepsHandoff:
     async def test_correction_round_does_not_squeeze_out_auto_review(self):
         """即使没有显式 handoff，纠偏轮也不能把本轮的自动质检挤掉。
 
-        质检门按"本轮字数 + 是否动过写工具"判定，而纠偏轮本身只补一小段，
-        必须把被打断那一轮的产出接续过来。
+        质检门按本轮写进正文类文件的字数判定：正文是纠偏轮用 edit_file 补进去的，
+        纠偏轮结束后照样送审。
         """
         calls: list[str] = []
 
@@ -142,6 +143,8 @@ class TestRound3EmptyFileCorrectionKeepsHandoff:
                 yield _text(LONG_TEXT)
             elif agent_type == "writer":
                 ToolContext.clear_pending_empty_file()
+                for event in edit_file_events("fix-1", LONG_TEXT, file_id="file-X"):
+                    yield event
                 yield _text("已补齐正文。")
             else:
                 yield _text("审查完毕。[TASK_COMPLETE]")
@@ -436,7 +439,12 @@ def _tool_result(call_id: str, payload: dict) -> StreamEvent:
 def _edit_file_done(call_id: str) -> StreamEvent:
     return StreamEvent(
         type=StreamEventType.TOOL_USE,
-        data={"id": call_id, "name": "edit_file", "status": "complete"},
+        data={
+            "id": call_id,
+            "name": "edit_file",
+            "status": "complete",
+            "input": {"id": "file-X", "edits": [{"op": "append", "text": LONG_TEXT}]},
+        },
     )
 
 
@@ -496,7 +504,7 @@ class TestRequestScopedFailureBreakerAndWriteSignals:
                 yield _edit_file_done("e0")
                 yield _tool_result("e0", {"status": "error", "error": "找不到片段"})
                 yield _edit_file_done("e1")
-                yield _tool_result("e1", {"status": "success", "data": {"id": "file-X"}})
+                yield _tool_result("e1", {"status": "success", "data": {"id": "file-X", "file_type": "draft"}})
             yield _text(LONG_TEXT)
 
         await _run_graph(fake_agent, auto_review_threshold=100)
@@ -552,6 +560,8 @@ class TestCorrectionRoundKeepsUserScope:
                 yield _text(LONG_TEXT + "\n\n结尾要走悲剧还是圆满？")
             elif agent_type == "writer":
                 ToolContext.clear_pending_empty_file()
+                for event in edit_file_events("fix-1", LONG_TEXT, file_id="file-X"):
+                    yield event
                 yield _text("已补写第五章。")
             else:
                 yield _text("审查完毕。[TASK_COMPLETE]")

@@ -381,10 +381,56 @@ def find_numeric_fact_pairs(
     return pairs[:MAX_FACT_PAIRS]
 
 
+# ----------------------------------------------------------------- 篇幅要求
+
+# 作者说过的篇幅要求（「单章约2000字」「每集500-900字」「每章字数要求1000字以上」）。
+# 审稿人原来只认作者本轮原话里的篇幅（subagents.py「没达到用户原话里明确的篇幅」），
+# 早先说过的、写进项目设定的要求它看不到（I05：U075 1369 字对 2000 字的要求被判通过，
+# U070「作者本轮没有指定篇幅，不按篇幅返工」）。这里只把原话摘出来交给审稿人，
+# 不换算成数字下结论：「8000字左右的短篇」说的是全篇还是单章，由审稿人看上下文判断。
+MAX_LENGTH_REQUIREMENTS = 6
+_LENGTH_CLAUSE_MAX_CHARS = 60
+_LENGTH_CLAUSE_SPLIT_RE = re.compile(r"[。！？!?；;\n]+")
+_LENGTH_NUMBER_RE = re.compile(
+    r"(?:\d[\d,，]*(?:\.\d+)?|[一二两三四五六七八九十百千万]+)\s*(?:多|余)?\s*(?:[kK千万])?\s*字"
+)
+_LENGTH_CUE_RE = re.compile(
+    r"每[一]?[章集节篇幕]|单[章集篇]|一[章集]|章节|全[文章篇]|本[章集]|这[一]?[章集]|篇幅|字数"
+    r"|左右|上下|以上|以内|以下|不少于|不低于|不超过|至少|起码|控制在|保持在|扩[写充]?到|写到|写满|写够"
+)
+
+
+def find_length_requirements(sources: list[tuple[str, str]]) -> list[str]:
+    """从作者的话和项目设定里摘出篇幅要求，返回「「原话」（来源）」列表，按出现顺序、去重。
+
+    sources 是 (来源说明, 文本)，按时间先后排列。只认同时带「数字 + 字」和篇幅用语的短分句；
+    长句（多半是贴进来的正文）不看。最多保留最后 MAX_LENGTH_REQUIREMENTS 条。
+    """
+    found: list[str] = []
+    seen: set[str] = set()
+    for label, text in sources:
+        if not isinstance(text, str) or not text.strip():
+            continue
+        for clause in _LENGTH_CLAUSE_SPLIT_RE.split(text):
+            clause = clause.strip(" \t，,、：:")
+            if not clause or len(clause) > _LENGTH_CLAUSE_MAX_CHARS:
+                continue
+            if not _LENGTH_NUMBER_RE.search(clause) or not _LENGTH_CUE_RE.search(clause):
+                continue
+            key = re.sub(r"\s+", "", clause)
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append(f"「{clause}」（{label}）" if label else f"「{clause}」")
+    return found[-MAX_LENGTH_REQUIREMENTS:]
+
+
 __all__ = [
     "MAX_FACT_PAIRS",
+    "MAX_LENGTH_REQUIREMENTS",
     "MAX_REPETITION_EVIDENCE",
     "REPEAT_WINDOW",
+    "find_length_requirements",
     "find_numeric_fact_pairs",
     "find_repetition_evidence",
 ]

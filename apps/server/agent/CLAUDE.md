@@ -126,7 +126,9 @@ Agent 可以通过两种方式交接：
 
 1. **显式 handoff**: Agent 调用 `handoff_to_agent` 工具
 2. **工作流自动交接**: 按照 router 规划的 workflow_agents 顺序执行
-3. **自动质检门**: writer 写出超过阈值的正文后自动交给 quality_reviewer
+3. **自动质检门**: writer 本轮写进正文类文件（draft / script）的字数达到阈值后自动交给 quality_reviewer
+   （`graph/body_writes.py`：create_file 之后的 `<file>` 正文、edit_file / parallel 子任务写进去的文字，
+   按 `count_words` 计；改大纲、设定、角色等不算，writer 的聊天文字也不算）
 
 用户范围优先于交接（writing_graph.py）：
 
@@ -155,8 +157,19 @@ Agent 可以通过两种方式交接：
   （单个文件或递归删文件夹里的）要作者在点名的那一处说删。
   规则见 `tools/author_edit_guard.py`；工作集也会标注这类文件。前端工具卡片把
   `author_edit_protected` / `clarify_first` 显示成「保留了你改过的内容」/「先问清楚再改」，不显示「失败」。
-- 每个 agent run 的 TEXT 经 `core/author_facing_text.AgentTextShaper` 整理：和前一个角色的文字之间
-  补空行；作者写中文时，紧接着工具调用的英文过程句（「Now create the … file.」）不发给作者。
+- 每个 agent run 的 TEXT 经 `core/author_facing_text.AgentTextShaper` 整理：和前一个角色的文字之间、
+  同一个 agent 隔着工具调用的两段文字之间补空行；作者写中文时，紧接着工具调用的英文过程句
+  （「Now create the … file.」）不发给作者。
+- 作者只看到一份总结：writer（非快速模式、非返修、未到审查上限）写完正文类文件后，图发
+  `StreamEventType.CHAT_HOLD(begin)`，StreamAdapter 把之后的对话文字（正文不扣）先扣住；本轮真的
+  交给 quality_reviewer 时图在 HANDOFF 前发 `CHAT_HOLD(discard)` 丢掉它，由审稿人（或返修后的
+  writer）写唯一一份总结；不送审时扣着的文字在下一个 agent / 交接 / 收尾 / 出错事件前、或流结束时
+  原样放出。CHAT_HOLD 只在图和适配器之间，不发给前端。
+- 送审交接附 `[本轮正文字数（编辑器口径）]`（本请求写过的 draft / script 落库后的 `count_words`，
+  也写进交接包 evidence）和 `[作者的篇幅要求]`（项目简介 / 写作风格 / 备注、本会话作者说过的话、
+  本轮原话里带「数字 + 字」的篇幅分句，`review_evidence.find_length_requirements`），审稿人按它们判篇幅。
+- StreamProcessor 在 IDLE（没有进行中的捕获）时丢掉独占一行的 `<file>` / `</file>`（不在 ``` 围栏里），
+  行内提到、反引号包着的照常保留。
 - 只读请求（router `read_only=true`）不交接给有写权限的 agent，显式 handoff 也拦下，并给一张
   `WORKFLOW_STOPPED(reason="read_only_handoff_blocked")` 提示卡片；交接给 quality_reviewer 这类
   只读 agent 照常。前端收到任何 workflow_stopped 都会结束流式状态，所以拦下时只记录、不 break，
@@ -177,7 +190,7 @@ Agent 可以通过两种方式交接：
   agent 的系统提示末尾；计划交接的 handoff_packet.todo 也带上用户的 `scope`。
 - 空文件纠偏轮由建了空文件的 agent 自己补写（不再硬编码 writer）；被纠偏打断的那一轮若以提问
   收尾，「等用户回答」会带过纠偏轮，纠偏完成后照样停下。
-- 自动质检门只认「至少一次写工具成功」：writer 的 create_file/edit_file 全部失败时不送审。
+- 自动质检门只认成功的写入：writer 的 create_file/edit_file 全部失败时不送审。
 
 ## 关键组件详解
 
