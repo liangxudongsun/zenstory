@@ -192,7 +192,11 @@ Agent 可以通过两种方式交接：
   记账（同名连续 3 次的熔断原因为 `repeated_unavailable_tool_call`），而不是 SDK 抛
   `ModelBehaviorError` 以致命 ERROR 结束。
 - 路由的范围判断转成 `state["scope_directive"]`，由 `nodes.run_streaming_agent` 追加到本轮每个
-  agent 的系统提示末尾；计划交接的 handoff_packet.todo 也带上用户的 `scope`。
+  agent 的系统提示末尾；graph 在每次跑 agent 前按当前 agent 重新生成，「作者已要正文、规划完直接
+  交接 writer」那句只给规划类角色（planner / hook_designer）。计划交接的 handoff_packet.todo 也带上用户的 `scope`。
+- 送审内容（`[待审查内容]`）取本请求写过的正文落库后的样子，每个文件带系统按编辑器口径算的字数；
+  本请求之前就有正文、整份放不进送审预算的长文件只附本请求改动的那一段（写入前正文由
+  `ToolContext.remember_pre_write_content` 在 AI 第一次写入前记下）。
 - 空文件纠偏轮由建了空文件的 agent 自己补写（不再硬编码 writer）；被纠偏打断的那一轮若以提问
   收尾，「等用户回答」会带过纠偏轮，纠偏完成后照样停下。
 - 自动质检门只认成功的写入：writer 的 create_file/edit_file 全部失败时不送审。

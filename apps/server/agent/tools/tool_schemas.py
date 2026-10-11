@@ -208,7 +208,8 @@ QUERY_FILES_TOOL: dict[str, Any] = {
                 "type": "string",
                 "description": (
                     "返回模式：full（返回完整 content）或 summary（只返回 content_preview，"
-                    "并给出 content_length 与 content_truncated，content_truncated=true 表示只是预览）。"
+                    "并给出 content_length 与 content_truncated，content_truncated=true 表示只是预览，"
+                    "这时不带 word_count——要长文件的字数按 id 读 full）。"
                     "不传时：按 id 读取默认 full，其余默认 summary"
                 ),
                 "enum": ["summary", "full"]
