@@ -209,12 +209,62 @@ def text_contains_cjk(text: object) -> bool:
     return isinstance(text, str) and bool(_CJK_CHAR_RE.search(text))
 
 
+_PARAGRAPH_SPLIT_RE = re.compile(r"\n\s*\n")
+_SIMPLE_LIST_ITEM_RE = re.compile(r"^\s*(?:[-*•·]\s+|[(（]?\d{1,2}[.、)）]\s*|[(（]?[A-Ha-h][.、)）]\s*)\S")
+_SENTENCE_RE = re.compile(r"[^。！!？?；;]+[。！!？?；;]*")
+_QUESTION_END_RE = re.compile(r"[？?][\s*_~`」”』\"']*$")
+_TASK_COMPLETE_MARKER_RE = re.compile(r"\[TASK_COMPLETE\]", re.IGNORECASE)
+
+
+def _trailing_question_sentences(line: str) -> str:
+    """一行里末尾连续的问句（「第一章写好了。要走悲剧还是圆满？」只取后一句）。"""
+    sentences = [s for s in _SENTENCE_RE.findall(line.strip()) if s.strip()]
+    kept: list[str] = []
+    for sentence in reversed(sentences):
+        if not _QUESTION_END_RE.search(sentence.strip()):
+            break
+        kept.insert(0, sentence)
+    return "".join(kept).strip() or line.strip()
+
+
+def trailing_question_text(tail_text: object) -> str:
+    """agent 收尾时问作者的那几句（调用方已判定以提问收尾，见 ``ends_with_question_to_user``）。
+
+    取最后一个 ``</file>`` 之后、最后一段里的问句；最后一段是选项列表时连同引出它的问句一起。
+    同一行里问句前面的陈述（常是估算的字数）不要。
+    """
+    text = tail_text if isinstance(tail_text, str) else ""
+    lowered = text.lower()
+    if "</file>" in lowered:
+        text = text[lowered.rfind("</file>") + len("</file>") :]
+    text = _TASK_COMPLETE_MARKER_RE.sub("", text)
+    paragraphs = [p.strip() for p in _PARAGRAPH_SPLIT_RE.split(text) if p.strip()]
+    if not paragraphs:
+        return ""
+    lines = [line for line in paragraphs[-1].splitlines() if line.strip()]
+    lead_index = len(lines) - 1
+    while lead_index >= 0 and _SIMPLE_LIST_ITEM_RE.match(lines[lead_index]):
+        lead_index -= 1
+    items = lines[lead_index + 1 :]
+    if lead_index >= 0:
+        lead = _trailing_question_sentences(lines[lead_index])
+    elif len(paragraphs) > 1:
+        previous_lines = [line for line in paragraphs[-2].splitlines() if line.strip()]
+        lead = _trailing_question_sentences(previous_lines[-1]) if previous_lines else ""
+    else:
+        lead = ""
+    return "\n".join(part.strip() for part in [lead, *items] if part.strip())
+
+
 class AgentTextShaper:
     """一个 agent run 的 TEXT 流在发给作者之前的整理。
 
     - 和前一个角色的文字隔开：之前的文字没有以空行结束时，本 agent 的第一段文字前补空行
       （审计 P3-16：规划师的「…外形标签定死」和内容创作者的「我先确认三个剧本文件的当前
       内容。」粘成了一句）。
+    - 同一个 agent 隔着工具调用的两段文字也隔开（I03：U094 一连五句「正在…」在保存的回复里
+      首尾相连）。直播时工具卡片把它们分开，但存进历史、复制出去的是拼起来的一整段。以 ``<``
+      开头的一段（``<file>`` 正文）不补。
     - drop_english_narration（作者写中文时开启）：每段文字先攒着，看出是中文就立刻发；
       以英文为主、并且紧接着就调用工具的一小段（过程说明）丢掉；超过
       NARRATION_BUFFER_MAX_CHARS、或出现 ``<``（``<file>`` 正文）时照常发出。
@@ -226,16 +276,28 @@ class AgentTextShaper:
         self._started = False
         self._buffer = ""
         self._passthrough = not drop_english_narration
+        # 已发出文字的结尾（判断要不要补空行）与「上一段之后调用过工具」。
+        self._tail = self._previous_text[-2:]
+        self._after_tool_call = False
+
+    @staticmethod
+    def _separated(previous_tail: str, text: str) -> str:
+        if previous_tail.strip() and not previous_tail.endswith("\n\n") and not text.startswith("\n\n"):
+            separator = "\n" if previous_tail.endswith("\n") or text.startswith("\n") else "\n\n"
+            return separator + text
+        return text
 
     def _emit(self, text: str) -> str:
         if not text:
             return ""
         if not self._started:
             self._started = True
-            previous = self._previous_text
-            if previous.strip() and not previous.endswith("\n\n") and not text.startswith("\n\n"):
-                separator = "\n" if previous.endswith("\n") or text.startswith("\n") else "\n\n"
-                text = separator + text
+            if self._previous_text.strip():
+                text = self._separated(self._tail, text)
+        elif self._after_tool_call and not text.lstrip().startswith("<"):
+            text = self._separated(self._tail, text)
+        self._after_tool_call = False
+        self._tail = (self._tail + text)[-2:]
         return text
 
     def feed(self, text: str) -> str:
@@ -268,8 +330,10 @@ class AgentTextShaper:
         """
         buffered, self._buffer = self._buffer, ""
         self._passthrough = not self._drop_english_narration
-        if not buffered:
-            return ""
-        if before_tool_call and is_english_process_narration(buffered):
-            return ""
-        return self._emit(buffered)
+        if not buffered or (before_tool_call and is_english_process_narration(buffered)):
+            emitted = ""
+        else:
+            emitted = self._emit(buffered)
+        if before_tool_call:
+            self._after_tool_call = True
+        return emitted

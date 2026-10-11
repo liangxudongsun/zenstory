@@ -126,7 +126,9 @@ Agent 可以通过两种方式交接：
 
 1. **显式 handoff**: Agent 调用 `handoff_to_agent` 工具
 2. **工作流自动交接**: 按照 router 规划的 workflow_agents 顺序执行
-3. **自动质检门**: writer 写出超过阈值的正文后自动交给 quality_reviewer
+3. **自动质检门**: writer 本轮写进正文类文件（draft / script）的字数达到阈值后自动交给 quality_reviewer
+   （`graph/body_writes.py`：create_file 之后的 `<file>` 正文、edit_file / parallel 子任务写进去的文字，
+   按 `count_words` 计；改大纲、设定、角色等不算，writer 的聊天文字也不算）
 
 用户范围优先于交接（writing_graph.py）：
 
@@ -155,8 +157,24 @@ Agent 可以通过两种方式交接：
   （单个文件或递归删文件夹里的）要作者在点名的那一处说删。
   规则见 `tools/author_edit_guard.py`；工作集也会标注这类文件。前端工具卡片把
   `author_edit_protected` / `clarify_first` 显示成「保留了你改过的内容」/「先问清楚再改」，不显示「失败」。
-- 每个 agent run 的 TEXT 经 `core/author_facing_text.AgentTextShaper` 整理：和前一个角色的文字之间
-  补空行；作者写中文时，紧接着工具调用的英文过程句（「Now create the … file.」）不发给作者。
+- 每个 agent run 的 TEXT 经 `core/author_facing_text.AgentTextShaper` 整理：和前一个角色的文字之间、
+  同一个 agent 隔着工具调用的两段文字之间补空行；作者写中文时，紧接着工具调用的英文过程句
+  （「Now create the … file.」）不发给作者。
+- 作者只看到一份总结：writer（非快速模式、非返修、未到审查上限，且开着自动质检门或计划里下一个
+  是 quality_reviewer）写完正文类文件、可能送审时（create_file 正文还没写出来；edit_file /
+  write_chapter 累计字数到了送审阈值；或计划送审），图发 `StreamEventType.CHAT_HOLD(begin)`，
+  StreamAdapter 把之后的对话文字（正文不扣）先扣住；本轮真的交给 quality_reviewer 时图在 HANDOFF
+  前发 `CHAT_HOLD(discard)` 丢掉它，由审稿人（或返修后的 writer）写唯一一份总结，writer 收尾时问
+  作者的问题以 `[内容创作者要问作者的问题]` 原样交给它们；不送审时扣着的文字在下一个 agent / 交接 /
+  收尾 / 出错事件前、或流结束时原样放出（run 中途的 STEERING_RECEIVED 不放出、不结束扣留）。
+  CHAT_HOLD 只在图和适配器之间，不发给前端。
+- 送审交接附 `[本轮正文字数（编辑器口径）]`（本请求写过的 draft / script 落库后的 `count_words`，
+  也写进交接包 evidence）和 `[作者的篇幅要求]`（项目简介 / 写作风格 / 备注、本会话作者说过的话、
+  本轮原话里带「数字 + 字」的篇幅分句，`review_evidence.find_length_requirements`），审稿人按它们判篇幅。
+  两次读取在同一个工作线程里按顺序做，共用一份 0.5 秒预算（超时时用已读到的）；之后的逐字复读 /
+  数字事实检查另有自己的 0.5 秒。
+- StreamProcessor 在 IDLE（没有进行中的捕获）时丢掉独占一行的 `<file>` / `</file>`（不在 ``` 围栏里），
+  行内提到、反引号包着的照常保留。
 - 只读请求（router `read_only=true`）不交接给有写权限的 agent，显式 handoff 也拦下，并给一张
   `WORKFLOW_STOPPED(reason="read_only_handoff_blocked")` 提示卡片；交接给 quality_reviewer 这类
   只读 agent 照常。前端收到任何 workflow_stopped 都会结束流式状态，所以拦下时只记录、不 break，
@@ -177,13 +195,14 @@ Agent 可以通过两种方式交接：
   agent 的系统提示末尾；计划交接的 handoff_packet.todo 也带上用户的 `scope`。
 - 空文件纠偏轮由建了空文件的 agent 自己补写（不再硬编码 writer）；被纠偏打断的那一轮若以提问
   收尾，「等用户回答」会带过纠偏轮，纠偏完成后照样停下。
-- 自动质检门只认「至少一次写工具成功」：writer 的 create_file/edit_file 全部失败时不送审。
+- 自动质检门只认成功的写入：writer 的 create_file/edit_file 全部失败时不送审。
 - 写完 `</file>` 就结束了 run（openai-agents 把不带工具调用的回复当作最终输出）：有写权限的
   agent 这次 run 里 create_file 成功、最后一次工具调用之后的文字以写完的 `<file>` 正文结束
   （`graph/completion_evidence.ends_on_file_block`），且没有显式交接、澄清、轮数耗尽、错误时，
   同一个 agent 接着跑一轮（交接说明以 `FILE_STREAM_CONTINUATION_MARKER` 开头，带已保存的文件、
   作者范围、任务板上没完成的任务）：还有没写的接着写，写完了给作者总结。放在计划交接 / 自动质检
-  之前，正文与写工具信号接续给续写轮；受 `max_iterations` 约束，每一轮都要真的新建并写完文件才会再续。
+  之前，正文与正文写入记录（`writer_body_writes`）接续给续写轮；受 `max_iterations` 约束，每一轮都要
+  真的新建并写完文件才会再续。
 - 回复说这一轮「已还原 / 已保存 / 改好了 / 已录入」（`completion_evidence.find_unbacked_change_claim`；
   「已 + 动词」只在分句开头、主语是我 / 这一轮或紧跟「了」时才算，现状描述、问句、「记住了」不算），
   本请求却没有任何写工具（create/edit/delete_file、parallel_execute、update_project）成功：有写权限的

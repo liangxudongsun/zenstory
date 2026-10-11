@@ -378,7 +378,9 @@ def test_non_empty_stray_block_after_close_is_kept():
         (["<", "br>换行"], "<br>换行"),
         (["<file/>"], "<file/>"),
         (["<", "-- 注意"], "<-- 注意"),
-        (["<file>", "\n后面是叙述"], "<file>\n后面是叙述"),
+        # 独占一行的 <file> 不在任何捕获里：协议噪声，整行丢掉（叙述保留）
+        (["<file>", "\n后面是叙述"], "后面是叙述"),
+        (["行内提到 <file>", "\n后面是叙述"], "行内提到 <file>\n后面是叙述"),
     ],
 )
 def test_other_text_after_close_is_kept_verbatim(chunks, expected):
@@ -388,11 +390,20 @@ def test_other_text_after_close_is_kept_verbatim(chunks, expected):
     assert not proc.is_active
 
 
-@pytest.mark.parametrize("partial", ["\n<fi", "<file>\n</fi", "\n<file>\n", "<file></"])
-def test_unfinished_pair_prefix_is_released_at_stream_end(partial):
+@pytest.mark.parametrize(
+    "partial, expected",
+    [
+        ("\n<fi", "\n<fi"),
+        ("<file></", "<file></"),
+        # 独占一行的 <file> 丢掉，没写完的「</fi」不是完整标签，照样交还
+        ("<file>\n</fi", "</fi"),
+        ("\n<file>\n", "\n"),
+    ],
+)
+def test_unfinished_pair_prefix_is_released_at_stream_end(partial, expected):
     results, proc = _drive(["<file>正文</file>", partial])
     chat, _ = _chat_through_eof(results, proc)
-    assert chat == partial
+    assert chat == expected
     assert not proc.is_active
 
 
@@ -406,9 +417,9 @@ def test_overlong_whitespace_padded_prefix_is_not_held():
 
 def test_unfinished_prefix_is_released_before_next_capture():
     # 适配器在 create_file 前会 finalize（_flush_active_capture），暂扣前缀必须交还
-    results, proc = _drive(["<file>A</file>", "<file>\n"])
+    results, proc = _drive(["<file>A</file>", "<fi"])
     chat, _ = _chat_through_eof(results, proc)
-    assert chat == "<file>\n"
+    assert chat == "<fi"
     proc.start_file_write("file-2")
     r = proc.process_content("<file>B</file>")
     assert r.file_complete and r.final_content == "B"
@@ -416,10 +427,10 @@ def test_unfinished_prefix_is_released_before_next_capture():
 
 def test_eof_confirmed_close_releases_held_prefix():
     # 围栏未闭合使 </file> 悬置，流结束复扫才确认为真实收尾；其后的前缀照样交还
-    results, proc = _drive(["<file>```\n正文\n", "</file>\n<file>"])
+    results, proc = _drive(["<file>```\n正文\n", "</file>\n<fi"])
     tail = proc.finalize_on_stream_end()
     assert tail.file_complete and tail.final_content == "```\n正文\n"
-    assert _all_conversation(results + [tail]) == "\n<file>"
+    assert _all_conversation(results + [tail]) == "\n<fi"
     assert not proc.is_active
 
 
