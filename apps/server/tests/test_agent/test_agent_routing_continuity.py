@@ -335,6 +335,49 @@ def test_planning_words_inside_a_clarification_answer_still_inherit():
     assert result["current_agent"] == "planner"
 
 
+# 上一轮是 writer 的任务，写完后自动审稿（或 writer 送审）交给了 quality_reviewer：
+# 审稿人在结尾提问，作者的回答要交回负责任务的 writer（审稿人没有写文件的工具）。
+_WRITER_TASK_REVIEWED = {
+    "initial_agent": "writer",
+    "workflow_type": "quick",
+    "read_only": False,
+    "write_content": True,
+    "scope": "第四节",
+    "last_agent": "quality_reviewer",
+}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("routing", "expected"),
+    [
+        # 落库没有 owner_agent 的旧数据：审稿人不是本轮任务的负责人，交回 initial_agent。
+        (_WRITER_TASK_REVIEWED, "writer"),
+        # 新数据：planner 交给 writer 写、writer 送审，负责任务的是 writer。
+        ({**_WRITER_TASK_REVIEWED, "initial_agent": "planner", "workflow_type": "standard",
+          "owner_agent": "writer"}, "writer"),
+        # 上一轮明确是审稿任务：照旧沿用审稿人。
+        ({"initial_agent": "quality_reviewer", "workflow_type": "review_only", "read_only": False,
+          "write_content": None, "scope": "", "last_agent": "quality_reviewer",
+          "owner_agent": "quality_reviewer"}, "quality_reviewer"),
+    ],
+)
+def test_reply_after_an_auto_review_question_goes_to_the_task_owner(routing, expected):
+    from agent.graph.router import build_router_user_message, inherit_routing_after_clarification
+
+    previous = {
+        "content": "第四节写好了。三条可选建议：要不要把那句交代写实一点？",
+        "routing": routing,
+    }
+    result = inherit_routing_after_clarification(_state("可以", previous))
+
+    assert result is not None
+    assert result["current_agent"] == expected
+    # LLM 路由看到的「上一轮的 agent」也是负责任务的那个。
+    summary = build_router_user_message(_state("按第三条改", previous))
+    assert f'"last_agent": "{expected}"' in summary
+
+
 @pytest.mark.unit
 def test_reply_without_persisted_routing_routes_normally():
     from agent.graph.router import inherit_routing_after_clarification
@@ -800,6 +843,7 @@ async def test_routing_round_trips_from_save_to_next_turn_resume(
         "write_content": False,
         "scope": "前60章",
         "last_agent": "quality_reviewer",
+        "owner_agent": "quality_reviewer",
     }
 
     history = SessionLoader(str(project.id), str(user.id)).load_chat_session(db_session).history_messages
@@ -812,6 +856,52 @@ async def test_routing_round_trips_from_save_to_next_turn_resume(
     assert resumed is not None
     assert resumed["current_agent"] == "quality_reviewer"
     assert resumed["routing_metadata"]["read_only"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("writing_prompt_configs")
+async def test_reviewer_reached_by_handoff_is_not_saved_as_the_task_owner(
+    routing_service, routing_service_project, db_session: Session
+):
+    """I16：writer 写完交给审稿人（自动质量门控 / 送审），审稿人在结尾提问；作者回答时
+    下一轮要回到 writer。落库的 last_agent 仍是最后说话的审稿人，owner_agent 是 writer。"""
+    from agent.core.session_loader import SessionLoader
+    from agent.graph.router import inherit_routing_after_clarification
+
+    project = routing_service_project["project"]
+    user = routing_service_project["user"]
+
+    async def workflow():
+        yield _router_decided("writer", "quick", write_content=True, scope="第四节")
+        yield StreamEvent(type=StreamEventType.AGENT_SELECTED, data={"agent_type": "writer"})
+        yield _text("第四节写好了，我再通读核对一遍。")
+        yield StreamEvent(type=StreamEventType.AGENT_SELECTED, data={"agent_type": "quality_reviewer"})
+        yield _text("没发现需要返工的地方。要不要把那句交代写实一点？")
+        yield StreamEvent(type=StreamEventType.MESSAGE_END, data={"stop_reason": "end_turn"})
+
+    with patch("agent.service.run_writing_workflow_streaming", return_value=workflow()):
+        async for _ in routing_service.process_stream(
+            project_id=str(project.id),
+            user_id=str(user.id),
+            message="写第四节",
+            session=db_session,
+        ):
+            pass
+
+    saved = _latest_assistant(db_session, str(project.id))
+    routing = json.loads(saved.message_metadata)["routing"]
+    assert routing["last_agent"] == "quality_reviewer"
+    assert routing["owner_agent"] == "writer"
+
+    history = SessionLoader(str(project.id), str(user.id)).load_chat_session(db_session).history_messages
+    state = {
+        "user_message": "可以",
+        "router_message": "可以",
+        "messages": history + [{"role": "user", "content": "可以"}],
+    }
+    inherited = inherit_routing_after_clarification(state)
+    assert inherited is not None
+    assert inherited["current_agent"] == "writer"
 
 
 @pytest.mark.asyncio
