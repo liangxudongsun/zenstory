@@ -437,7 +437,7 @@ async def test_get_skill_by_id_success(client: AsyncClient, db_session: Session)
     await create_test_user(db_session)
     headers = await get_auth_headers(client)
 
-    skill = create_test_skill(db_session, name="Test Skill", tags=["writing", "helper"])
+    skill = create_test_skill(db_session, name="Test Skill", tags=["writing", "helper"], source="community")
 
     response = await client.get(f"/api/v1/public-skills/{skill.id}", headers=headers)
 
@@ -447,9 +447,10 @@ async def test_get_skill_by_id_success(client: AsyncClient, db_session: Session)
     assert data["name"] == "Test Skill"
     assert data["description"] == "Description for Test Skill"
     assert data["instructions"] == "Instructions for Test Skill"
+    assert data["instructions_hidden"] is False
     assert data["category"] == "writing"
     assert data["tags"] == ["writing", "helper"]
-    assert data["source"] == "official"
+    assert data["source"] == "community"
     assert data["status"] == "approved"
     assert data["is_added"] is False
 
@@ -893,11 +894,11 @@ async def test_list_returns_instruction_preview_and_detail_returns_full_text(
 
     await create_test_user(db_session)
     headers = await get_auth_headers(client)
-    long_skill = create_test_skill(db_session, name="Long Skill")
+    long_skill = create_test_skill(db_session, name="Long Skill", source="community")
     long_skill.instructions = "长" * (LIST_INSTRUCTIONS_PREVIEW_CHARS + 100)
     db_session.add(long_skill)
     db_session.commit()
-    short_skill = create_test_skill(db_session, name="Short Skill")
+    short_skill = create_test_skill(db_session, name="Short Skill", source="community")
 
     listed = await client.get("/api/v1/public-skills", headers=headers)
     detail = await client.get(f"/api/v1/public-skills/{long_skill.id}", headers=headers)
@@ -909,3 +910,30 @@ async def test_list_returns_instruction_preview_and_detail_returns_full_text(
     assert by_id[short_skill.id]["instructions_truncated"] is False
     assert detail.json()["instructions"] == long_skill.instructions
     assert detail.json()["instructions_truncated"] is False
+
+
+@pytest.mark.integration
+async def test_official_skill_instructions_are_hidden_in_list_and_detail(
+    client: AsyncClient, db_session: Session
+):
+    """官方技能只回传名称、描述、分类、触发词；正文为空并标记 instructions_hidden。"""
+    await create_test_user(db_session)
+    headers = await get_auth_headers(client)
+    official = create_test_skill(db_session, name="Official Skill", source="official", tags=["悬念"])
+    community = create_test_skill(db_session, name="Community Skill", source="community")
+
+    listed = await client.get("/api/v1/public-skills", headers=headers)
+    detail = await client.get(f"/api/v1/public-skills/{official.id}", headers=headers)
+
+    by_id = {item["id"]: item for item in listed.json()["skills"]}
+    for item in (by_id[official.id], detail.json()):
+        assert item["instructions"] == ""
+        assert item["instructions_hidden"] is True
+        assert item["instructions_truncated"] is False
+        assert item["description"] == "Description for Official Skill"
+        assert item["category"] == "writing"
+        assert item["tags"] == ["悬念"]
+    assert "Instructions for Official Skill" not in listed.text + detail.text
+    # 社区技能（作者自己写、自己选择公开的）照常可见
+    assert by_id[community.id]["instructions"] == "Instructions for Community Skill"
+    assert by_id[community.id]["instructions_hidden"] is False
