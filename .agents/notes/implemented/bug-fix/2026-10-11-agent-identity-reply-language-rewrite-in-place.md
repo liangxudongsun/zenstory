@@ -2,6 +2,8 @@
 
 Status: implemented
 
+后续：官方技能正文改为不对用户公开，身份段落写明优先于数据库配置，见 [2026-10-11-official-skill-text-hidden-and-identity-rule](../feature/2026-10-11-official-skill-text-hidden-and-identity-rule.md)。
+
 关联：[2026-10-08-agent-review-gating-and-handoff-details](2026-10-08-agent-review-gating-and-handoff-details.md)（英文界面语言区段只约束聊天回复；本条推翻其中「作者写中文也用英文回」这一半，见下）、[2026-10-09-agent-text-no-english-narration-or-glue](2026-10-09-agent-text-no-english-narration-or-glue.md)（「每一句都用作者使用的语言写」）、[2026-10-09-ai-write-backs-up-unversioned-text](2026-10-09-ai-write-backs-up-unversioned-text.md)（AI 改写前备份原稿，原地改写依赖它）。
 
 ## Problem
