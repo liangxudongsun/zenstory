@@ -62,6 +62,14 @@ Status: implemented
 
 **6. 段落分隔（`AgentTextShaper`）**：同一个 agent 隔着工具调用的下一段文字前补空行（之前没以空行结束时），以 `<` 开头的一段（`<file>` 正文）不补。
 
+**7. live run 2 补充（本地真实模型复跑）**
+
+- 工作集标签的字数用 `count_words`（`session_loader._build_working_set_context`）：场景 C 的标签写的是「[全文，2467 字；…]」，2467 是 `len(content)`，编辑器字数是 2018，审稿人据此告诉作者「少了近 500 字」，实际只少 43 字。上下文里另外两处按字符算的数改成写「个字符」：截断标注「显示 x/y 个字符」（`assembler._completeness_tag`），和流式写入没收到 `</file>` 时的提醒。
+- `AUTHOR_REPLY_PROTOCOL` 的字数规则收成一句：只报这一轮工具结果给出的 `word_count` / `new_word_count` 或交接里系统标出的数，本次回复里刚用 `<file>` 写的文件不报。原句引了「编辑器字数」这个标签，场景 F 的规划师就照着写出「（编辑器字数 244）」，而那个文件刚在同一次回复里流式写完，实际是 291。审稿人提示词里「第一行说文件名、编辑器字数」也改成「字数」。
+- 审稿人写作者看到的总结时，只写在当前正文里核对过的改动，没做或只做了一部分的照实说，不照搬交接（场景 C 把只做了一半的五条建议说成「按那五条改完了」）。交接里的「[要告诉作者]」原样转告。writer 送审时把作者必须知道的话（整篇原地重写后旧稿在历史版本里能找回、要问作者的问题）写进 context 的「[要告诉作者]」（场景 J 的这句被审稿人漏掉了）。只改提示词：handoff 已有的 `completed` 不渲染给下一个 agent，`todo / evidence` 是「待办 / 依据」，`[内容创作者要问作者的问题]` 只在图判定 writer 以提问收尾时才从它的文字里取；`context` 原样交给审稿人，带一个固定段名就够，不加新字段。
+- `<file>` 独占一行，紧跟的那个换行（`\n` 或 `\r\n`）不算正文（`StreamProcessor._drop_marker_line_break`，换行落在下一个 chunk 也认）。场景 A 项目里每个流式写入的文件都以空行开头。只去这一个：多出来的空行、正文开头的缩进照留。
+- 自动推的进度剧本项目写「已写至第N集」，读进度也认「集」（`mcp_tools._suggest_auto_current_phase_from_drafts`）。短篇也按章写，不变。
+
 ## Alternatives considered
 
 - **只改提示词，让 writer 写完正文先不写总结。** 最强理由：从源头少写一份，不用扣文字。没选：writer 写正文时不知道后面会不会送审（门在它跑完后才判定），而且提示词早有「送审前只写一句进度」，生产里仍是两份总结；提示词只能降低概率。
@@ -98,3 +106,5 @@ Status: implemented
 - `cd apps/server && .venv312/bin/python -m pytest tests/test_agent/test_author_reply_shaping.py -q --no-cov`：最初 16 个用例。其中 10 个在改动前的代码上失败（被取代的总结不进作者看到的回复、短正文不送审时照常放出、返修 writer 收到说明、U082 形态的单独 `</file>`、独占一行的 `<file>` 丢掉、改大纲 / 小改正文不送审、送审交接带编辑器字数与本会话 / 项目设定里的篇幅要求、篇幅分句摘取、同一 agent 段落分隔），5 个守卫用例前后都通过（快速模式照常显示、字面标签保留、长正文短说明照常送审），另有 1 个 `BodyWriteTracker` 单测（create_file 正文、parallel write_chapter 计入，设定文件和失败写入不计）。
 - `pytest tests/test_agent -n 8`：全部通过（含更新后的既有用例）。
 - 未做真实模型调用，未在 staging 验证；直播时扣留与放出的时序只由适配器级测试覆盖。
+- live run 2 补充：工作集字数标签、`<file>` 后换行、剧本「集」各有回归用例（`test_session_loader.py`、`test_stream_processor.py`、`test_round3_converge.py`），改动前失败；`test_stream_processor.py` / `test_stream_adapter.py` 里三条带着这个前导换行的旧期望改成不带。提示词的改动没有自动化验证，要等下一次真实模型复跑。
+
