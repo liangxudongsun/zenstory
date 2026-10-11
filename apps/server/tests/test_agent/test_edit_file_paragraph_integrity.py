@@ -99,6 +99,47 @@ def test_approximate_match_window_does_not_cross_a_paragraph_break():
     assert stats["paragraph_rejected"] >= 1
 
 
+def test_approximate_replace_whose_best_reading_crosses_paragraphs_is_refused(editor):
+    """改写过的单行 old 盖住 P1 的段尾和 P2 的大半：段内窗口也能过阈值，但它只是
+    跨段那处的一部分。拿它替换会把「嗡嗡作响。」再写一遍，必须和全部跨段一样拒绝。"""
+    p1 = "　　档案室里很静，只有顶灯在嗡嗡作响。"
+    p2 = "　　林舟翻到腰酸，直起身靠着书架站了一会儿，然后慢慢走到窗边看着楼下的车流发呆。"
+    content = p1 + "\n\n" + p2
+    old = "嗡嗡作响。林舟翻到腰疼，直起身靠着书架站了一阵子，然后慢慢走到窗边看着楼下的车流发呆。"
+    stats: dict[str, int] = {}
+    assert (
+        find_approximate_match(
+            content, old, max_error_rate=0.25, min_pattern_len=8, keep_line_breaks=True, stats=stats
+        )
+        is None
+    )
+    assert stats["paragraph_rejected"] >= 1
+    with pytest.raises(EditFileError) as exc:
+        editor._apply_replace(
+            content,
+            {"op": "replace", "old": old, "new": "嗡嗡作响。林舟翻得腰疼，走到窗边出神。"},
+            0,
+            [],
+            [],
+        )
+    assert exc.value.error_type == EDIT_ERROR_ANCHOR_NOT_FOUND
+    assert "段落分隔" in str(exc.value)
+
+
+def test_approximate_replace_inside_one_paragraph_still_applies(editor):
+    """跨段约束不误伤：old 只在第二段里、有错字，照常近似替换。"""
+    p1 = "　　档案室里很静，只有顶灯在嗡嗡作响。"
+    p2 = "　　林舟翻到腰酸，直起身靠着书架站了一会儿，然后慢慢走到窗边看着楼下的车流发呆。"
+    content = p1 + "\n\n" + p2
+    old = "林舟翻到腰疼，直起身靠着书架站了一阵子，然后慢慢走到窗边看着楼下的车流发呆。"
+    applied: list[dict] = []
+    result = editor._apply_replace(
+        content, {"op": "replace", "old": old, "new": "林舟翻得腰疼，走到窗边出神。"}, 0, applied, []
+    )
+    assert applied[0]["match_mode"] == "approximate"
+    assert result == p1 + "\n\n　　林舟翻得腰疼，走到窗边出神。"
+
+
 def test_approximate_replace_never_merges_two_lines(editor):
     content = (
         "　　风从窗缝里钻进来，吹得纸页沙沙地响个不停。\n"
@@ -165,6 +206,22 @@ def test_insert_after_mid_paragraph_split_is_left_as_written(editor):
     assert result == "　　他推开门，屋里没人。\n\n　　他愣住了。\n\n　　桌上放着一封信。"
 
 
+@pytest.mark.parametrize(
+    "text",
+    ["没拆的信。\n\n　　他走过去。\n", "没拆的信。他走过去。\n"],
+)
+def test_append_continuing_a_cut_off_sentence_is_not_split_into_a_new_paragraph(editor, text):
+    """上一块停在半句话（流被截断、续写）：text 结尾有换行也只是下一块的起点，
+    第一行要接在行尾，不能在半句中间另起一段。"""
+    content = "　　他推开门，屋里的灯还亮着，桌上放着一封"
+    notes: list[str] = []
+    pos, written = editor._position_insert(
+        content, len(content), text, direction="after", snap_sentence=False, notes=notes
+    )
+    assert (pos, written) == (len(content), text)
+    assert notes == []
+
+
 def test_append_paragraph_without_break_is_separated_from_the_last_line(editor):
     notes: list[str] = []
     pos, text = editor._position_insert(
@@ -190,10 +247,46 @@ def test_insert_after_clause_still_goes_right_after_the_anchor(editor):
     assert "站了一会儿，腿有些发麻。" in result
 
 
-def test_insert_before_sentence_does_not_split_an_opening_quote_from_its_line(editor):
-    content = "　　他抬起头：“你来了。”她没说话。"
-    result, _ = _insert_before(editor, content, "你来了。", "门响了一声。")
-    assert result == "　　门响了一声。他抬起头：“你来了。”她没说话。"
+DIALOGUE = "　　他看着她说：“我们走吧。外面要下雨了。”她没有动。"
+
+
+def test_exact_insert_before_a_line_inside_a_quote_stays_inside_the_quote(editor):
+    """锚点是引语里的第一句：插进来的话也是引语，不能被挪到说话人前面当旁白。"""
+    result, applied = _insert_before(editor, DIALOGUE, "我们走吧。", "别怕。")
+    assert result == "　　他看着她说：“别怕。我们走吧。外面要下雨了。”她没有动。"
+    assert "layout_notes" not in applied[0]
+
+
+def test_exact_insert_after_a_colon_puts_the_quote_right_after_it(editor):
+    """锚点以冒号收尾：新引语放在冒号后面，不能被挪进原来的引语里形成嵌套。"""
+    result, _ = _insert_after(editor, DIALOGUE, "他看着她说：", "“天黑了。”")
+    assert result == "　　他看着她说：“天黑了。”“我们走吧。外面要下雨了。”她没有动。"
+
+
+def test_insert_after_speaker_tag_without_colon_stops_before_the_quote(editor):
+    """锚点停在「说」和「：」之间：越过冒号，停在引语开始之前。"""
+    result, _ = _insert_after(editor, DIALOGUE, "他看着她说", "“天黑了。”")
+    assert result == "　　他看着她说：“天黑了。”“我们走吧。外面要下雨了。”她没有动。"
+
+
+def test_exact_insert_after_an_interrupted_line_stays_after_it(editor):
+    content = "　　“你——”他没说完，转身走了。"
+    result, _ = _insert_after(editor, content, "“你——”", "她愣住了。")
+    assert result == "　　“你——”她愣住了。他没说完，转身走了。"
+
+
+def test_exact_insert_before_half_a_sentence_moves_to_the_sentence_start(editor):
+    result, applied = _insert_before(editor, "　　他转身走了。她哭了。", "转身走了", "她叹了口气。")
+    assert result == "　　她叹了口气。他转身走了。她哭了。"
+    assert applied[0]["layout_notes"]
+
+
+def test_approximate_insert_before_inside_a_quote_snaps_to_the_quote_start(editor):
+    """近似窗口停在引语中间：往前挪到引语开头，不越过引号挪到整行开头。"""
+    content = "　　他看着她说：“我们现在就走吧，外面马上要下雨了。”她没有动。"
+    result, applied = _insert_before(editor, content, "现在就走吧，外头马上要下雨了", "别怕。")
+    assert applied[0]["match_mode"] == "approximate"
+    assert result == "　　他看着她说：“别怕。我们现在就走吧，外面马上要下雨了。”她没有动。"
 
 
 def test_approximate_insert_after_snaps_to_the_end_of_the_sentence(editor):

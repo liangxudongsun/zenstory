@@ -309,7 +309,8 @@ def find_approximate_match(
         min_pattern_len: Minimum normalized pattern length to search
         keep_line_breaks: 同 find_fuzzy_spans。近似窗口没有逐字对齐，所以按数量
             约束：窗口内部跨过的原文换行不能多于 pattern 自己的换行。
-        stats: 收到 "paragraph_rejected"（因跨段被丢弃的达标窗口数）
+        stats: 收到 "paragraph_rejected"（因跨段被丢弃的达标窗口数）。跨段窗口里
+            最好的一个不比段内最好的差时返回 None：段内窗口只是跨段那处的一部分。
 
     Returns:
         A tuple of (start, end, similarity, matched_text) if a good match is found,
@@ -376,6 +377,7 @@ def find_approximate_match(
             break_prefix[k + 1] = break_prefix[k] + (1 if flag and k > 0 else 0)
         allowed_breaks = sum(_line_break_before(pattern, map_pattern))
     paragraph_rejected = 0
+    best_rejected_score = 0.0
 
     for window_size in range(window_min, window_max + 1):
         if time.monotonic() > deadline:
@@ -409,6 +411,7 @@ def find_approximate_match(
                     and break_prefix[i + window_size] - break_prefix[i + 1] > allowed_breaks
                 ):
                     paragraph_rejected += 1
+                    best_rejected_score = max(best_rejected_score, score)
                     continue
                 candidates.append(((i, i + window_size), score))
 
@@ -418,6 +421,13 @@ def find_approximate_match(
         return None
 
     best_span, best_score = max(candidates, key=lambda c: c[1])
+
+    # 跨段的窗口比段内最好的窗口还像（或一样像）：old 本来对应的就是跨段那一处，
+    # 段内窗口只是它的一部分。用段内窗口去替换，会把 new 里属于另一段的内容再写
+    # 一遍（「嗡嗡作响。\n\n　　嗡嗡作响。林舟……」），所以和全部被排除一样放弃，
+    # 由调用方按 paragraph_rejected 报「缺换行」。
+    if best_rejected_score >= best_score:
+        return None
 
     # Best score among windows that do NOT overlap the chosen best window.
     def _overlaps(a: tuple[int, int], b: tuple[int, int]) -> bool:

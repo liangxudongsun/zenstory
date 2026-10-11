@@ -17,13 +17,14 @@ from __future__ import annotations
 import re
 from collections import Counter
 
-from .text_matching import _PAUSE_CHARS, _SENTENCE_END_CHARS
+from .text_matching import _DASH_CHARS, _PAUSE_CHARS, _SENTENCE_END_CHARS
 
 INLINE_SPACE = " \t　"
 _NEWLINES = "\r\n"
 # 句末标点之后还属于这一句的收尾符号（闭引号、闭括号）。
 _CLOSING_MARKS = frozenset("”’」』）)】》〉〕")
 _OPENING_MARKS = frozenset("“‘「『（(【《〈〔")
+_COLON_CHARS = frozenset("：:")
 _LEADING_BLANK_LINES = re.compile(r"\A(?:[ \t　]*\r?\n)+")
 _NEWLINE_RUN = re.compile(r"(?:\r?\n)+")
 _WORD_CHAR = re.compile(r"[0-9A-Za-z㐀-䶿一-鿿豈-﫿]")
@@ -53,11 +54,36 @@ def _is_opening(text: str, index: int) -> bool:
     return ch == '"' and not _ascii_quote_closes(text, index)
 
 
+def _follows_sentence_end(content: str, pos: int, *, allow_colon: bool) -> bool:
+    """``pos`` 前面（跳过空白和闭引号）是不是一句话的结尾。
+
+    ``allow_colon``：后面跟的是开引号时，「说：|“」也算一句结束、引语开始。
+    闭引号前的破折号是话被打断（「“你——”|他」），同样算结束。
+    """
+    j = pos - 1
+    closed = False
+    while j >= 0 and (content[j] in INLINE_SPACE or _is_closing(content, j)):
+        closed = closed or content[j] not in INLINE_SPACE
+        j -= 1
+    if j < 0 or content[j] in _NEWLINES:
+        return True
+    ch = content[j]
+    return (
+        ch in _SENTENCE_END_CHARS
+        or (allow_colon and ch in _COLON_CHARS)
+        or (closed and ch in _DASH_CHARS)
+    )
+
+
 def is_sentence_boundary(content: str, pos: int) -> bool:
     """``pos`` 是否落在两句话之间（或行首、行尾、文件首尾）。
 
-    句末标点和它后面的闭引号属于前一句：「冰|。」「冰。|”」都不是边界，
-    「冰。”|他」是。行首缩进前后都算行首。
+    - 句末标点和它后面的闭引号属于前一句：「冰|。」「冰。|”」都不是边界，
+      「冰。”|他」是。行首缩进前后都算行首。
+    - 引语的开头：句末或冒号后面的开引号，引号前后都是边界（「说：|“|我们」），
+      插入的整句不会被挪出引语，也不会被挪进引语。句子中间的引号（「看着“老王”」）
+      不算。
+    - 被打断的话：「“你——”|他」是边界。
     """
     if pos <= 0 or pos >= len(content):
         return True
@@ -66,10 +92,28 @@ def is_sentence_boundary(content: str, pos: int) -> bool:
     nxt = content[pos]
     if nxt in _SENTENCE_END_CHARS or nxt in _PAUSE_CHARS or _is_closing(content, pos):
         return False
-    j = pos - 1
-    while j >= 0 and (content[j] in INLINE_SPACE or _is_closing(content, j)):
-        j -= 1
-    return j < 0 or content[j] in _NEWLINES or content[j] in _SENTENCE_END_CHARS
+    quote_start = pos
+    while quote_start > 0 and _is_opening(content, quote_start - 1):
+        quote_start -= 1
+    if quote_start < pos:  # 紧跟在开引号后面：看这个引号本身是不是在句首
+        return _follows_sentence_end(content, quote_start, allow_colon=True)
+    return _follows_sentence_end(content, pos, allow_colon=_is_opening(content, pos))
+
+
+def exact_anchor_snap_forward(content: str, pos: int, *, direction: str) -> bool | None:
+    """逐字命中的锚点要不要挪、往哪挪；None 表示原样插在锚点处。
+
+    模型照着原文选的锚点，边缘是标点（引号、冒号、破折号、逗号……）时，那就是它
+    要的位置：引语里、冒号后面、打断的话后面，都原样插入。只有插入点把一个字和
+    它后面的标点、或者半句话的两半分开时才挪（「一会儿|。」「他转身|走了」）：
+    insert_after 往后挪到句末；insert_before 往前挪到句首，锚点以句号/逗号开头时
+    越过那串标点。调用前已确认 ``pos`` 不是句子边界，因此两侧都有字符。
+    """
+    if not content[pos - 1].isalnum():
+        return None
+    if direction == "after":
+        return True
+    return not content[pos].isalnum()
 
 
 def snap_to_sentence_boundary(content: str, pos: int, *, forward: bool) -> int:
@@ -203,10 +247,17 @@ def layout_insertion(
         written = core.rstrip() + _dominant_separator(content, text)
         placed_at = next_line_start
     else:  # 文件末尾：保留模型自己写的结尾，后面接着追加的写法不受影响
-        written = _apply_indent(core, prev_indent)
         placed_at = len(content)
-        if "\n" not in gap:
-            written = _dominant_separator(content, text) + written
+        if "\n" in gap:
+            written = _apply_indent(core, prev_indent)
+        elif starts_break or starts_indent:
+            written = _dominant_separator(content, text) + _apply_indent(core, prev_indent)
+        else:
+            # 前文没以换行收尾、text 开头也没有分段标记：这是接着上一块往下写
+            # （续写被截断的半句，或分块追加），第一行接在行尾，不另起一段；
+            # text 结尾的换行只说明下一块从新行开始。后面各行照常补缩进。
+            first, newline, rest = core.partition("\n")
+            written = first + newline + _apply_indent(rest, prev_indent)
 
     if (placed_at, written) == (pos, text):
         return pos, text, []
@@ -217,6 +268,7 @@ __all__ = [
     "NOTE_LINE_START",
     "NOTE_PARAGRAPH",
     "NOTE_SENTENCE_SNAP",
+    "exact_anchor_snap_forward",
     "is_sentence_boundary",
     "is_sentence_shaped",
     "layout_insertion",

@@ -41,6 +41,7 @@ from utils.text_metrics import count_words
 
 from .paragraph_layout import (
     NOTE_SENTENCE_SNAP,
+    exact_anchor_snap_forward,
     is_sentence_boundary,
     is_sentence_shaped,
     layout_insertion,
@@ -765,20 +766,28 @@ class FileEditor:
         direction: str,
         snap_sentence: bool,
         notes: list[str],
+        exact_anchor: bool = False,
     ) -> tuple[int, Any]:
         """插入前把位置和分隔对齐到句子/段落边界；返回 (插入位置, 实际写入的文本)。
 
         - 一整句话（见 is_sentence_shaped）不能落在句子中间：insert_after 往后
           挪到这句话结束，insert_before 往前挪到这句话开头。分句（以逗号等开头）
           原样贴着锚点。
+        - ``exact_anchor``：锚点是逐字命中的，模型看得见它的边缘。边缘是标点
+          （引号、冒号、破折号……）时原样插入，只在字和它的标点、或半句话的两半
+          之间才挪（exact_anchor_snap_forward）。模糊/近似窗口的边缘是猜的，照常挪。
         - 段落边界上的整段文字用文件自己的分段符和缩进隔开（paragraph_layout）。
         调整过的地方写进 ``notes``，调用方放进 detail 的 layout_notes。
         """
         if not isinstance(text, str) or not text:
             return pos, text
         if snap_sentence and is_sentence_shaped(text) and not is_sentence_boundary(content, pos):
-            pos = snap_to_sentence_boundary(content, pos, forward=direction == "after")
-            notes.append(NOTE_SENTENCE_SNAP)
+            forward: bool | None = direction == "after"
+            if exact_anchor:
+                forward = exact_anchor_snap_forward(content, pos, direction=direction)
+            if forward is not None:
+                pos = snap_to_sentence_boundary(content, pos, forward=forward)
+                notes.append(NOTE_SENTENCE_SNAP)
         pos, text, layout_notes = layout_insertion(content, pos, text, direction=direction)
         notes.extend(layout_notes)
         return pos, text
@@ -1334,7 +1343,8 @@ class FileEditor:
             pos = start + len(anchor)
             notes: list[str] = []
             pos, text = self._position_insert(
-                content, pos, text, direction="after", snap_sentence=True, notes=notes
+                content, pos, text, direction="after", snap_sentence=True, notes=notes,
+                exact_anchor=True,
             )
             content, text = self._place_new_text(content, pos, pos, text, quote_style)
             applied_edits.append({
@@ -1516,7 +1526,8 @@ class FileEditor:
             )
             notes: list[str] = []
             pos, text = self._position_insert(
-                content, pos, text, direction="before", snap_sentence=True, notes=notes
+                content, pos, text, direction="before", snap_sentence=True, notes=notes,
+                exact_anchor=True,
             )
             content, text = self._place_new_text(content, pos, pos, text, quote_style)
             applied_edits.append({
