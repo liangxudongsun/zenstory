@@ -848,7 +848,7 @@ def _format_review_auto_checks(repeats: list[str], facts: list[str]) -> str:
 
 
 # 送审时附给审稿人的两段：本轮正文的编辑器字数、作者说过的篇幅要求（I05）。
-BODY_WORD_COUNT_HEADER = "[本轮正文字数（编辑器口径）]"
+BODY_WORD_COUNT_HEADER = "[本轮正文字数]"
 LENGTH_REQUIREMENT_HEADER = "[作者的篇幅要求]"
 _BODY_WORD_COUNT_NOTE = (
     "以上是编辑器统计的实际字数；交接说明和对话里写的字数是写作时的估计，"

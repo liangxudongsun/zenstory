@@ -391,7 +391,7 @@ def test_every_role_reply_protocol_accepts_the_system_word_count():
     from agent.prompts.base import AUTHOR_REPLY_PROTOCOL
     from agent.prompts.subagents import QUALITY_REVIEWER_PROMPT
 
-    assert "[本轮正文字数（编辑器口径）]" in QUALITY_REVIEWER_PROMPT
+    assert "[本轮正文字数]" in QUALITY_REVIEWER_PROMPT
     assert "系统标出的数" in AUTHOR_REPLY_PROTOCOL
     assert "工具没给字数就不报字数" not in AUTHOR_REPLY_PROTOCOL
     # live run 2 场景 F：规则里引的标签「编辑器字数」被规划师照抄成「（编辑器字数 244）」，
