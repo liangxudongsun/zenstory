@@ -30,6 +30,7 @@ from models.file_version import (
 from services.features.activation_event_service import activation_event_service
 from services.features.file_version_service import BEFORE_AI_EDIT_SUMMARY
 from utils.cjk_quotes import (
+    QUOTE_STYLE_CURLY,
     detect_quote_style,
     has_style_quote_marks,
     normalize_inserted_spans,
@@ -38,13 +39,22 @@ from utils.cjk_quotes import (
 from utils.logger import get_logger, log_with_context
 from utils.text_metrics import count_words
 
+from .paragraph_layout import (
+    NOTE_SENTENCE_SNAP,
+    is_sentence_boundary,
+    is_sentence_shaped,
+    layout_insertion,
+    snap_to_sentence_boundary,
+)
 from .text_matching import (
+    _edge_punct_class,
     build_span_previews,
     edge_punct_run,
     extend_span_over_edge_punct,
     find_approximate_match,
     find_fuzzy_spans,
     find_unique_line_span,
+    fold_double_quotes,
     locate_exact_or_quote_equivalent,
     suggest_similar_lines,
 )
@@ -85,6 +95,9 @@ EDIT_ERROR_ANCHOR_NOT_FOUND = "anchor_not_found"
 EDIT_ERROR_ANCHOR_AMBIGUOUS = "anchor_ambiguous"
 EDIT_ERROR_FILE_NOT_FOUND = "file_not_found"
 EDIT_ERROR_INVALID_EDIT = "invalid_edit"
+# 编辑定位成功、执行后正文却一字未变（new 与原文相同，或引号按体例统一后相同）。
+# 以前照样记一次 applied，模型和作者都以为改了。
+EDIT_ERROR_NO_CHANGE = "no_change"
 EDIT_ERROR_FILE_BUSY = "file_busy"
 EDIT_ERROR_PERMISSION_DENIED = "permission_denied"
 EDIT_ERROR_GENERIC = "edit_failed"
@@ -171,6 +184,26 @@ def _ambiguous(message: str) -> EditFileError:
 
 def _preview(text: str) -> str:
     return text[:200] + ("..." if len(text) > 200 else "")
+
+
+def _paragraph_break_error(edit_index: int, label: str) -> EditFileError:
+    return _not_found(
+        f"Edit {edit_index}: {label}在原文里对应的那段跨过了段落分隔（原文这里有换行），"
+        f"{label}里却没有换行；照这样改会把两段并成一段，已中止。请按原文的分段把换行"
+        f"（以及下一段段首的缩进）照抄进 old 和 new，或者拆成每段一条 edit。"
+    )
+
+
+def _no_change_error(edit_index: int, edit: dict[str, Any], quote_style: str | None) -> EditFileError:
+    hint = ""
+    written = edit.get("new") if edit.get("op") == "replace" else edit.get("text")
+    if quote_style is not None and isinstance(written, str) and ('"' in written or "＂" in written):
+        hint = "；new 里的半角双引号写入时会统一成全角引号，统一后与原文一致"
+    return EditFileError(
+        f"Edit {edit_index}: 这处编辑执行后正文没有任何变化（写入的文本与原文相同{hint}），"
+        f"没有计入已应用。请核对 old/new；要换引号写法时，new 里直接写出目标引号。",
+        error_type=EDIT_ERROR_NO_CHANGE,
+    )
 
 
 def file_write_lock(file_id: str) -> threading.Lock:
@@ -560,6 +593,9 @@ class FileEditor:
                 if op in ("append", "prepend", "insert_after", "insert_before"):
                     self._require_insert_text(edit, i, op, warnings)
 
+                content_before_edit = content
+                applied_before_edit = len(applied_edits)
+
                 if op == "replace":
                     content = self._apply_replace(
                         content, edit, i, applied_edits, warnings, quote_style=quote_style
@@ -572,30 +608,37 @@ class FileEditor:
                     content = self._apply_insert_before(
                         content, edit, i, applied_edits, warnings, quote_style=quote_style
                     )
-                elif op == "append":
-                    content, text = self._place_new_text(
-                        content, len(content), len(content), edit.get("text", ""), quote_style
+                elif op in ("append", "prepend"):
+                    notes: list[str] = []
+                    pos, text = self._position_insert(
+                        content,
+                        len(content) if op == "append" else 0,
+                        edit.get("text", ""),
+                        direction="after" if op == "append" else "before",
+                        snap_sentence=False,
+                        notes=notes,
                     )
-                    applied_edits.append({
+                    content, text = self._place_new_text(content, pos, pos, text, quote_style)
+                    detail = {
                         "op": op,
                         "text_len": len(text),
                         "text_words": count_words(text),
                         "text_preview": text[:200] + ("..." if len(text) > 200 else ""),
-                    })
-                elif op == "prepend":
-                    content, text = self._place_new_text(content, 0, 0, edit.get("text", ""), quote_style)
-                    applied_edits.append({
-                        "op": op,
-                        "text_len": len(text),
-                        "text_words": count_words(text),
-                        "text_preview": text[:200] + ("..." if len(text) > 200 else ""),
-                    })
+                    }
+                    if notes:
+                        detail["layout_notes"] = notes
+                    applied_edits.append(detail)
                 elif op == "delete":
                     content = self._apply_delete(
                         content, edit, i, applied_edits, warnings
                     )
                 else:
                     raise ValueError(f"Edit {i}: unknown operation '{op}'. Valid ops: replace, insert_after, insert_before, append, prepend, delete")
+
+                if content == content_before_edit and len(applied_edits) > applied_before_edit:
+                    # 报告成功就必须真的改了：撤回这一条的 applied 记录，按失败处理。
+                    del applied_edits[applied_before_edit:]
+                    raise _no_change_error(i, edit, quote_style)
             except Exception as e:
                 failed_op = str(edit.get("op", "")).strip() if isinstance(edit, dict) else ""
                 error_text = str(e)
@@ -712,6 +755,57 @@ class FileEditor:
             return content, text
         content = cls._normalize_placed_spans(content, [(start, start + len(text))], quote_style)
         return content, content[start : start + len(text)]
+
+    @staticmethod
+    def _position_insert(
+        content: str,
+        pos: int,
+        text: Any,
+        *,
+        direction: str,
+        snap_sentence: bool,
+        notes: list[str],
+    ) -> tuple[int, Any]:
+        """插入前把位置和分隔对齐到句子/段落边界；返回 (插入位置, 实际写入的文本)。
+
+        - 一整句话（见 is_sentence_shaped）不能落在句子中间：insert_after 往后
+          挪到这句话结束，insert_before 往前挪到这句话开头。分句（以逗号等开头）
+          原样贴着锚点。
+        - 段落边界上的整段文字用文件自己的分段符和缩进隔开（paragraph_layout）。
+        调整过的地方写进 ``notes``，调用方放进 detail 的 layout_notes。
+        """
+        if not isinstance(text, str) or not text:
+            return pos, text
+        if snap_sentence and is_sentence_shaped(text) and not is_sentence_boundary(content, pos):
+            pos = snap_to_sentence_boundary(content, pos, forward=direction == "after")
+            notes.append(NOTE_SENTENCE_SNAP)
+        pos, text, layout_notes = layout_insertion(content, pos, text, direction=direction)
+        notes.extend(layout_notes)
+        return pos, text
+
+    @staticmethod
+    def _check_approximate_edges(
+        content: str, start: int, end: int, old_text: str, edit_index: int
+    ) -> None:
+        """近似命中的范围不能在句子中间开始或结束。
+
+        old 的边缘是标点（以句号收尾、以引号开头），命中范围扩展后的边缘却是
+        一个字，说明窗口停在了句子中间；照样替换/删除会留下半句话或吞掉半句。
+        这种时候宁可报错让模型复制完整原文，也不猜着多删几个字。
+        """
+        stripped = old_text.strip()
+        if not stripped or start >= end:
+            return
+        if _edge_punct_class(stripped[-1]) is not None and _edge_punct_class(content[end - 1]) is None:
+            where = "结束"
+        elif _edge_punct_class(stripped[0]) is not None and _edge_punct_class(content[start]) is None:
+            where = "开始"
+        else:
+            return
+        raise _not_found(
+            f"Edit {edit_index}: 近似匹配找到的范围在句子中间{where}（命中的原文：「{_preview(content[start:end])}」），"
+            f"照这样改会留下半句话，已中止。请从当前原文复制完整的句子作为 old。"
+        )
 
     @classmethod
     def _edits_incoming_text(cls, edits: Any) -> str:
@@ -969,6 +1063,15 @@ class FileEditor:
                 f"请从当前文件原文中复制要改的那一段。"
             )
         new_text = self._resolve_replace_new(edit, edit_index, warnings)
+        if (
+            quote_style is not None
+            and new_text != old_text
+            and fold_double_quotes(new_text) == fold_double_quotes(old_text)
+        ):
+            # 只改引号写法的编辑就是在要求换体例（如「」改成 “”）。再按稿件体例
+            # 规范化，半角引号会被改回原样，正文一字不变却报成功（U079）。半角
+            # 引号此时按产品默认的 “” 写入；new 里直接写的 「」/“” 原样保留。
+            quote_style = QUOTE_STYLE_CURLY
 
         # 1) Exact match first, then exact modulo double-quote style
         located = locate_exact_or_quote_equivalent(content, old_text)
@@ -1043,21 +1146,36 @@ class FileEditor:
                 ignore_punct_whitespace=ignore_punct_whitespace,
                 max_matches=REPLACE_ALL_MAX_FUZZY_MATCHES if replace_all else 20,
                 stats=fuzzy_stats,
+                keep_line_breaks=True,
             )
             if fuzzy_stats.get("boundary_rejected"):
                 warnings.append(
                     f"Edit {edit_index}: {fuzzy_stats['boundary_rejected']} 处候选匹配因字符归一化展开边界不对齐被跳过（如罗马数字/合字），已避免吞掉未匹配的原文"
                 )
 
+            if spans and fuzzy_stats.get("paragraph_rejected"):
+                warnings.append(
+                    f"Edit {edit_index}: {fuzzy_stats['paragraph_rejected']} 处候选匹配跨过了原文的段落分隔（old 里没有那处换行），已排除"
+                )
+            if not spans and fuzzy_stats.get("paragraph_rejected"):
+                # 逐字（忽略标点）能对上，只是跨了段落：这就是模型要改的那段，
+                # 不能再退到近似匹配去改其中一段的局部，那样会重复写入另一段的开头。
+                raise _paragraph_break_error(edit_index, "old")
+
             # 3) If fuzzy match fails, try approximate match (handles word errors)
             approx_match = None
             if not spans:
+                approx_stats: dict[str, int] = {}
                 approx_match = find_approximate_match(
                     content,
                     old_text,
                     max_error_rate=0.25,  # Allow up to 25% character difference
                     min_pattern_len=8,
+                    keep_line_breaks=True,
+                    stats=approx_stats,
                 )
+                if not approx_match and approx_stats.get("paragraph_rejected"):
+                    raise _paragraph_break_error(edit_index, "old")
                 if approx_match:
                     start, end, similarity, _matched_text = approx_match
                     # 近似匹配只会给出唯一的一处；调用方若点名了第 2 处及以后，
@@ -1071,6 +1189,7 @@ class FileEditor:
                     start, end = self._extend_fuzzy_span(
                         content, start, end, old_text, replacement=new_text
                     )
+                    self._check_approximate_edges(content, start, end, old_text, edit_index)
                     matched_text = content[start:end]
                     # Single approximate match - use it
                     content, new_text = self._place_new_text(content, start, end, new_text, quote_style)
@@ -1213,6 +1332,10 @@ class FileEditor:
                 preview_content=content,
             )
             pos = start + len(anchor)
+            notes: list[str] = []
+            pos, text = self._position_insert(
+                content, pos, text, direction="after", snap_sentence=True, notes=notes
+            )
             content, text = self._place_new_text(content, pos, pos, text, quote_style)
             applied_edits.append({
                 "op": "insert_after",
@@ -1223,6 +1346,8 @@ class FileEditor:
                 "text_words": count_words(text),
                 "text_preview": text[:200] + ("..." if len(text) > 200 else ""),
             })
+            if notes:
+                applied_edits[-1]["layout_notes"] = notes
         else:
             if match_mode == "exact":
                 raise _not_found(
@@ -1258,6 +1383,10 @@ class FileEditor:
                     # Insert after the matched text：锚点以句号/引号收尾时，
                     # 插入点要越过原文对应的标点，不能插在「冷」和「。」之间。
                     _, pos = self._extend_fuzzy_span(content, start, end, anchor, leading=False)
+                    notes = []
+                    pos, text = self._position_insert(
+                        content, pos, text, direction="after", snap_sentence=True, notes=notes
+                    )
                     content, text = self._place_new_text(content, pos, pos, text, quote_style)
                     applied_edits.append({
                         "op": "insert_after",
@@ -1269,6 +1398,8 @@ class FileEditor:
                         "text_words": count_words(text),
                         "text_preview": text[:200] + ("..." if len(text) > 200 else ""),
                     })
+                    if notes:
+                        applied_edits[-1]["layout_notes"] = notes
                     return content
 
                 # Tertiary fallback: locate a unique best paragraph
@@ -1280,6 +1411,10 @@ class FileEditor:
                 if block_span:
                     start, end, block_score = block_span
                     pos = end
+                    notes = []
+                    pos, text = self._position_insert(
+                        content, pos, text, direction="after", snap_sentence=True, notes=notes
+                    )
                     content, text = self._place_new_text(content, pos, pos, text, quote_style)
                     # fuzzy_paragraph 是「最像的整段」而不是逐字命中，必须把
                     # 置信度与兜底性质写进详情，否则模型只看到 match_count=1，
@@ -1296,6 +1431,8 @@ class FileEditor:
                         "text_words": count_words(text),
                         "text_preview": text[:200] + ("..." if len(text) > 200 else ""),
                     })
+                    if notes:
+                        applied_edits[-1]["layout_notes"] = notes
                     return content
 
                 suggestions = suggest_similar_lines(
@@ -1328,6 +1465,10 @@ class FileEditor:
             pos = end
             if ignore_punct_whitespace:
                 _, pos = self._extend_fuzzy_span(content, start, end, anchor, leading=False)
+            notes = []
+            pos, text = self._position_insert(
+                content, pos, text, direction="after", snap_sentence=True, notes=notes
+            )
             content, text = self._place_new_text(content, pos, pos, text, quote_style)
             applied_edits.append({
                 "op": "insert_after",
@@ -1339,6 +1480,8 @@ class FileEditor:
                 "text_words": count_words(text),
                 "text_preview": text[:200] + ("..." if len(text) > 200 else ""),
             })
+            if notes:
+                applied_edits[-1]["layout_notes"] = notes
 
         return content
 
@@ -1371,6 +1514,10 @@ class FileEditor:
                 haystack, needle, occurrence, match_count, edit_index, label="锚点",
                 preview_content=content,
             )
+            notes: list[str] = []
+            pos, text = self._position_insert(
+                content, pos, text, direction="before", snap_sentence=True, notes=notes
+            )
             content, text = self._place_new_text(content, pos, pos, text, quote_style)
             applied_edits.append({
                 "op": "insert_before",
@@ -1381,6 +1528,8 @@ class FileEditor:
                 "text_words": count_words(text),
                 "text_preview": text[:200] + ("..." if len(text) > 200 else ""),
             })
+            if notes:
+                applied_edits[-1]["layout_notes"] = notes
         else:
             if match_mode == "exact":
                 raise _not_found(
@@ -1416,6 +1565,10 @@ class FileEditor:
                     # Insert before the matched text：锚点以引号开头时插入点要
                     # 落在原文开引号之前，不能把新文本插进「“」和正文之间。
                     pos, _ = self._extend_fuzzy_span(content, start, end, anchor, trailing=False)
+                    notes = []
+                    pos, text = self._position_insert(
+                        content, pos, text, direction="before", snap_sentence=True, notes=notes
+                    )
                     content, text = self._place_new_text(content, pos, pos, text, quote_style)
                     applied_edits.append({
                         "op": "insert_before",
@@ -1427,6 +1580,8 @@ class FileEditor:
                         "text_words": count_words(text),
                         "text_preview": text[:200] + ("..." if len(text) > 200 else ""),
                     })
+                    if notes:
+                        applied_edits[-1]["layout_notes"] = notes
                     return content
 
                 # Tertiary fallback: locate a unique best paragraph
@@ -1438,6 +1593,10 @@ class FileEditor:
                 if block_span:
                     start, end, block_score = block_span
                     pos = start
+                    notes = []
+                    pos, text = self._position_insert(
+                        content, pos, text, direction="before", snap_sentence=True, notes=notes
+                    )
                     content, text = self._place_new_text(content, pos, pos, text, quote_style)
                     # 同 insert_after：兜底段落匹配必须自报置信度，不能伪装成确定匹配。
                     applied_edits.append({
@@ -1452,6 +1611,8 @@ class FileEditor:
                         "text_words": count_words(text),
                         "text_preview": text[:200] + ("..." if len(text) > 200 else ""),
                     })
+                    if notes:
+                        applied_edits[-1]["layout_notes"] = notes
                     return content
 
                 suggestions = suggest_similar_lines(
@@ -1484,6 +1645,10 @@ class FileEditor:
             pos = start
             if ignore_punct_whitespace:
                 pos, _ = self._extend_fuzzy_span(content, start, end, anchor, trailing=False)
+            notes = []
+            pos, text = self._position_insert(
+                content, pos, text, direction="before", snap_sentence=True, notes=notes
+            )
             content, text = self._place_new_text(content, pos, pos, text, quote_style)
             applied_edits.append({
                 "op": "insert_before",
@@ -1495,6 +1660,8 @@ class FileEditor:
                 "text_words": count_words(text),
                 "text_preview": text[:200] + ("..." if len(text) > 200 else ""),
             })
+            if notes:
+                applied_edits[-1]["layout_notes"] = notes
 
         return content
 
@@ -1557,11 +1724,18 @@ class FileEditor:
                 old_text,
                 ignore_punct_whitespace=ignore_punct_whitespace,
                 stats=fuzzy_stats,
+                keep_line_breaks=True,
             )
             if fuzzy_stats.get("boundary_rejected"):
                 warnings.append(
                     f"Edit {edit_index}: {fuzzy_stats['boundary_rejected']} 处候选匹配因字符归一化展开边界不对齐被跳过（如罗马数字/合字），已避免误删原文"
                 )
+            if spans and fuzzy_stats.get("paragraph_rejected"):
+                warnings.append(
+                    f"Edit {edit_index}: {fuzzy_stats['paragraph_rejected']} 处候选匹配跨过了原文的段落分隔（old 里没有那处换行），已排除"
+                )
+            if not spans and fuzzy_stats.get("paragraph_rejected"):
+                raise _paragraph_break_error(edit_index, "old")
             if not spans:
                 suggestions = suggest_similar_lines(
                     content,
@@ -1658,6 +1832,7 @@ __all__ = [
     "EDIT_ERROR_FILE_NOT_FOUND",
     "EDIT_ERROR_GENERIC",
     "EDIT_ERROR_INVALID_EDIT",
+    "EDIT_ERROR_NO_CHANGE",
     "EDIT_ERROR_PERMISSION_DENIED",
     "EditBatchError",
     "EditFileError",

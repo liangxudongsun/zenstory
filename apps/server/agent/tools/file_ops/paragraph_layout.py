@@ -1,0 +1,224 @@
+"""插入正文时的句子与段落边界。
+
+edit_file 的 insert_*/append/prepend 以前把 text 原样塞进定位到的位置，不看
+那里是不是句子或段落的边界：
+
+- 整段文字插在段尾却没有换行开头，就接在上一段行尾；插在段首（下一段的
+  「　　」之前）却没有换行结尾，下一段的缩进就跟在新段落行尾（U068）。
+- 锚点停在「冰」而原文是「冰。」，一整句插进去就成了「冰他转身。。」。
+
+这里只决定「插在哪、前后补什么分隔」，规则全部来自文件自己：段落分隔用插入点
+两侧原有的换行串，缩进用两侧段落共同的缩进。text 里没有任何分段标记的一句话
+仍按原来的方式接在段尾/段首，不猜模型要不要另起一段。
+"""
+
+from __future__ import annotations
+
+import re
+from collections import Counter
+
+from .text_matching import _PAUSE_CHARS, _SENTENCE_END_CHARS
+
+INLINE_SPACE = " \t　"
+_NEWLINES = "\r\n"
+# 句末标点之后还属于这一句的收尾符号（闭引号、闭括号）。
+_CLOSING_MARKS = frozenset("”’」』）)】》〉〕")
+_OPENING_MARKS = frozenset("“‘「『（(【《〈〔")
+_LEADING_BLANK_LINES = re.compile(r"\A(?:[ \t　]*\r?\n)+")
+_NEWLINE_RUN = re.compile(r"(?:\r?\n)+")
+_WORD_CHAR = re.compile(r"[0-9A-Za-z㐀-䶿一-鿿豈-﫿]")
+
+NOTE_SENTENCE_SNAP = "插入点原本落在句子中间，已移到这句话的边界"
+NOTE_PARAGRAPH = "已按本文的段落分隔与缩进补齐新段落的前后分隔"
+NOTE_LINE_START = "插入点在段首缩进之前，已移到缩进之后"
+
+
+def _ascii_quote_closes(text: str, index: int) -> bool:
+    """行内第偶数个 ASCII 双引号是闭引号（按出现顺序配对）。"""
+    line_start = text.rfind("\n", 0, index) + 1
+    return text.count('"', line_start, index) % 2 == 1
+
+
+def _is_closing(text: str, index: int) -> bool:
+    ch = text[index]
+    if ch in _CLOSING_MARKS:
+        return True
+    return ch == '"' and _ascii_quote_closes(text, index)
+
+
+def _is_opening(text: str, index: int) -> bool:
+    ch = text[index]
+    if ch in _OPENING_MARKS:
+        return True
+    return ch == '"' and not _ascii_quote_closes(text, index)
+
+
+def is_sentence_boundary(content: str, pos: int) -> bool:
+    """``pos`` 是否落在两句话之间（或行首、行尾、文件首尾）。
+
+    句末标点和它后面的闭引号属于前一句：「冰|。」「冰。|”」都不是边界，
+    「冰。”|他」是。行首缩进前后都算行首。
+    """
+    if pos <= 0 or pos >= len(content):
+        return True
+    if content[pos] in _NEWLINES or content[pos - 1] in _NEWLINES:
+        return True
+    nxt = content[pos]
+    if nxt in _SENTENCE_END_CHARS or nxt in _PAUSE_CHARS or _is_closing(content, pos):
+        return False
+    j = pos - 1
+    while j >= 0 and (content[j] in INLINE_SPACE or _is_closing(content, j)):
+        j -= 1
+    return j < 0 or content[j] in _NEWLINES or content[j] in _SENTENCE_END_CHARS
+
+
+def snap_to_sentence_boundary(content: str, pos: int, *, forward: bool) -> int:
+    """从 ``pos`` 往后（或往前）走到最近的句子边界；最远到行尾/行首。"""
+    step = 1 if forward else -1
+    while not is_sentence_boundary(content, pos):
+        pos += step
+    return pos
+
+
+def is_sentence_shaped(text: str) -> bool:
+    """text 是不是一整句（或几段）话，而不是接在半句后面的分句。
+
+    以逗号、句号、闭引号开头的是分句或收尾，要紧贴锚点；带换行或段首缩进的、
+    以句末标点（可带闭引号）收尾的才算整句。
+    """
+    stripped = text.strip()
+    if not stripped:
+        return False
+    first = stripped[0]
+    if first in _PAUSE_CHARS or first in _SENTENCE_END_CHARS or (
+        first in _CLOSING_MARKS
+    ):
+        return False
+    if _starts_with_indent(text) or text[0] in _NEWLINES or "\n" in stripped:
+        return True
+    if text.rstrip(INLINE_SPACE)[-1:] in ("\n", "\r"):
+        return True
+    end = len(stripped)
+    while end > 0 and _is_closing(stripped, end - 1):
+        end -= 1
+    return end > 0 and stripped[end - 1] in _SENTENCE_END_CHARS
+
+
+def _starts_with_indent(text: str) -> bool:
+    """段首缩进：全角空格、制表符或至少两个半角空格。
+
+    单个半角空格是英文词间距（「Hello world.」后追加「 Goodbye.」），不是分段。
+    """
+    return text[:1] in ("　", "\t") or text[:2] == "  "
+
+
+def _paragraph_markers(text: str) -> tuple[bool, bool, bool, bool]:
+    """(以换行开头, 以缩进开头, 以换行结尾, 中间有换行)。"""
+    starts_break = bool(_LEADING_BLANK_LINES.match(text))
+    starts_indent = not starts_break and _starts_with_indent(text)
+    ends_break = text.rstrip(INLINE_SPACE)[-1:] in ("\n", "\r")
+    inner_break = "\n" in text.strip()
+    return starts_break, starts_indent, ends_break, inner_break
+
+
+def _line_indent(content: str, line_start: int) -> str:
+    end = line_start
+    while end < len(content) and content[end] in INLINE_SPACE:
+        end += 1
+    return content[line_start:end]
+
+
+def _dominant_separator(content: str, text: str) -> str:
+    runs = Counter(_NEWLINE_RUN.findall(content))
+    if runs:
+        return runs.most_common(1)[0][0]
+    own = _NEWLINE_RUN.search(text)
+    return own.group(0) if own else "\n"
+
+
+def _apply_indent(block: str, indent: str) -> str:
+    """给 block 里没有缩进、且有正文字符的行补上本文的段首缩进。"""
+    if not indent:
+        return block
+    lines = block.split("\n")
+    for n, line in enumerate(lines):
+        if line and (_WORD_CHAR.match(line[0]) or _is_opening(line, 0)):
+            lines[n] = indent + line
+    return "\n".join(lines)
+
+
+def layout_insertion(
+    content: str, pos: int, text: str, *, direction: str
+) -> tuple[int, str, list[str]]:
+    """决定把 ``text`` 插在 ``pos`` 附近的哪个位置、前后补什么分隔。
+
+    ``direction`` 是 "after"（insert_after/append：text 跟在前文后面）或
+    "before"（insert_before/prepend：text 放在后文前面）。返回
+    ``(插入位置, 实际写入的文本, 说明)``，没有调整时说明为空列表。
+    """
+    if not text or not content.strip() or not text.strip():
+        return pos, text, []
+
+    before = content[:pos]
+    prev_end = len(before.rstrip())
+    after = content[pos:]
+    next_start = pos + (len(after) - len(after.lstrip()))
+    has_prev = prev_end > 0
+    has_next = next_start < len(content)
+    gap = content[prev_end:next_start]
+    break_before = not has_prev or "\n" in content[prev_end:pos]
+    break_after = not has_next or "\n" in content[pos:next_start]
+    if not (break_before or break_after):
+        return pos, text, []  # 段落中间：按模型给的位置原样插入
+
+    starts_break, starts_indent, ends_break, inner_break = _paragraph_markers(text)
+    paragraph = starts_break or starts_indent or ends_break or (inner_break and break_before)
+
+    if not paragraph:
+        # 一句话接在段尾或段首：位置不动，只是不能夹在段首缩进前面或两段之间。
+        if has_prev and has_next and break_before and break_after:
+            target = prev_end if direction == "after" else next_start
+        elif break_before and has_next and not break_after:
+            target = next_start
+        else:
+            return pos, text, []
+        if target == pos:
+            return pos, text, []
+        return target, text, [NOTE_LINE_START]
+
+    last_newline = gap.rfind("\n")
+    next_line_start = prev_end + last_newline + 1 if last_newline >= 0 else prev_end
+    prev_line_start = content.rfind("\n", 0, prev_end) + 1 if has_prev else 0
+    prev_indent = _line_indent(content, prev_line_start) if has_prev else ""
+    next_indent = _line_indent(content, next_line_start) if has_next else ""
+
+    core = _LEADING_BLANK_LINES.sub("", text)
+    if has_prev and has_next:
+        indent = prev_indent if prev_indent and prev_indent == next_indent else ""
+        first_newline = gap.find("\n")
+        separator = gap[first_newline : last_newline + 1]
+        placed_at = prev_end
+        written = separator + _apply_indent(core.rstrip(), indent)
+    elif has_next:  # 文件开头
+        written = core.rstrip() + _dominant_separator(content, text)
+        placed_at = next_line_start
+    else:  # 文件末尾：保留模型自己写的结尾，后面接着追加的写法不受影响
+        written = _apply_indent(core, prev_indent)
+        placed_at = len(content)
+        if "\n" not in gap:
+            written = _dominant_separator(content, text) + written
+
+    if (placed_at, written) == (pos, text):
+        return pos, text, []
+    return placed_at, written, [NOTE_PARAGRAPH]
+
+
+__all__ = [
+    "NOTE_LINE_START",
+    "NOTE_PARAGRAPH",
+    "NOTE_SENTENCE_SNAP",
+    "is_sentence_boundary",
+    "is_sentence_shaped",
+    "layout_insertion",
+    "snap_to_sentence_boundary",
+]

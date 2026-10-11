@@ -163,6 +163,20 @@ def normalize_for_fuzzy_match(
     return "".join(normalized_chars), index_map
 
 
+def _line_break_before(s: str, index_map: list[int]) -> list[bool]:
+    """``flags[k]``：原文里第 k 个归一化字符与前一个之间是否隔着换行。
+
+    归一化会把换行和其他空白一起去掉，段落分隔在比较时就看不见了。这里把它
+    记下来，调用方据此判断一个命中是否跨过了原文的段落分隔。
+    """
+    flags = [False] * len(index_map)
+    for k in range(1, len(index_map)):
+        gap = s[index_map[k - 1] + 1 : index_map[k]]
+        if "\n" in gap or "\r" in gap:
+            flags[k] = True
+    return flags
+
+
 def find_fuzzy_spans(
     content: str,
     pattern: str,
@@ -172,6 +186,7 @@ def find_fuzzy_spans(
     min_normalized_len: int = 6,
     max_matches: int = 20,
     stats: dict[str, int] | None = None,
+    keep_line_breaks: bool = False,
 ) -> list[tuple[int, int]]:
     """Find match spans in original content, ignoring punctuation/whitespace.
 
@@ -187,7 +202,12 @@ def find_fuzzy_spans(
         max_matches: Maximum number of matches to return
         stats: Optional dict receiving match diagnostics; "boundary_rejected"
             counts candidates dropped because the span started/ended inside an
-            NFKC-expanded original character
+            NFKC-expanded original character; "paragraph_rejected" counts
+            candidates dropped by ``keep_line_breaks``
+        keep_line_breaks: replace/delete 用。忽略空白时换行也被忽略，单行的
+            pattern 会和「上一段段尾 + 下一段段首」连成一处命中，整段替换后两段
+            就并成一行。开启后，原文在命中范围内的每一处换行，pattern 在同一
+            位置也必须有换行，否则这个候选作废。
 
     Returns:
         List of (start_index, end_index) tuples in the ORIGINAL content.
@@ -195,13 +215,14 @@ def find_fuzzy_spans(
     """
     if stats is not None:
         stats["boundary_rejected"] = 0
+        stats["paragraph_rejected"] = 0
 
     normalized_content, map_content = normalize_for_fuzzy_match(
         content,
         ignore_punct_whitespace=ignore_punct_whitespace,
         casefold=casefold,
     )
-    normalized_pattern, _ = normalize_for_fuzzy_match(
+    normalized_pattern, map_pattern = normalize_for_fuzzy_match(
         pattern,
         ignore_punct_whitespace=ignore_punct_whitespace,
         casefold=casefold,
@@ -212,8 +233,15 @@ def find_fuzzy_spans(
     if len(normalized_pattern) < min_normalized_len:
         return []
 
+    content_breaks: list[bool] = []
+    pattern_breaks: list[bool] = []
+    if keep_line_breaks and ignore_punct_whitespace:
+        content_breaks = _line_break_before(content, map_content)
+        pattern_breaks = _line_break_before(pattern, map_pattern)
+
     spans: list[tuple[int, int]] = []
     boundary_rejected = 0
+    paragraph_rejected = 0
     pos = 0
     while pos < len(normalized_content):
         found = normalized_content.find(normalized_pattern, pos)
@@ -236,6 +264,14 @@ def find_fuzzy_spans(
             pos = found + 1
             continue
 
+        if content_breaks and any(
+            content_breaks[found + k] and not pattern_breaks[k]
+            for k in range(1, len(normalized_pattern))
+        ):
+            paragraph_rejected += 1
+            pos = found + 1
+            continue
+
         start_orig = map_content[found]
         end_orig = map_content[last] + 1
         spans.append((start_orig, end_orig))
@@ -248,6 +284,7 @@ def find_fuzzy_spans(
 
     if stats is not None:
         stats["boundary_rejected"] = boundary_rejected
+        stats["paragraph_rejected"] = paragraph_rejected
     return spans
 
 
@@ -257,6 +294,8 @@ def find_approximate_match(
     *,
     max_error_rate: float = 0.2,
     min_pattern_len: int = 10,
+    keep_line_breaks: bool = False,
+    stats: dict[str, int] | None = None,
 ) -> tuple[int, int, float, str] | None:
     """Find best approximate match using sliding window + similarity.
 
@@ -268,14 +307,19 @@ def find_approximate_match(
         pattern: The pattern to search for
         max_error_rate: Maximum allowed error rate (0.0 to 1.0)
         min_pattern_len: Minimum normalized pattern length to search
+        keep_line_breaks: 同 find_fuzzy_spans。近似窗口没有逐字对齐，所以按数量
+            约束：窗口内部跨过的原文换行不能多于 pattern 自己的换行。
+        stats: 收到 "paragraph_rejected"（因跨段被丢弃的达标窗口数）
 
     Returns:
         A tuple of (start, end, similarity, matched_text) if a good match is found,
         or None if no match meets the similarity threshold.
     """
+    if stats is not None:
+        stats["paragraph_rejected"] = 0
     # Normalize both for comparison
     norm_content, map_content = normalize_for_fuzzy_match(content)
-    norm_pattern, _ = normalize_for_fuzzy_match(pattern)
+    norm_pattern, map_pattern = normalize_for_fuzzy_match(pattern)
 
     if len(norm_pattern) < min_pattern_len:
         return None
@@ -321,6 +365,18 @@ def find_approximate_match(
     # independent (a shifted window of the true match no longer inflates it).
     candidates: list[tuple[tuple[int, int], float]] = []  # ((start, end), score)
 
+    # break_prefix[k] = 归一化位置 1..k-1 里有几个字符前面隔着换行；窗口 [i, i+w)
+    # 内部的换行数 = break_prefix[i+w] - break_prefix[i+1]。
+    break_prefix: list[int] = []
+    allowed_breaks = 0
+    if keep_line_breaks:
+        content_breaks = _line_break_before(content, map_content)
+        break_prefix = [0] * (len(content_breaks) + 1)
+        for k, flag in enumerate(content_breaks):
+            break_prefix[k + 1] = break_prefix[k] + (1 if flag and k > 0 else 0)
+        allowed_breaks = sum(_line_break_before(pattern, map_pattern))
+    paragraph_rejected = 0
+
     for window_size in range(window_min, window_max + 1):
         if time.monotonic() > deadline:
             # 扫描不完整就无法判定歧义（可能漏掉真正的最佳窗口或它的竞争者），
@@ -348,8 +404,16 @@ def find_approximate_match(
 
             score = matcher.ratio()
             if score >= min_similarity:
+                if (
+                    break_prefix
+                    and break_prefix[i + window_size] - break_prefix[i + 1] > allowed_breaks
+                ):
+                    paragraph_rejected += 1
+                    continue
                 candidates.append(((i, i + window_size), score))
 
+    if stats is not None:
+        stats["paragraph_rejected"] = paragraph_rejected
     if not candidates:
         return None
 
