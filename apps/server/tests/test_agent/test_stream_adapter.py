@@ -1953,7 +1953,8 @@ async def test_body_then_next_create_file_saves_previous_and_captures_next():
         ])
 
         saved = [call.args for call in adapter._save_file_content.await_args_list]
-        assert saved == [("ep-1", "\n雨夜，她推开门。\n"), ("ep-2", "\n天亮了。\n")]
+        # <file> 行尾的那个换行不算正文。
+        assert saved == [("ep-1", "雨夜，她推开门。\n"), ("ep-2", "天亮了。\n")]
         chat = _chat_text(rounds)
         assert "<file>" not in chat and "</file>" not in chat
         assert "雨夜" not in chat and "天亮了" not in chat
@@ -2043,7 +2044,7 @@ async def test_prod_empty_file_pair_after_close_is_not_emitted_as_chat():
     emitted = [e for batch in rounds for e in batch]
 
     adapter._save_file_content.assert_awaited_once_with(
-        "draft-1", "\n　　我叫温知夏。\n松开我的手。\n\n　　只是上一世，雨太大，我没看清。\n"
+        "draft-1", "　　我叫温知夏。\n松开我的手。\n\n　　只是上一世，雨太大，我没看清。\n"
     )
     assert _chat_text(rounds) == "\n\n"
     # 空标签对在 tool_call 之前就已被识别丢弃，tool_call 照常发出

@@ -256,6 +256,10 @@ class StreamProcessor:
     prev_char: str = ""
     fence_open: bool = False
 
+    # 刚进入 WRITING、正文还一个字都没收下：<file> 独占一行，紧跟着的那一个换行是标记行的
+    # 行尾，不是正文（live run 2 场景 A：每个流式写入的文件都以空行开头）。只去掉这一个。
+    at_body_start: bool = False
+
     # 刚以真实 </file> 收尾的窗口（见 _EMPTY_FILE_PAIR_PATTERN）及其中暂扣的
     # "可能是空标签对"的前缀
     after_close: bool = False
@@ -280,6 +284,7 @@ class StreamProcessor:
         self.history_buffer = ""
         self.prev_char = ""
         self.fence_open = False
+        self.at_body_start = False
         self.after_close = False
         self.idle_hold = ""
         self._reset_idle_lines()
@@ -304,6 +309,7 @@ class StreamProcessor:
         self.history_buffer = ""
         self.prev_char = ""
         self.fence_open = False
+        self.at_body_start = False
         self.after_close = False
         self.idle_hold = ""
         self._reset_idle_lines()
@@ -510,6 +516,7 @@ class StreamProcessor:
             self.temp_buffer = after_marker
             self.prev_char = ""
             self.fence_open = False
+            self.at_body_start = True
 
             log_with_context(
                 logger,
@@ -605,9 +612,24 @@ class StreamProcessor:
         self.temp_buffer += content
         return self._scan_writing_buffer(at_eof=False)
 
+    def _drop_marker_line_break(self, at_eof: bool) -> None:
+        """正文开头紧跟 <file> 的那一个换行（\\n 或 \\r\\n）不算正文；其余原样保留。"""
+        if not self.at_body_start:
+            return
+        buffer = self.temp_buffer
+        if buffer.startswith("\r\n"):
+            self.temp_buffer = buffer[2:]
+        elif buffer.startswith("\n"):
+            self.temp_buffer = buffer[1:]
+        elif not buffer or (buffer == "\r" and not at_eof):
+            # 换行可能在下一个 chunk 里。
+            return
+        self.at_body_start = False
+
     def _scan_writing_buffer(self, at_eof: bool) -> StreamResult:
         """扫描 WRITING 缓冲：跳过代码上下文中的字面量标记，转义真实的
         嵌套 <file>，在真实 </file> 处完成文件。"""
+        self._drop_marker_line_break(at_eof)
         buffer = self.temp_buffer
         pos = 0
         fence_open = self.fence_open
@@ -891,6 +913,7 @@ class StreamProcessor:
                 self.temp_buffer = self.temp_buffer[start_match.end():]
                 self.prev_char = ""
                 self.fence_open = False
+                self.at_body_start = True
                 result = self.finalize_on_stream_end()
                 if before_marker:
                     result.conversation_content = (

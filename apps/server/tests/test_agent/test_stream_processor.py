@@ -312,8 +312,9 @@ def test_prod_split_empty_pair_after_close_is_dropped():
     results, proc = _drive(PROD_EMPTY_PAIR_CHUNKS)
     completed = [r for r in results if r.file_complete]
     assert len(completed) == 1
+    # <file> 行尾的那个换行不算正文。
     assert completed[0].final_content == (
-        "\n　　我叫温知夏。\n就没打算松开我的手。\n\n　　只是上一世，雨太大，我没看清。\n"
+        "　　我叫温知夏。\n就没打算松开我的手。\n\n　　只是上一世，雨太大，我没看清。\n"
     )
     chat, tail = _chat_through_eof(results, proc)
     assert chat == "\n\n"
@@ -464,3 +465,34 @@ def test_draining_close_does_not_open_window():
     closing = proc.process_content("</file><file></file>")
     assert closing.conversation_content == "<file></file>"
     assert not proc.is_active
+
+
+# live run 2 场景 A：<file> 独占一行，紧跟的换行被当成正文，每个流式写入的文件都以空行开头。
+@pytest.mark.parametrize(
+    ("chunks", "expected"),
+    [
+        (["<file>\n1-1 写字楼门口 夜 外\n\n△ 暴雨。</file>"], "1-1 写字楼门口 夜 外\n\n△ 暴雨。"),
+        # 换行单独落在下一个 chunk（线上第3集的第一块 file_content 就只有一个 "\n"）。
+        (["<file>", "\n", "3-1 苏晓家楼下\n\n△ 风。", "</file>"], "3-1 苏晓家楼下\n\n△ 风。"),
+        (["<file>\r\n正文第一段。</file>"], "正文第一段。"),
+        (["<file>\r", "\n正文第一段。</file>"], "正文第一段。"),
+        # 只去掉一个：多出来的空行、正文开头的缩进照留。
+        (["<file>\n\n　　正文第一段。</file>"], "\n　　正文第一段。"),
+        (["<file>　　正文第一段。\n</file>"], "　　正文第一段。\n"),
+        (["<file>正文\n第二行</file>"], "正文\n第二行"),
+    ],
+)
+def test_one_line_break_right_after_the_start_marker_is_not_body(chunks, expected):
+    results, _ = _drive(chunks)
+    completed = next(r for r in results if r.file_complete)
+    assert completed.final_content == expected
+    streamed = "".join(r.file_content for r in results if r.file_id)
+    assert streamed == expected
+
+
+def test_line_break_after_the_start_marker_is_dropped_when_the_stream_is_cut_short():
+    proc = StreamProcessor()
+    proc.start_file_write("file-1")
+    proc.process_content("<file>\n半截正文")
+    result = proc.finalize_on_stream_end()
+    assert result.final_content == "半截正文"
