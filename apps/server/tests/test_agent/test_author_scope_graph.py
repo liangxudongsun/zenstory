@@ -530,3 +530,27 @@ def test_review_rule_jargon_is_not_shown_to_authors():
     assert cleaned.startswith("与第1章逐字重复47字")
     assert "时间线矛盾" in cleaned
     assert "阈值" not in author_facing_text("重复47字，超过15字阈值，按阻断处理，需要改")
+
+
+async def test_vague_reply_to_a_conditional_offer_goes_ahead():
+    """I06：AI 问「要不要我把大纲那一行同步改成新落点？」后又补一句「你说改我就改」，
+    结尾不是问号；作者回「改」就是答应这一处，不再先问一遍。"""
+    seen: dict[str, object] = {}
+
+    async def fake_agent(state, agent_type, **_kwargs):
+        seen["clarify_first"] = state.get("clarify_first")
+        yield StreamEvent(type=StreamEventType.TEXT, data={"text": "改好了。"})
+
+    history = [
+        {"role": "user", "content": "结局换成主角留在岛上"},
+        {
+            "role": "assistant",
+            "content": "结局改好了。核心大纲第七行还写着主角离岛。\n"
+            "要不要我把大纲那一行同步改成新落点？你说改我就改，不改就留着。",
+            "routing": _WRITER_ROUTING,
+        },
+    ]
+    route = _route({"agent_type": "writer", "workflow_type": "quick", "write_content": True})
+    await _run(route, fake_agent, message="改", messages=history)
+
+    assert seen["clarify_first"] is not True

@@ -345,9 +345,14 @@ def _should_clarify_first(state: WritingState) -> bool:
             return False
         if previous.get("clarification_pending") is True:
             return False
-        if _ended_with_question(previous) and previous_question_offers_one_edit(
-            _reply_text(previous.get("content"))
-        ):
+        reply = _reply_text(previous.get("content"))
+        # 「要不要我把大纲那一行改成新落点？你说改我就改，不改就留着。」结尾不是问号，
+        # 也是在问作者（I06）：作者回「改」答应的就是这一处。
+        from agent.tools.author_edit_guard import ends_with_conditional_offer
+
+        if (
+            _ended_with_question(previous) or ends_with_conditional_offer(reply)
+        ) and previous_question_offers_one_edit(reply):
             return False
     return True
 

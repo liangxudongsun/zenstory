@@ -25,6 +25,7 @@ from agent.tools.author_edit_guard import (
     AUTHOR_EDIT_PROTECTED_ERROR,
     AuthorEditRefusals,
     AuthorScope,
+    OfferItem,
     latest_text_is_authors,
     protected_refusal_message,
     protected_user_message,
@@ -389,6 +390,7 @@ class ToolContext:
         referenced_file_ids: Iterable[str] | None = None,
         author_confirmed_file_ids: Iterable[str] | None = None,
         author_edit_refusals: AuthorEditRefusals | None = None,
+        author_previous_offer: Iterable[OfferItem] | None = None,
     ) -> None:
         """Set the execution context for tools (request-scoped).
 
@@ -402,7 +404,9 @@ class ToolContext:
             author_confirmed_file_ids: 上一轮因为作者手改过而问过作者要不要改的文件，
                 本轮放行（作者这一轮就是在回答）。
             author_edit_refusals: 本轮因为作者手改过而没改成的文件（service 持有，
-                落库到 routing，下一轮放行）。以上四项见 agent/tools/author_edit_guard.py。
+                落库到 routing，下一轮放行）。
+            author_previous_offer: 上一轮 AI 收尾时给作者的提议（选项 / 问句），作者答应或选中
+                改某个文件的那一项时放行它。以上几项见 agent/tools/author_edit_guard.py。
             recorded_skill_ids: 本次请求里已记录过用量的技能（显式选择的技能），
                 load_skill 不再为它们重复记用量。
             skill_tokens_used: 显式选择的技能注入 system prompt 时已占用的技能内容 token，
@@ -427,6 +431,9 @@ class ToolContext:
                 str(item) for item in (author_confirmed_file_ids or []) if item
             ),
             "author_edit_refusals": author_edit_refusals,
+            "author_previous_offer": tuple(
+                item for item in (author_previous_offer or ()) if isinstance(item, OfferItem)
+            ),
         })
         _owned_session_var.set(None)
         _pending_empty_file_var.set(None)
@@ -544,11 +551,13 @@ class ToolContext:
         focus = context.get("focus_file_id")
         referenced = context.get("referenced_file_ids")
         confirmed = context.get("author_confirmed_file_ids")
+        offer = context.get("author_previous_offer")
         return AuthorScope(
             messages=tuple(cls.get_author_messages()),
             referenced_file_ids=referenced if isinstance(referenced, frozenset) else frozenset(),
             confirmed_file_ids=confirmed if isinstance(confirmed, frozenset) else frozenset(),
             focus_file_id=focus if isinstance(focus, str) and focus else None,
+            previous_offer=offer if isinstance(offer, tuple) else (),
         )
 
     @classmethod

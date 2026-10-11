@@ -18,8 +18,11 @@ from agent.tools.author_edit_guard import (
     AuthorEditRefusals,
     AuthorScope,
     confirmed_file_ids_from_history,
+    ends_with_conditional_offer,
     latest_text_is_authors,
     mentioned_sequences,
+    previous_offer_from_history,
+    previous_offer_items,
     referenced_file_ids_from_metadata,
     rename_source_terms,
     request_deletes_file,
@@ -676,3 +679,192 @@ async def test_recursive_folder_delete_keeps_author_edited_chapters(db_session, 
     assert allowed["status"] == "success"
     db_session.expire_all()
     assert db_session.get(File, chapter.id).is_deleted is True
+
+
+# --------------------------------------------- 回答上一轮 AI 对这个文件的提议（I14）
+#
+# 线上：AI 自己提出「按这个改，我直接写进第四节」，作者回「好的，继续」「两件都做」
+# 「按新来历修改」仍被拦，AI 只能让作者照抄一句口令。上一轮 AI 的提议原文在历史里，
+# 守卫据此判断作者答应 / 选中的那一项是不是改这个文件。以下文本都是构造的。
+
+_OFFER_CH4 = (
+    "《第四节 码头夜谈》写好了，我再通读核对一遍。第四节是你手动改过的，我没有直接动它。\n\n"
+    "我准备的改法：把「货早就出不去了」那一句换成两处能对上的硬伤，第六节翻盘时正好用上。\n\n"
+    "- 按这个改（冷库停电＋大客户转单），我直接写进第四节。\n"
+    "- 换一种：改成海关扣货、合伙人跑路，方向类似。\n"
+    "- 第四节先不动，等写到第六节再回头补。"
+)
+_OFFER_OUTLINE_OR_CH2 = (
+    "第一章、第三章的口径都改好了。\n\n"
+    "《总纲与前十章细纲》是你手动改过的，我没有动。里面还有三处是旧说法。\n"
+    "要改这个文件得你点头，你说一声我就动。\n\n"
+    "请挑一个：\n"
+    "1. 大纲那三处按新身份改掉（核心冲突、第五卷、第九章细纲）\n"
+    "2. 先把第二章和第一章重复的那段压掉\n"
+    "3. 两件都做"
+)
+_OFFER_OUTLINE_LABELS = (
+    "大纲是你手动改过的文件，我没有动它。大纲里还有三处旧说法，要不要一起改？\n\n"
+    "请挑一个：\n"
+    "1. 大纲那三处按新身份改掉，正文那三处也一起理顺\n"
+    "2. 只改大纲那三处，正文先留着\n"
+    "3. 都先不动，我接着往下写"
+)
+_OFFER_OTHER_CHAPTER = "第3章是你手动改过的，我没动它：那里摊主叫老秦，第2章写的是老周，要把第2章也改成老秦吗？"
+_OFFER_ONE_LINE = "核心大纲第七行和新结局对不上。要不要我把大纲那一行同步改成新落点？你说改我就改，不改就留着。"
+_OFFER_DECLINE_FIRST = "第四节是你手动改过的。\n\n- 第四节先不动，以后再说\n- 按这个改第四节，把那句换成冷库停电"
+_OFFER_NEXT_STEPS = "第3章写好了。\n\n接下来你可以：\n1. 把第3章开头改紧凑一点\n2. 继续写第4章"
+# AI 交代这一轮做了什么（「第四节是你手动改过的，我没动它」）不是提议改第四节。
+_REPORT_BULLETS_THEN_QUESTION = (
+    "第五节写好了。\n\n"
+    "- **第四节**：是你手动改过的，我没动它\n"
+    "- **第五节**：按细纲写完了，结尾留了钩子\n\n"
+    "要不要继续写第六节？"
+)
+_REPORT_INLINE_QUESTION = "第五节写好了。第四节是你手动改过的，要我继续吗？"
+_REPORT_RUN_WITH_OFFER = (
+    "这轮做了：\n- 第四节：你手动改过，我没动\n- 第五节写完了\n需要的话我可以接着写第六节。"
+)
+# 改第四节和「继续写第五节」并列时，「继续」选的是接着写。
+_OFFER_EDIT_OR_CONTINUE = "要不要我把第四节结尾改紧凑一点？还是继续写第五节？"
+_OFFER_ONE_QUESTION_CH4 = "要不要我把第四节结尾改紧凑一点？"
+
+_CH4 = {"file_id": "ch4", "title": "第四节 码头夜谈", "file_type": "draft"}
+_CH6 = {"file_id": "ch6", "title": "第六节 翻盘", "file_type": "draft"}
+_OUTLINE = {"file_id": "o1", "title": "总纲与前十章细纲", "file_type": "outline"}
+_CH2 = {"file_id": "c2", "title": "第二章 雪夜", "file_type": "draft"}
+_CH9 = {"file_id": "c9", "title": "第九章 勋章", "file_type": "draft"}
+_CH3 = {"file_id": "ch3", "title": "第3章 三十年", "file_type": "draft"}
+_CH2_NUM = {"file_id": "ch2", "title": "第2章 夜市", "file_type": "draft"}
+
+
+class TestReplyToThePreviousOffer:
+    @pytest.mark.parametrize(
+        ("offer", "reply", "file", "unlocked"),
+        [
+            # AI 提议改第四节、作者答应：第一项（推荐项）就是改第四节。
+            (_OFFER_CH4, "好的，继续", _CH4, True),
+            (_OFFER_CH4, "可以", _CH4, True),
+            (_OFFER_CH4, "按这个改", _CH4, True),
+            (_OFFER_CH4, "1", _CH4, True),
+            (_OFFER_CH4, "选第一个", _CH4, True),
+            # 选了「先不动」、说了不改、或者答应之外又提了别的事：不放开。
+            (_OFFER_CH4, "3", _CH4, False),
+            (_OFFER_CH4, "第四节先不动", _CH4, False),
+            (_OFFER_CH4, "好，继续写第五节", _CH4, False),
+            # 提议改的是第四节：第六节（只在提议里被提到）不跟着放开。
+            (_OFFER_CH4, "好的，继续", _CH6, False),
+            # 选项：1 改大纲，2 改第二章，3 两件都做。
+            (_OFFER_OUTLINE_OR_CH2, "两件都做", _OUTLINE, True),
+            (_OFFER_OUTLINE_OR_CH2, "两件都做", _CH2, True),
+            (_OFFER_OUTLINE_OR_CH2, "3", _OUTLINE, True),
+            (_OFFER_OUTLINE_OR_CH2, "1", _OUTLINE, True),
+            (_OFFER_OUTLINE_OR_CH2, "1", _CH2, False),
+            (_OFFER_OUTLINE_OR_CH2, "2", _OUTLINE, False),
+            # 只答「好」：按第一项（改大纲），不放开第二章。
+            (_OFFER_OUTLINE_OR_CH2, "好", _OUTLINE, True),
+            (_OFFER_OUTLINE_OR_CH2, "好", _CH2, False),
+            # 「第九章细纲」是大纲里的一段，不是第九章正文。
+            (_OFFER_OUTLINE_OR_CH2, "1", _CH9, False),
+            # 作者复述了某一项的说法（「按新身份」只出现在第 1 项里）。
+            (_OFFER_OUTLINE_LABELS, "按新身份修改，改完再把1-10章里冲突的地方重写", _OUTLINE, True),
+            (_OFFER_OUTLINE_LABELS, "都先不动", _OUTLINE, False),
+            # AI 问的是「要把第2章也改成老秦吗？」：「好 / 可以」答应的是第2章，不放开第3章。
+            (_OFFER_OTHER_CHAPTER, "好", _CH3, False),
+            (_OFFER_OTHER_CHAPTER, "可以", _CH3, False),
+            (_OFFER_OTHER_CHAPTER, "可以", _CH2_NUM, True),
+            # 一句话的提议，结尾是「你说改我就改」。
+            (_OFFER_ONE_LINE, "改", _OUTLINE, True),
+            (_OFFER_ONE_LINE, "不改", _OUTLINE, False),
+            # 第一项是「先不动」时，「好」答应的是不动。
+            (_OFFER_DECLINE_FIRST, "好", _CH4, False),
+            # 作者复述了改法、却点名的是别的章：不是在选这一项。
+            (_OFFER_NEXT_STEPS, "第5章的开头改紧凑一点", _CH3, False),
+            (_OFFER_NEXT_STEPS, "1", _CH3, True),
+            # AI 交代的是做了什么、问的是别的事：「好 / 1」不放开它说「没动」的第四节。
+            (_REPORT_BULLETS_THEN_QUESTION, "好", _CH4, False),
+            (_REPORT_BULLETS_THEN_QUESTION, "1", _CH4, False),
+            (_REPORT_INLINE_QUESTION, "好", _CH4, False),
+            (_REPORT_RUN_WITH_OFFER, "1", _CH4, False),
+            (_REPORT_RUN_WITH_OFFER, "好", _CH4, False),
+            # 「继续」选的是并列的「继续写第五节」，不是改第四节。
+            (_OFFER_EDIT_OR_CONTINUE, "继续", _CH4, False),
+            (_OFFER_EDIT_OR_CONTINUE, "好的，继续", _CH4, False),
+            (_OFFER_EDIT_OR_CONTINUE, "好", _CH4, True),
+            (_OFFER_EDIT_OR_CONTINUE, "改吧", _CH4, True),
+            # 客套话不是答应；「继续」单独说也不算答应改（可能只是让 AI 往下写）。
+            (_OFFER_ONE_QUESTION_CH4, "辛苦了", _CH4, False),
+            (_OFFER_ONE_QUESTION_CH4, "谢谢", _CH4, False),
+            (_OFFER_ONE_QUESTION_CH4, "麻烦了", _CH4, False),
+            (_OFFER_ONE_QUESTION_CH4, "吧", _CH4, False),
+            (_OFFER_ONE_QUESTION_CH4, "继续", _CH4, False),
+            (_OFFER_ONE_QUESTION_CH4, "好的，谢谢", _CH4, True),
+            (_OFFER_ONE_QUESTION_CH4, "可以吧", _CH4, True),
+        ],
+    )
+    def test_assent_or_pick_unlocks_only_the_file_the_ai_offered_to_change(self, offer, reply, file, unlocked):
+        scope = AuthorScope(messages=(reply,), previous_offer=previous_offer_items(offer))
+        assert request_targets_file(scope, **file) is unlocked
+
+    def test_assent_without_a_previous_offer_does_not_unlock(self):
+        for reply in ("好的，继续", "好", "两件都做", "1"):
+            assert request_targets_file(_scope(reply), **_CH4) is False
+        # 上一轮只交代做了什么、没提议改它。
+        report = previous_offer_items("《第四节 码头夜谈》写好了，1066 字，没发现需要返工的地方。")
+        assert request_targets_file(AuthorScope(messages=("好",), previous_offer=report), **_CH4) is False
+
+    def test_offer_is_read_from_the_last_assistant_reply_only(self):
+        history = [
+            {"role": "user", "content": "诱饵那颗雷再实一点"},
+            {"role": "assistant", "content": _OFFER_CH4 + "\n\n[此前的工具操作]\n- 编辑《第四节 码头夜谈》被拒"},
+            {"role": "user", "content": "好的，继续"},
+        ]
+        offer = previous_offer_from_history(history)
+        assert request_targets_file(AuthorScope(messages=("好的，继续",), previous_offer=offer), **_CH4) is True
+        later = [*history, {"role": "assistant", "content": "第五节写好了。"}]
+        assert previous_offer_from_history(later) == ()
+
+    def test_conditional_offer_counts_as_asking(self):
+        assert ends_with_conditional_offer(_OFFER_ONE_LINE) is True
+        assert ends_with_conditional_offer("要改的话你说一声，我就动。") is True
+        assert ends_with_conditional_offer("第4章写好了。") is False
+
+
+async def test_agreeing_to_the_ais_own_proposal_edits_the_author_edited_file(db_session, owner_project):
+    """AI 上一轮提议改作者手改过的第四节、作者回「好的，继续」：这一轮改得了。"""
+    user, project = owner_project
+    chapter = _ai_chapter(db_session, project, title="第四节 码头夜谈", content="货早就出不去了。")
+    _author_saves(db_session, user, chapter, "他说，货早就出不去了。")
+    history = [
+        {"role": "user", "content": "诱饵那颗雷再实一点"},
+        {"role": "assistant", "content": _OFFER_CH4, "routing": {CONFIRM_FILE_IDS_ROUTING_KEY: [chapter.id]}},
+    ]
+    edit = {"id": chapter.id, "edits": [
+        {"op": "replace", "old": "货早就出不去了。", "new": "冷库停电三天，最大的客户也转了单。"},
+    ]}
+
+    payload = await _run(
+        mcp_tools.edit_file, db_session, user, project, edit,
+        message="好的，继续",
+        author_confirmed_file_ids=confirmed_file_ids_from_history(history),
+        author_previous_offer=previous_offer_from_history(history),
+    )
+
+    assert payload["status"] == "success"
+    db_session.expire_all()
+    assert "冷库停电" in db_session.get(File, chapter.id).content
+
+    # 作者又手改了一次；这回 AI 问的是别的章，作者回「好」：第四节照样不动。
+    db_session.expire_all()
+    _author_saves(db_session, user, db_session.get(File, chapter.id), "冷库停电三天，大客户也走了。")
+    other = [
+        {"role": "user", "content": "继续"},
+        {"role": "assistant", "content": "第四节是你手动改过的，我没动它。要把第三节也改成冷库停电吗？"},
+    ]
+    refused = await _run(
+        mcp_tools.edit_file, db_session, user, project,
+        {"id": chapter.id, "edits": [{"op": "replace", "old": "冷库停电三天", "new": "冷库停电五天"}]},
+        message="好",
+        author_previous_offer=previous_offer_from_history(other),
+    )
+    assert refused["error_type"] == AUTHOR_EDIT_PROTECTED_ERROR

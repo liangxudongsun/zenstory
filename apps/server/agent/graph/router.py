@@ -787,6 +787,30 @@ def resume_route_after_exhaustion(state: WritingState) -> dict[str, Any] | None:
     }
 
 
+def _is_review_task(routing: dict[str, Any]) -> bool:
+    """上一轮本身就是审稿任务（路由一开始就交给审稿人，或 review_only 工作流）。"""
+    return (
+        _valid_agent(routing.get("initial_agent")) == "quality_reviewer"
+        or str(routing.get("workflow_type") or "").strip() == "review_only"
+    )
+
+
+def task_owner_agent(routing: dict[str, Any]) -> str | None:
+    """上一轮负责任务的 agent（回答它的提问时交回给它）。
+
+    service 落库的 owner_agent 优先：它是这一轮最后一个不是「交接来审稿」的 agent。
+    旧数据没有 owner_agent：last_agent 是 quality_reviewer、而上一轮不是审稿任务时，
+    审稿人只是自动质量门控 / 送审带来的，交回 initial_agent（没有时 writer）。
+    上一轮明确是审稿任务时才沿用审稿人。
+    """
+    owner = _valid_agent(routing.get("owner_agent"))
+    last = _valid_agent(routing.get("last_agent"))
+    initial = _valid_agent(routing.get("initial_agent"))
+    if last == "quality_reviewer" and not _is_review_task(routing):
+        return owner if owner and owner != "quality_reviewer" else initial or "writer"
+    return last or owner or initial
+
+
 def _ended_with_question(previous: dict[str, Any]) -> bool:
     # 延迟导入：nodes 依赖 runner，router 会被轻量测试单独导入。
     from agent.graph.nodes import ends_with_question_to_user
@@ -843,7 +867,7 @@ def inherit_routing_after_clarification(state: WritingState) -> dict[str, Any] |
             return None
 
     initial_agent = _valid_agent(routing.get("initial_agent"))
-    agent_type = _valid_agent(routing.get("last_agent")) or initial_agent or "writer"
+    agent_type = task_owner_agent(routing) or "writer"
     previous_workflow = str(routing.get("workflow_type") or "").strip()
     if agent_type == initial_agent and previous_workflow in WORKFLOW_AGENTS:
         workflow_type = previous_workflow
@@ -935,6 +959,11 @@ def _previous_routing_summary(previous: dict[str, Any]) -> str:
     card_agent = _valid_agent(previous.get("last_agent"))
     if card_agent:
         routing["last_agent"] = card_agent
+    # 交给路由器的「上一轮的 agent」是负责任务的那个：自动审稿 / 送审时最后说话的是
+    # 审稿人，它没有写文件的工具，作者的回答要回到写稿的 agent。
+    owner = task_owner_agent(routing)
+    if owner:
+        routing["last_agent"] = owner
     summary: dict[str, Any] = {}
     for key in _ROUTER_PREV_ROUTING_KEYS:
         value = routing.get(key)
