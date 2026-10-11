@@ -1457,3 +1457,26 @@ class TestContextPrioritizer:
         # CRITICAL and CONSTRAINT should get more than INSPIRATION
         assert allocation[ContextPriority.CRITICAL] >= allocation[ContextPriority.INSPIRATION]
         assert allocation[ContextPriority.CONSTRAINT] >= allocation[ContextPriority.INSPIRATION]
+
+
+@pytest.mark.unit
+def test_project_notes_render_ai_proposals_apart_from_author_confirmed():
+    """备注里的 AI 提议单独成块、写明不是设定；作者确认与未标来源各自标明。"""
+    from config.project_notes import CONFIRMED_HEADER, PROPOSALS_HEADER
+
+    notes = (
+        "反派身份第20章前不得揭露\n\n"
+        f"{CONFIRMED_HEADER}\n主角不会游泳\n\n"
+        f"{PROPOSALS_HEADER}\n反派其实是主角的父亲"
+    )
+    context = ContextAssembler()._format_context([], None, {"notes": notes})
+
+    confirmed_at = context.index("【备注·作者确认】")
+    unlabeled_at = context.index("未标来源")
+    proposals_at = context.index("【AI 提议·作者还没确认】")
+    assert confirmed_at < context.index("主角不会游泳") < unlabeled_at
+    assert unlabeled_at < context.index("反派身份第20章前不得揭露") < proposals_at
+    assert proposals_at < context.index("反派其实是主角的父亲")
+    assert "不是设定" in context[proposals_at:]
+    # 存储用的分区标题不原样进上下文，避免和渲染标签混在一起
+    assert CONFIRMED_HEADER not in context and PROPOSALS_HEADER not in context

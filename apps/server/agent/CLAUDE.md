@@ -178,6 +178,16 @@ Agent 可以通过两种方式交接：
 - 空文件纠偏轮由建了空文件的 agent 自己补写（不再硬编码 writer）；被纠偏打断的那一轮若以提问
   收尾，「等用户回答」会带过纠偏轮，纠偏完成后照样停下。
 - 自动质检门只认「至少一次写工具成功」：writer 的 create_file/edit_file 全部失败时不送审。
+- 空文件守卫（一次只流式写一个文件）挡住的 create_file，若要建的正是挡路的那个空文件（同标题、
+  同父目录、同类型，且没有建库途中的占坑），返回那个文件（`content=""`、`next_step` 提示直接写
+  `<file>` 正文），不再报 `pending_empty_file_unwritten`；挡路的是别的文件时照旧拒绝
+  （`mcp_tools._repeat_of_pending_empty_file`）。
+- 项目备注（AI 记忆 notes）按来源分三块存成纯文本：未标来源 / 【作者确认】/ 【AI 提议·待作者确认】
+  （`config/project_notes.py`）。`update_project` 的 notes 新条目要有 `author_quotes` 里逐字出现在
+  作者本轮消息里的原话才进「作者确认」，否则记成 AI 提议（结果里 `notes_recorded_as_proposals`）；
+  `proposals` 整体替换 AI 提议块。上下文里三块分开渲染，AI 提议写明不是设定。
+- 回复语言跟随作者最近一条消息（`message_manager.detect_author_language`），系统提示末尾写明本轮
+  语言，所有角色（含审稿人）共用；界面语言只在消息看不出语言时兜底。
 
 ## 关键组件详解
 

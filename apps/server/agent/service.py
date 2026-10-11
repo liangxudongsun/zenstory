@@ -540,6 +540,7 @@ class AgentService:
             language=language,
             skill_catalog=skill_catalog,
             selected_skills=selected_skills or None,
+            author_message=message,
         )
         return selected_skills, system_prompt
 

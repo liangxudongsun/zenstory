@@ -18,6 +18,7 @@ from sqlmodel import Session, select
 
 # Local
 from config.agent_runtime import AGENT_CONTEXT_TOKEN_BUDGET
+from config.project_notes import split_project_notes
 from utils.logger import get_logger, log_with_context
 
 from ..constants import CONTENT_FILE_TYPES, INVENTORY_FILE_TYPES
@@ -81,6 +82,34 @@ def _retrieval_semantic_timeout_s() -> float:
     except ValueError:
         return DEFAULT_RETRIEVAL_SEMANTIC_TIMEOUT_S
     return value if value > 0 else DEFAULT_RETRIEVAL_SEMANTIC_TIMEOUT_S
+
+
+def _render_project_notes(notes: str) -> list[str]:
+    """备注按来源分开渲染：作者确认 / 未标来源 / AI 提议（见 config/project_notes）。
+
+    AI 提议单独成块并写明不是设定，后续轮次不会把它当成作者定下的事实。
+    """
+    sections = split_project_notes(notes)
+    lines: list[str] = []
+    if sections.confirmed:
+        lines.append("【备注·作者确认】（作者在对话里说过、记录时核对过原话的约定）")
+        lines.extend(sections.confirmed)
+        lines.append("")
+    if sections.unlabeled:
+        lines.append(
+            "【备注】（未标来源：作者在 AI 记忆里写的，或以前记下、没区分来源的条目；"
+            "和作者本轮的话或稿件冲突时以作者和稿件为准，不要说成「作者已确认」）"
+        )
+        lines.extend(sections.unlabeled)
+        lines.append("")
+    if sections.proposals:
+        lines.append(
+            "【AI 提议·作者还没确认】（之前 AI 提出或推断的内容，不是设定：不要当定论写进正文、"
+            "文件或回复，也不要说成作者定的；作者明确同意后才算数）"
+        )
+        lines.extend(sections.proposals)
+        lines.append("")
+    return lines
 
 
 class ContextAssembler:
@@ -1966,7 +1995,7 @@ class ContextAssembler:
             parts.append("")
 
             if project_status.get("summary"):
-                parts.append("【项目简介】")
+                parts.append("【项目简介】（概要，可能是 AI 根据对话和稿件整理的；具体设定以作者原话和稿件为准）")
                 parts.append(project_status["summary"])
                 parts.append("")
 
@@ -1981,16 +2010,14 @@ class ContextAssembler:
                 parts.append("")
 
             if project_status.get("notes"):
-                parts.append("【备注】")
-                parts.append(project_status["notes"])
-                parts.append("")
+                parts.extend(_render_project_notes(project_status["notes"]))
         else:
             # Remind AI to collect project info when status is empty
             parts.append(separator)
             parts.append("项目状态 [待收集]")
             parts.append(separator)
             parts.append("")
-            parts.append("⚠️ 项目信息尚未记录！当用户提到以下内容时，请立即调用 update_project 记录：")
+            parts.append("⚠️ 项目信息尚未记录！作者亲口说到以下内容时，用 update_project 记下作者说的（不记你自己的推断）：")
             parts.append("- 小说类型/题材/背景 → summary")
             parts.append("- 写作风格/语言偏好 → writing_style")
             parts.append("- 特殊要求/注意事项 → notes")

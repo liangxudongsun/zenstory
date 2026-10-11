@@ -269,6 +269,7 @@ UPDATE_PROJECT_TOOL: dict[str, Any] = {
         "更新项目信息和任务计划。可同时更新项目状态（摘要、阶段、风格、备注）和任务列表。"
         "summary/current_phase/writing_style/notes 传值即整体替换该字段，不是追加："
         "新增内容时必须把现有内容与新条目合并后整段传入，否则原有内容会丢失。"
+        "notes 只记作者定下的约定（附 author_quotes 作者原话）；你自己的推断或建议放 proposals。"
         "给作品定了名字时传 title：项目还叫默认名（如「我的小说」）或之前由 AI 起的名字时会改名，"
         "作者自己起的名字不会被改。作者在对话里明确要求改项目名时，传 title 加 author_requested=true。"
     ),
@@ -310,8 +311,28 @@ UPDATE_PROJECT_TOOL: dict[str, Any] = {
             "notes": {
                 "type": "string",
                 "description": (
-                    "写作约定、禁忌等需要长期记住的备注。整体替换："
-                    "必须把现有备注与新条目合并后整段传入，只传新条目会抹掉原有约定"
+                    "作者定下的写作约定、禁忌等需要长期记住的备注。整体替换："
+                    "必须把现有备注（项目状态里「作者确认」和「未标来源」两块）逐字照抄、再合并新条目后整段传入，"
+                    "只传新条目会抹掉原有约定。只写作者亲口说过或明确同意的内容，"
+                    "新条目要在 author_quotes 里附上作者本轮的原话；找不到作者原话的条目会被记成 AI 提议。"
+                    "不要在条目里自己标「已定」「作者确认」"
+                ),
+                "maxLength": PROJECT_STATUS_MAX_LENGTHS["notes"],
+            },
+            "author_quotes": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "这次新记进 notes 的条目所依据的作者原话，从作者本轮的消息里逐字摘录"
+                    "（如作者说「记住，女主第五章才出场」就摘「女主第五章才出场」；作者同意你的提议时摘他同意的那句）。"
+                    "系统会核对原话，作者没说过的不算"
+                ),
+            },
+            "proposals": {
+                "type": "string",
+                "description": (
+                    "你提出或推断、作者还没同意的设定和建议（备注里的「AI 提议·待作者确认」一块，整体替换；"
+                    "不传则保留原有提议）。它们之后会作为未确认的提议提供给你，不会当成设定"
                 ),
                 "maxLength": PROJECT_STATUS_MAX_LENGTHS["notes"],
             },
