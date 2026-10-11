@@ -7,6 +7,11 @@ import { useDialogInteractions } from './ui/dialogFocus';
 
 export interface LeaveWhileGeneratingDialogProps {
   open: boolean;
+  /**
+   * What the author is about to do mid-round: leave the workbench (the default), or start a
+   * new chat in the panel, which stops this round through the server first.
+   */
+  intent?: 'leave' | 'newChat';
   /** The round finished while the dialog was open: leaving no longer cuts anything off. */
   roundEnded: boolean;
   /** This round already wrote something (prose or a file): leaving keeps it and is charged. */
@@ -18,11 +23,13 @@ export interface LeaveWhileGeneratingDialogProps {
 }
 
 /**
- * Asked before leaving the workbench (in-app link, Back, system back) mid-round.
- * Staying is the primary action; leaving is the quiet secondary one, because it ends the round.
+ * Asked before leaving the workbench (in-app link, Back, system back) or starting a new chat
+ * mid-round. Staying is the primary action; going ahead is the quiet secondary one, because it
+ * ends the round.
  */
 export function LeaveWhileGeneratingDialog({
   open,
+  intent = 'leave',
   roundEnded,
   producedOutput,
   showDailyCount,
@@ -46,8 +53,11 @@ export function LeaveWhileGeneratingDialog({
   const title = roundEnded
     ? t('chat:leaveWhileGenerating.endedTitle', { defaultValue: '这一轮已经结束' })
     : t('chat:leaveWhileGenerating.title', { defaultValue: 'AI 还在写' });
+  const newChat = intent === 'newChat';
   let message: string;
-  if (roundEnded) {
+  if (newChat) {
+    message = newChatMessage(t, { roundEnded, producedOutput, showDailyCount });
+  } else if (roundEnded) {
     message = t('chat:leaveWhileGenerating.endedMessage', { defaultValue: '现在离开不会中断任何内容。' });
   } else if (producedOutput) {
     message = showDailyCount
@@ -76,7 +86,7 @@ export function LeaveWhileGeneratingDialog({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
-        data-testid="leave-while-generating-dialog"
+        data-testid={newChat ? 'new-chat-while-generating-dialog' : 'leave-while-generating-dialog'}
       >
         <div className="flex items-start gap-3 mb-4">
           <div className="flex-shrink-0 text-[hsl(var(--warning))]">
@@ -94,17 +104,60 @@ export function LeaveWhileGeneratingDialog({
           </p>
         </div>
         <div className="flex justify-end gap-3">
-          <Button variant="secondary" onClick={onLeave} data-testid="leave-dialog-leave">
-            {t('chat:leaveWhileGenerating.leave', { defaultValue: '离开' })}
-          </Button>
-          <Button variant="primary" onClick={onStay} data-leave-dialog-stay="" data-testid="leave-dialog-stay">
-            {roundEnded
-              ? t('chat:leaveWhileGenerating.stayEnded', { defaultValue: '留在这里' })
-              : t('chat:leaveWhileGenerating.stay', { defaultValue: '继续等' })}
-          </Button>
+          {newChat ? (
+            <>
+              <Button variant="secondary" onClick={onLeave} data-testid="new-chat-dialog-confirm">
+                {roundEnded
+                  ? t('chat:newChatWhileGenerating.confirmEnded', { defaultValue: '开始新对话' })
+                  : t('chat:newChatWhileGenerating.confirm', { defaultValue: '停止并开始新对话' })}
+              </Button>
+              <Button variant="primary" onClick={onStay} data-leave-dialog-stay="" data-testid="new-chat-dialog-stay">
+                {roundEnded
+                  ? t('chat:newChatWhileGenerating.cancel', { defaultValue: '取消' })
+                  : t('chat:leaveWhileGenerating.stay', { defaultValue: '继续等' })}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="secondary" onClick={onLeave} data-testid="leave-dialog-leave">
+                {t('chat:leaveWhileGenerating.leave', { defaultValue: '离开' })}
+              </Button>
+              <Button variant="primary" onClick={onStay} data-leave-dialog-stay="" data-testid="leave-dialog-stay">
+                {roundEnded
+                  ? t('chat:leaveWhileGenerating.stayEnded', { defaultValue: '留在这里' })
+                  : t('chat:leaveWhileGenerating.stay', { defaultValue: '继续等' })}
+              </Button>
+            </>
+          )}
         </div>
       </div>
     </div>,
     document.body,
   );
+}
+
+type Translate = ReturnType<typeof useTranslation>['t'];
+
+/** A new chat stops this round first (author stop: refunded when nothing was written yet). */
+function newChatMessage(
+  t: Translate,
+  { roundEnded, producedOutput, showDailyCount }: { roundEnded: boolean; producedOutput: boolean; showDailyCount: boolean },
+): string {
+  if (roundEnded) {
+    return t('chat:newChatWhileGenerating.endedMessage', { defaultValue: '现在开始新对话不会中断任何内容。' });
+  }
+  if (producedOutput) {
+    return showDailyCount
+      ? t('chat:newChatWhileGenerating.messageWithOutput', {
+        defaultValue: '开始新对话会先停止这一轮。已经写出的内容会保存，这一轮计入今日 AI 消息。',
+      })
+      : t('chat:newChatWhileGenerating.messageWithOutputUnlimited', {
+        defaultValue: '开始新对话会先停止这一轮，已经写出的内容会保存。',
+      });
+  }
+  return showDailyCount
+    ? t('chat:newChatWhileGenerating.message', {
+      defaultValue: '开始新对话会先停止这一轮。还没写出内容的话，这一轮不计入今日 AI 消息。',
+    })
+    : t('chat:newChatWhileGenerating.messageUnlimited', { defaultValue: '开始新对话会先停止这一轮。' });
 }

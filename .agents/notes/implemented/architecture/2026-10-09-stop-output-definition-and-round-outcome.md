@@ -2,6 +2,8 @@
 
 Status: implemented
 
+> 后续：生成中点「新对话」先确认、走服务端停止，以及终态 `stop_outcome.written_files`（列出本轮写入的文件与字数）见 `bug-fix/2026-10-11-new-chat-mid-round-stop-and-written-files.md`。
+
 本 note 是作者停止 / 断线计费与界面的最终契约：
 
 - 修订 `architecture/2026-10-09-agent-graceful-stop-and-no-output-refund.md`（PR163）里「非空正文、非空文件正文、写文件工具成功即算实质产出」的口径（其余停止协议不变）。

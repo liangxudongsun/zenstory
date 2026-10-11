@@ -21,6 +21,27 @@ export interface RoundStopOutcome {
   savedOutput: boolean;
   /** Titles of blank files this round created and the server removed. */
   removedFiles: string[];
+  /**
+   * Files this round wrote text into, in order (`stop_outcome.written_files`). `words` is the
+   * editor word count of what this round wrote, null when unknown (an edit). Empty for older
+   * messages and for writes the server cannot name (parallel chapters, deletions).
+   */
+  writtenFiles: RoundWrittenFile[];
+}
+
+export interface RoundWrittenFile {
+  title: string;
+  words: number | null;
+}
+
+function parseWrittenFiles(raw: unknown): RoundWrittenFile[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const { title, words } = item as { title?: unknown; words?: unknown };
+    if (typeof title !== 'string' || !title) return [];
+    return [{ title, words: typeof words === 'number' && Number.isFinite(words) ? words : null }];
+  });
 }
 
 /**
@@ -48,5 +69,6 @@ export function parseRoundStopOutcome(metadata: unknown): RoundStopOutcome | nul
     removedFiles: Array.isArray(raw.removed_files)
       ? raw.removed_files.filter((title): title is string => typeof title === 'string' && Boolean(title))
       : [],
+    writtenFiles: parseWrittenFiles(raw.written_files),
   };
 }

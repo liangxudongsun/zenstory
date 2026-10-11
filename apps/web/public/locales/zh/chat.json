@@ -37,7 +37,12 @@
     "roundRemovedFiles": "空白的《{{titles}}》已移除",
     "removedEmptyFiles": "这一轮新建的空白文件《{{titles}}》已移除。",
     "removedFilesJoiner": "》《",
-    "unanswered": "这条消息没有收到回复。"
+    "unanswered": "这条消息没有收到回复。",
+    "roundSavedFiles": "已保存{{files}}",
+    "roundSavedFile": "《{{title}}》",
+    "roundSavedFileWords": "《{{title}}》{{words}} 字",
+    "roundSavedFilesJoiner": "、",
+    "roundSavedFilesMore": "{{files}}等 {{total}} 个文件"
   },
   "input": {
     "placeholder": "想写什么，直接说…",
@@ -340,6 +345,16 @@
     "endedTitle": "这一轮已经结束",
     "endedMessage": "现在离开不会中断任何内容。",
     "stayEnded": "留在这里"
+  },
+  "newChatWhileGenerating": {
+    "message": "开始新对话会先停止这一轮。还没写出内容的话，这一轮不计入今日 AI 消息。",
+    "messageWithOutput": "开始新对话会先停止这一轮。已经写出的内容会保存，这一轮计入今日 AI 消息。",
+    "messageWithOutputUnlimited": "开始新对话会先停止这一轮，已经写出的内容会保存。",
+    "messageUnlimited": "开始新对话会先停止这一轮。",
+    "endedMessage": "现在开始新对话不会中断任何内容。",
+    "confirm": "停止并开始新对话",
+    "confirmEnded": "开始新对话",
+    "cancel": "取消"
   },
   "quotaCard": {
     "title": "今天的 {{limit}} 条免费 AI 消息用完了",

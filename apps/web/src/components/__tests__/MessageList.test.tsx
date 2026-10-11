@@ -130,7 +130,7 @@ describe('MessageList', () => {
       role: 'assistant',
       content: '',
       backendMessageId: 'a-1',
-      stopOutcome: { reason: 'user_stopped', charged: false, savedOutput: false, removedFiles: [] },
+      stopOutcome: { reason: 'user_stopped', charged: false, savedOutput: false, removedFiles: [], writtenFiles: [] },
     })
     render(<MessageList messages={[createMessage({ content: '写第一章' }), stopped]} showDailyCount />)
 

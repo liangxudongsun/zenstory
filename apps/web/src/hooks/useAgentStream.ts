@@ -246,8 +246,15 @@ export interface UseAgentStreamReturn {
   stop: (options?: { keepFileIds?: string[] }) => Promise<void>;
   /** Stop requested, waiting for the server to close the round */
   isStopping: boolean;
-  /** Reset state to initial */
+  /** Reset state to initial (drops the connection without the server stop) */
   reset: () => void;
+  /**
+   * Resolves once this round's connection is over: the server sent its last frame (after
+   * done a quota_refunded may still follow) and closed the stream, or the connection was
+   * dropped. Resolves at once when no round is open, and after `timeoutMs` at the latest.
+   * Used to start a new chat only after a stopped round has been settled as an author stop.
+   */
+  whenStreamClosed: (timeoutMs?: number) => Promise<void>;
   /** Whether currently streaming */
   isStreaming: boolean;
   /** Whether waiting for thinking step */
@@ -354,6 +361,14 @@ export function useAgentStream(
   const stopRequestedRef = useRef(false);
   const stopFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [stopRequested, setStopRequested] = useState(false);
+  // The in-flight request's connection: settled when the server closes it or we drop it.
+  const streamClosedRef = useRef<{ promise: Promise<void>; settle: () => void } | null>(null);
+  /** The connection was dropped on our side: nothing more will arrive from it. */
+  const settleStreamClosed = useCallback(() => {
+    const closed = streamClosedRef.current;
+    streamClosedRef.current = null;
+    closed?.settle();
+  }, []);
 
   useEffect(() => {
     currentProjectIdRef.current = projectId;
@@ -424,6 +439,7 @@ export function useAgentStream(
         abortControllerRef.current.abort();
         abortControllerRef.current = null;
       }
+      settleStreamClosed();
       if (stopFallbackTimerRef.current) {
         clearTimeout(stopFallbackTimerRef.current);
         stopFallbackTimerRef.current = null;
@@ -434,7 +450,7 @@ export function useAgentStream(
         errorTimeoutRef.current = null;
       }
     };
-  }, [clearFlushTimer]);
+  }, [clearFlushTimer, settleStreamClosed]);
 
   /** 清除错误消息和 timeout */
   const clearError = useCallback(() => {
@@ -514,6 +530,7 @@ export function useAgentStream(
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    settleStreamClosed();
     clearFlushTimer();
     pendingContentChunkRef.current = "";
     contentRef.current = "";
@@ -527,7 +544,7 @@ export function useAgentStream(
       isStreaming: false,
       isThinking: false,
     }));
-  }, [projectId, clearFlushTimer]);
+  }, [projectId, clearFlushTimer, settleStreamClosed]);
 
   /** Set an error; actionable retry errors remain until retry/reset. */
   const showError = useCallback((message: string, autoDismiss = true) => {
@@ -691,6 +708,7 @@ export function useAgentStream(
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    settleStreamClosed();
     clearFlushTimer();
     pendingContentChunkRef.current = "";
     contentRef.current = "";
@@ -708,7 +726,7 @@ export function useAgentStream(
     parallelStateRef.current = null;
     onCompleteCalledRef.current = false;
   // updateSegmentsSync is stable from useImmer, included to satisfy lint
-  }, [clearError, clearFlushTimer, updateSegmentsSync]);
+  }, [clearError, clearFlushTimer, settleStreamClosed, updateSegmentsSync]);
 
   /**
    * 非正常终止的统一收尾通道（取消 / SSE error / 反向代理掐断空闲连接）。
@@ -740,6 +758,7 @@ export function useAgentStream(
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    settleStreamClosed();
     if (stopFallbackTimerRef.current) {
       clearTimeout(stopFallbackTimerRef.current);
       stopFallbackTimerRef.current = null;
@@ -771,7 +790,7 @@ export function useAgentStream(
     // abort 之后 fetch 侧只会抛 AbortError 并被静默吞掉，不会再有任何回调，
     // 所以必须在这里主动补发终止回调（不经过 isStaleEvent，epoch 已自增也不受影响）。
     finalizeStream();
-  }, [clearFlushTimer, finalizeStream, flushPendingContent, onSegmentEnd, updateSegmentsSync]);
+  }, [clearFlushTimer, finalizeStream, flushPendingContent, onSegmentEnd, settleStreamClosed, updateSegmentsSync]);
 
   /**
    * Author pressed stop. The server ends the run on the open stream (stop card +
@@ -800,6 +819,19 @@ export function useAgentStream(
     if (!recorded) dropConnection();
   }, [cancel]);
 
+  const whenStreamClosed = useCallback((timeoutMs: number = STOP_GRACE_MS) => {
+    const closed = streamClosedRef.current;
+    if (!closed) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      // Bounded: a server that never closes the stream after done must not hold the caller.
+      const timer = setTimeout(resolve, timeoutMs);
+      void closed.promise.then(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  }, []);
+
   // The round ended (done / error / stop card): the stop has been honoured.
   useEffect(() => {
     if (state.isStreaming || !stopFallbackTimerRef.current) return;
@@ -820,6 +852,13 @@ export function useAgentStream(
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
+      settleStreamClosed();
+      let settleClosed: () => void = () => {};
+      const closed = {
+        promise: new Promise<void>((resolve) => { settleClosed = resolve; }),
+        settle: () => settleClosed(),
+      };
+      streamClosedRef.current = closed;
       runIdRef.current = null;
       stopRequestedRef.current = false;
       if (stopFallbackTimerRef.current) {
@@ -876,6 +915,12 @@ export function useAgentStream(
           onRunStarted: (agentRunId) => {
             if (isStaleEvent()) return;
             runIdRef.current = agentRunId;
+          },
+
+          // Not epoch-gated: a dropped earlier stream only settles its own connection.
+          onClosed: () => {
+            if (streamClosedRef.current === closed) streamClosedRef.current = null;
+            closed.settle();
           },
 
           onThinking: (message) => {
@@ -1408,6 +1453,7 @@ export function useAgentStream(
       finalizeStream,
       flushPendingContent,
       scheduleContentFlush,
+      settleStreamClosed,
       // updateSegmentsSync is stable from useImmer, included to satisfy lint
       updateSegmentsSync,
     ],
@@ -1421,6 +1467,7 @@ export function useAgentStream(
     stop,
     isStopping: stopRequested && state.isStreaming,
     reset,
+    whenStreamClosed,
     isStreaming: state.isStreaming,
     isThinking: state.isThinking,
     thinkingContent: state.thinkingContent,
