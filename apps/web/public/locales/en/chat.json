@@ -37,7 +37,12 @@
     "roundRemovedFiles": "Blank \"{{titles}}\" removed",
     "removedEmptyFiles": " The blank file \"{{titles}}\" created this round was removed.",
     "removedFilesJoiner": "\", \"",
-    "unanswered": "This message didn't get a reply."
+    "unanswered": "This message didn't get a reply.",
+    "roundSavedFiles": "Saved {{files}}",
+    "roundSavedFile": "\"{{title}}\"",
+    "roundSavedFileWords": "\"{{title}}\" ({{words}} words)",
+    "roundSavedFilesJoiner": ", ",
+    "roundSavedFilesMore": "{{files}} and {{rest}} more"
   },
   "input": {
     "placeholder": "Tell the AI what to write…",
@@ -340,6 +345,16 @@
     "endedTitle": "This round has finished",
     "endedMessage": "Leaving now won't cut anything off.",
     "stayEnded": "Stay here"
+  },
+  "newChatWhileGenerating": {
+    "message": "Starting a new chat stops this round first. If nothing has been written yet, it will not count toward today's AI messages.",
+    "messageWithOutput": "Starting a new chat stops this round first. What's already written is saved, and this round counts toward today's AI messages.",
+    "messageWithOutputUnlimited": "Starting a new chat stops this round first. What's already written is saved.",
+    "messageUnlimited": "Starting a new chat stops this round first.",
+    "endedMessage": "Starting a new chat now won't cut anything off.",
+    "confirm": "Stop and start a new chat",
+    "confirmEnded": "Start a new chat",
+    "cancel": "Cancel"
   },
   "quotaCard": {
     "title": "You've used today's {{limit}} free AI messages",

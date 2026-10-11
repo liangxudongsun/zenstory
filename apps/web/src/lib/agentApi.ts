@@ -325,6 +325,11 @@ export function streamAgentRequest(
     onError?: (message: string, code?: string, retryable?: boolean) => void;
     /** 后端确实退还了这一轮的 AI 消息（在终止帧之后到达）；附带被移除的空白文件。 */
     onQuotaRefunded?: (kind: QuotaRefundKind, removedFiles: RemovedPlaceholderFile[]) => void;
+    /**
+     * 这次请求的连接已经结束：服务端发完最后一帧（done 之后还可能有 quota_refunded）并关闭，
+     * 或请求被中止 / 失败。每次请求只调用一次。
+     */
+    onClosed?: () => void;
   },
 ): AbortController {
   const entryAccess = getAccessToken();
@@ -870,7 +875,7 @@ export function streamAgentRequest(
     }
   };
 
-  fetchStream();
+  void fetchStream().finally(() => callbacks.onClosed?.());
 
   return abortController;
 }

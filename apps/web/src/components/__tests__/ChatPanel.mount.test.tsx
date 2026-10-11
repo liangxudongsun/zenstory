@@ -1,10 +1,12 @@
 import React from 'react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, render as rtlRender, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 const mockDraft = vi.hoisted(() => ({ draft: '', saveDraft: vi.fn(), clearDraft: vi.fn() }))
 const mockStop = vi.hoisted(() => vi.fn())
+const mockReset = vi.hoisted(() => vi.fn())
+const mockWhenStreamClosed = vi.hoisted(() => vi.fn(async () => {}))
 const mockClearError = vi.hoisted(() => vi.fn())
 
 const mockQuota = vi.hoisted(() => ({
@@ -194,7 +196,8 @@ vi.mock('../../hooks/useAgentStream', () => ({
     cancel: vi.fn(),
     stop: mockStop,
     isStopping: false,
-    reset: vi.fn(),
+    reset: mockReset,
+    whenStreamClosed: mockWhenStreamClosed,
     isStreaming: mockAgentStreamState.isStreaming,
     isThinking: mockAgentStreamState.isThinking,
     thinkingContent: mockAgentStreamState.thinkingContent,
@@ -294,7 +297,7 @@ vi.mock('../../lib/toast', () => ({
 }))
 
 import { ChatPanel } from '../ChatPanel'
-import { getRecentMessages } from '../../lib/chatApi'
+import { createNewSession, getRecentMessages } from '../../lib/chatApi'
 import { fetchSuggestions } from '../../lib/agentApi'
 import { toast } from '../../lib/toast'
 import { subscriptionApi } from '../../lib/subscriptionApi'
@@ -781,7 +784,7 @@ describe('ChatPanel mount smoke', () => {
         showDailyCount?: boolean
       }
       expect(props.messages?.[1]?.stopOutcome).toEqual({
-        reason: 'user_stopped', charged: false, savedOutput: false, removedFiles: ['第1章'],
+        reason: 'user_stopped', charged: false, savedOutput: false, removedFiles: ['第1章'], writtenFiles: [],
       })
       expect(props.showDailyCount).toBe(true)
     })
@@ -1427,6 +1430,76 @@ describe('ChatPanel mount smoke', () => {
         options.onSegmentUpdate('seg-1', '甲'.repeat(80))
       }, { producedOutput: false })
       expect(note).toHaveTextContent(/^已停止$/)
+    })
+  })
+
+  describe('新对话 pressed while the AI is writing', () => {
+    const newChatButton = () => screen.getByTitle('chat:panel.newSession')
+
+    afterEach(() => {
+      mockStop.mockReset()
+      mockReset.mockReset()
+      mockWhenStreamClosed.mockReset()
+      mockWhenStreamClosed.mockImplementation(async () => {})
+      mockAgentStreamState.isStreaming = false
+    })
+
+    it('asks first, then ends the round through the server stop before starting the new chat', async () => {
+      let closeStream: () => void = () => {}
+      mockWhenStreamClosed.mockImplementation(() => new Promise<void>((resolve) => { closeStream = resolve }))
+      const order: string[] = []
+      mockStop.mockImplementation(async () => { order.push('stop') })
+      mockReset.mockImplementation(() => { order.push('reset') })
+      vi.mocked(createNewSession).mockImplementation(async () => {
+        order.push('new-session')
+        return { id: 'session-2' } as never
+      })
+      mockAgentStreamState.isStreaming = true
+      render(<ChatPanel />)
+      await waitFor(() => expect(screen.getByTestId('mock-message-list')).toBeInTheDocument())
+      order.length = 0
+
+      fireEvent.click(newChatButton())
+      expect(await screen.findByTestId('new-chat-while-generating-dialog')).toBeInTheDocument()
+      // Nothing is cut off before the author answers.
+      expect(order).toEqual([])
+
+      fireEvent.click(screen.getByTestId('new-chat-dialog-confirm'))
+      await waitFor(() => expect(order).toEqual(['stop']))
+      expect(screen.queryByTestId('new-chat-while-generating-dialog')).not.toBeInTheDocument()
+      // The new chat waits until the stopped round has finished on the server (stop card,
+      // done, refund), so the round is settled as an author stop, not a dropped connection.
+      await waitFor(() => expect(mockWhenStreamClosed).toHaveBeenCalled())
+      expect(createNewSession).not.toHaveBeenCalled()
+
+      await act(async () => { closeStream() })
+      await waitFor(() => expect(order).toEqual(['stop', 'new-session', 'reset']))
+    })
+
+    it('keeps the round going when the author chooses to wait', async () => {
+      mockAgentStreamState.isStreaming = true
+      render(<ChatPanel />)
+      await waitFor(() => expect(screen.getByTestId('mock-message-list')).toBeInTheDocument())
+      const resetsAfterMount = mockReset.mock.calls.length
+
+      fireEvent.click(newChatButton())
+      fireEvent.click(await screen.findByTestId('new-chat-dialog-stay'))
+
+      expect(screen.queryByTestId('new-chat-while-generating-dialog')).not.toBeInTheDocument()
+      expect(mockStop).not.toHaveBeenCalled()
+      expect(mockReset).toHaveBeenCalledTimes(resetsAfterMount)
+      expect(createNewSession).not.toHaveBeenCalled()
+    })
+
+    it('starts the new chat right away when nothing is generating', async () => {
+      render(<ChatPanel />)
+      await waitFor(() => expect(screen.getByTestId('message-list')).toBeInTheDocument())
+
+      fireEvent.click(newChatButton())
+
+      await waitFor(() => expect(createNewSession).toHaveBeenCalledTimes(1))
+      expect(screen.queryByTestId('new-chat-while-generating-dialog')).not.toBeInTheDocument()
+      expect(mockStop).not.toHaveBeenCalled()
     })
   })
 

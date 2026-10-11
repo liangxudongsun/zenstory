@@ -874,6 +874,75 @@ describe('useAgentStream', () => {
     })
   })
 
+  describe('whenStreamClosed (start a new chat only after the stopped round wrapped up)', () => {
+    function startStreaming() {
+      const hook = renderHook(() => useAgentStream('test-project-id'))
+      const controller = createMockStreamController()
+      act(() => {
+        hook.result.current.startStream({ message: 'test' })
+      })
+      act(() => {
+        controller.getCallbacks()?.onRunStarted?.('run-1')
+      })
+      return { ...hook, controller }
+    }
+
+    it('resolves at once when no round is open', async () => {
+      const { result } = renderHook(() => useAgentStream('test-project-id'))
+      const settled = vi.fn()
+      await act(async () => {
+        void result.current.whenStreamClosed().then(settled)
+      })
+      expect(settled).toHaveBeenCalled()
+    })
+
+    it('waits past done for the frames that follow it, until the server closes the stream', async () => {
+      vi.mocked(agentApi.stopAgentRun).mockResolvedValue(true)
+      const { result, controller } = startStreaming()
+      const settled = vi.fn()
+      await act(async () => {
+        await result.current.stop()
+        void result.current.whenStreamClosed().then(settled)
+      })
+      act(() => {
+        controller.getCallbacks()?.onDone?.({ stop_reason: 'user_stopped', produced_output: false })
+      })
+      await act(async () => {})
+      // done ended the round, but quota_refunded (removed blank files) may still follow.
+      expect(result.current.isStreaming).toBe(false)
+      expect(settled).not.toHaveBeenCalled()
+      expect(controller.mockAbortController.abort).not.toHaveBeenCalled()
+
+      await act(async () => {
+        controller.getCallbacks()?.onClosed?.()
+      })
+      expect(settled).toHaveBeenCalled()
+    })
+
+    it('resolves when the connection is dropped instead (stop failed or timed out)', async () => {
+      vi.mocked(agentApi.stopAgentRun).mockResolvedValue(false)
+      const { result } = startStreaming()
+      const settled = vi.fn()
+      await act(async () => {
+        void result.current.whenStreamClosed().then(settled)
+        await result.current.stop()
+      })
+      expect(settled).toHaveBeenCalled()
+    })
+
+    it('does not wait forever for a server that never closes the stream', async () => {
+      const { result } = startStreaming()
+      const settled = vi.fn()
+      await act(async () => {
+        void result.current.whenStreamClosed().then(settled)
+      })
+      await act(async () => {
+        vi.advanceTimersByTime(STOP_GRACE_MS)
+      })
+      expect(settled).toHaveBeenCalled()
+    })
+  })
+
   describe('prose segment boundaries', () => {
     it.each(['agent_selected', 'handoff', 'file_created', 'parallel_start'] as const)(
       'delivers the text streamed before %s first, so the prose count can restart there',
