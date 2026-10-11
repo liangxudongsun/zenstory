@@ -42,6 +42,7 @@ U092（前半篇整段消失）的写入者是流式整篇写入或编辑器保�
    - `_edit_file_impl` 在每条编辑前后比较正文。没有变化时撤回这条的 applied 记录，抛 `EditFileError(error_type="no_change")`（新增 `EDIT_ERROR_NO_CHANGE`）。它和其他失败一样走整批回滚，或在 `continue_on_error=true` 时进 `failed_edits`，不计入 `edits_applied`。new 里有半角引号时，错误会说明「统一成全角后与原文一致」。`user_message` 用通用说法，不新增文案。
    - 根因修法：`_apply_replace` 里，old 和 new 只差引号写法（`fold_double_quotes(old) == fold_double_quotes(new)` 且两者不同）时，这条编辑就是在要求换体例。new 里的半角引号按产品默认的 “” 写入，不再按稿件体例写回「」。new 里直接写的「」/“” 原样保留。改了字的编辑仍按稿件体例规范化。
 5. `EDIT_FILE_TOOL` 的 `old`、`text` 描述各加一句，说明跨段要照抄换行，以及段落插入会按本文分隔补齐。
+6. **模糊 / 近似 replace 的 new 按原文这一段的段首缩进写**（`paragraph_layout.follow_span_indentation`，live run 2 场景 C 补充）。原文段落没有缩进，模型写的 old 却带「　　」；匹配时空白被忽略，照样命中，new 也带着「　　」写进去，一章从 1 段有缩进变成 10 段，AI 还把这说成原有状态。规则：只看段首行（命中范围里换行之后的行，第一行只在命中从行首开始时算）。原文这些行只有一种缩进 X、old 对应行也只有一种 Y 时，new 里缩进是 Y 的段首行改成 X。原文没缩进就去掉 new 的缩进，反过来也一样；命中从原文缩进之后开始时不叠两层。原文或 old 自己就混用、从句中间开始的命中、标题行都不动。exact（含引号等价）命中照旧逐字写入。改过时 detail 里写 `layout_notes`。按场景 C 的原文重放：改前 10 段带缩进，改后 1 段（作者自己那句，走的是 exact）。
 
 ## Alternatives considered
 
@@ -74,3 +75,6 @@ U092（前半篇整段消失）的写入者是流式整篇写入或编辑器保�
 复审后补 9 条（跨段近似替换的部分命中被拒、段内近似替换照常生效、exact 锚点在引语里/冒号后/打断的话后原样插入、说话人后面越过冒号停在引语前、近似窗口在引语中往前挪到引号后、半句续写的追加不拆段），其中 8 条在第一版提交上失败。全文件 35 条通过；`pytest tests/test_agent tests/test_utils -q --no-cov`：2147 passed、22 skipped。
 
 第一版：`cd apps/server && .venv312/bin/python -m pytest tests/test_agent/test_edit_file_paragraph_integrity.py -q --no-cov`：26 条，其中 21 条在改动前的代码上失败（并段、插入分隔与缩进、字和标点之间、近似插入对齐句末、近似替换句中拒绝、no_change、「」→“” 转换）。另外 5 条锁定不该变的行为（段尾接一句、段中拆段、分句贴锚点、写出换行的跨段替换、改了字的编辑仍按体例规范化），改动前后都通过。`pytest tests/test_agent tests/test_utils -q --no-cov`：2138 passed、22 skipped。样例文本都是自拟的。
+
+缩进补充（第 6 条）：`test_edit_file_paragraph_integrity.py` 新增 6 条（无缩进文件里 old 带缩进、多加一段，有缩进文件里 old 不带缩进、带同样缩进不叠两层，近似命中，exact / 句中 / 原文混用不动）。改动前失败 4 条（old 带缩进的单段与加段、old 不带缩进、近似命中）；「不叠两层」和「exact / 句中 / 混用不动」是守卫用例，前后都通过。
+

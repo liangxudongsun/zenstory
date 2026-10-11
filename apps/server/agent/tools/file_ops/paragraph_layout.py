@@ -39,6 +39,61 @@ _HEADING_LINE = re.compile(
 NOTE_SENTENCE_SNAP = "插入点原本落在句子中间，已移到这句话的边界"
 NOTE_PARAGRAPH = "已按本文的段落分隔与缩进补齐新段落的前后分隔"
 NOTE_LINE_START = "插入点在段首缩进之前，已移到缩进之后"
+NOTE_INDENT_FOLLOWS_FILE = "old 的段首缩进和原文不一样（靠模糊匹配才对上），new 的段首缩进已改成和原文这一段一致"
+
+
+def _leading_indent(line: str) -> str:
+    return line[: len(line) - len(line.lstrip(INLINE_SPACE))]
+
+
+def follow_span_indentation(content: str, start: int, end: int, old: str, new: str) -> str:
+    """模糊 / 近似命中后，new 的段首缩进跟原文这一段走，而不是跟 old 的写法走。
+
+    live run 2 场景 C：原文段落没有缩进，模型写的 old 却带「　　」；模糊匹配忽略空白照样
+    命中，new 也带着「　　」写进去，一章从没有缩进变成了混用。规则：
+
+    - 只看段首行：命中范围里每个换行之后的行；第一行只在命中从行首（或行首缩进之后）开始时算。
+    - 原文这些行的缩进只有一种（X），old 对应行的缩进也只有一种（Y）时，new 里缩进是 Y 的段首行
+      换成 X；原文自己就混用、或 old 混用时不动。第一行在原文缩进之后开始时，只补缺的那部分，
+      不会叠出两层缩进。
+    - 标题行、空行、缩进既不是 X 也不是 Y 的行不动。逐字命中（exact）不走这里。
+    """
+    if not isinstance(new, str) or not new or start >= end:
+        return new
+    line_start = content.rfind("\n", 0, start) + 1
+    prefix = content[line_start:start]
+    first_is_paragraph = not prefix.strip(INLINE_SPACE)
+
+    def paragraph_indents(lines: list[str], first_prefix: str) -> set[str]:
+        found: set[str] = set()
+        for index, line in enumerate(lines):
+            if (index == 0 and not first_is_paragraph) or not line.strip() or _HEADING_LINE.match(line):
+                continue
+            indent = _leading_indent(line)
+            found.add(first_prefix + indent if index == 0 else indent)
+        return found
+
+    original = paragraph_indents(content[start:end].split("\n"), prefix)
+    written = paragraph_indents(old.split("\n"), "")
+    if len(original) != 1 or len(written) != 1:
+        return new
+    target, source = original.pop(), written.pop()
+    if target == source and not prefix:
+        return new
+    lines = new.split("\n")
+    for index, line in enumerate(lines):
+        if (index == 0 and not first_is_paragraph) or not line.strip() or _HEADING_LINE.match(line):
+            continue
+        indent = _leading_indent(line)
+        if indent != source:
+            continue
+        if index == 0:
+            if not target.startswith(prefix):
+                continue
+            lines[index] = target[len(prefix):] + line[len(indent):]
+        else:
+            lines[index] = target + line[len(indent):]
+    return "\n".join(lines)
 
 
 def _ascii_quote_closes(text: str, index: int) -> bool:

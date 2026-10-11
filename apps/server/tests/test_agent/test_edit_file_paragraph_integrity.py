@@ -354,6 +354,81 @@ def test_approximate_replace_ending_mid_sentence_is_refused(editor):
     assert "句子中间" in str(exc.value)
 
 
+# --------------------------------- 模糊命中时 new 的段首缩进跟原文走（live run 2 场景 C）--
+#
+# 原文段落没有缩进，模型写的 old 却带「　　」：模糊匹配忽略空白照样命中，new 也带着「　　」
+# 写进去，一章从没有缩进变成混用。反过来原文有缩进、old 没写时，new 的后续段落会丢缩进。
+
+PLAIN = "炉子烧了一整夜。\n\n他把钢坯夹出来，放上铁砧。\n\n窗外天快亮了。"
+INDENTED = "　　炉子烧了一整夜。\n\n　　他把钢坯夹出来，放上铁砧。\n\n　　窗外天快亮了。"
+
+
+def test_fuzzy_replace_with_an_invented_indent_writes_new_without_it(editor):
+    applied: list[dict] = []
+    edit = {"op": "replace", "old": "　　他把钢坯夹出来,放上铁砧。", "new": "　　他把钢坯夹出来，搁上铁砧。"}
+    result = editor._apply_replace(PLAIN, edit, 0, applied, [])
+    assert applied[0]["match_mode"] == "fuzzy"
+    assert result == "炉子烧了一整夜。\n\n他把钢坯夹出来，搁上铁砧。\n\n窗外天快亮了。"
+    assert "　" not in result
+    assert applied[0]["layout_notes"]
+
+
+def test_fuzzy_replace_that_adds_a_paragraph_follows_the_unindented_file(editor):
+    edit = {
+        "op": "replace",
+        "old": "　　他把钢坯夹出来,放上铁砧。",
+        "new": "　　他把钢坯夹出来，搁上铁砧。\n\n　　锤子落下。",
+    }
+    result = editor._apply_replace(PLAIN, edit, 0, [], [])
+    assert "\n\n他把钢坯夹出来，搁上铁砧。\n\n锤子落下。\n\n窗外" in result
+    assert "　" not in result
+
+
+def test_fuzzy_replace_without_indent_in_an_indented_file_keeps_every_paragraph_indented(editor):
+    edit = {
+        "op": "replace",
+        "old": "他把钢坯夹出来,放上铁砧。\n\n窗外天快亮了",
+        "new": "他把钢坯夹出来，搁上铁砧。\n\n锤子落下。\n\n窗外天亮了",
+    }
+    result = editor._apply_replace(INDENTED, edit, 0, [], [])
+    assert result == "　　炉子烧了一整夜。\n\n　　他把钢坯夹出来，搁上铁砧。\n\n　　锤子落下。\n\n　　窗外天亮了。"
+
+
+def test_fuzzy_replace_with_the_files_own_indent_does_not_double_it(editor):
+    edit = {"op": "replace", "old": "　　他把钢坯夹出来,放上铁砧。", "new": "　　他把钢坯夹出来，搁上铁砧。"}
+    result = editor._apply_replace(INDENTED, edit, 0, [], [])
+    assert "\n\n　　他把钢坯夹出来，搁上铁砧。\n\n" in result
+    assert "　　　　" not in result
+
+
+def test_approximate_replace_with_an_invented_indent_writes_new_without_it(editor):
+    applied: list[dict] = []
+    content = "风从窗缝里钻进来，吹得纸页沙沙地响。\n\n她把台灯拧亮了一点，又低头去看那封信。"
+    edit = {"op": "replace", "old": "　　她把台灯拧亮了一些，又低头去看那封信。", "new": "　　她把台灯关了。"}
+    result = editor._apply_replace(content, edit, 0, applied, [])
+    assert applied[0]["match_mode"] == "approximate"
+    assert result.endswith("\n\n她把台灯关了。")
+
+
+def test_exact_and_mid_line_replacements_keep_new_byte_for_byte(editor):
+    # 逐字命中：new 原样写入，哪怕带着缩进。
+    exact = editor._apply_replace(
+        PLAIN, {"op": "replace", "old": "他把钢坯夹出来，放上铁砧。", "new": "　　他把钢坯夹出来。"}, 0, [], []
+    )
+    assert "\n\n　　他把钢坯夹出来。\n\n" in exact
+    # 从句中间开始的模糊命中不是段首，不动。
+    applied: list[dict] = []
+    mid = editor._apply_replace(
+        PLAIN, {"op": "replace", "old": "钢坯夹出来,放上铁砧", "new": "钢坯夹了出来，搁上铁砧"}, 0, applied, []
+    )
+    assert applied[0]["match_mode"] == "fuzzy" and "layout_notes" not in applied[0]
+    assert "\n\n他把钢坯夹了出来，搁上铁砧。\n\n" in mid
+    # 原文自己就混用缩进：不猜哪一种对。
+    mixed = "炉子烧了一整夜。\n　　他把钢坯夹出来，放上铁砧。"
+    edit = {"op": "replace", "old": "　　炉子烧了一整夜.\n　　他把钢坯夹出来，放上铁砧。", "new": "　　炉子灭了。\n　　他走了。"}
+    assert editor._apply_replace(mixed, edit, 0, [], []) == "　　炉子灭了。\n　　他走了。"
+
+
 # ----------------------------------------------------- DB 级：成功就必须改了 --
 
 

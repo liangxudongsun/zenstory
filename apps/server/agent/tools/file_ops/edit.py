@@ -40,8 +40,10 @@ from utils.logger import get_logger, log_with_context
 from utils.text_metrics import count_words
 
 from .paragraph_layout import (
+    NOTE_INDENT_FOLLOWS_FILE,
     NOTE_SENTENCE_SNAP,
     exact_anchor_snap_forward,
+    follow_span_indentation,
     is_sentence_boundary,
     is_sentence_shaped,
     layout_insertion,
@@ -1214,17 +1216,21 @@ class FileEditor:
                     )
                     self._check_approximate_edges(content, start, end, old_text, edit_index)
                     matched_text = content[start:end]
+                    placed_text = follow_span_indentation(content, start, end, old_text, new_text)
                     # Single approximate match - use it
-                    content, new_text = self._place_new_text(content, start, end, new_text, quote_style)
-                    applied_edits.append({
+                    content, written = self._place_new_text(content, start, end, placed_text, quote_style)
+                    detail = {
                         "op": "replace",
                         "match_mode": "approximate",
                         "similarity": round(similarity, 3),
                         "matched_original": _preview(matched_text),
                         "warning": FUZZY_EDIT_WARNING,
                         "old_preview": _preview(old_text),
-                        "new_preview": _preview(new_text),
-                    })
+                        "new_preview": _preview(written),
+                    }
+                    if placed_text != new_text:
+                        detail["layout_notes"] = [NOTE_INDENT_FOLLOWS_FILE]
+                    applied_edits.append(detail)
                     return content
 
             if not spans and not approx_match:
@@ -1244,6 +1250,7 @@ class FileEditor:
                 placed: list[tuple[int, int]] = []
                 prev = out_len = 0
                 first_matched: str | None = None
+                indent_followed = False
                 for start, end in spans:
                     if ignore_punct_whitespace:
                         start, end = self._extend_fuzzy_span(
@@ -1254,11 +1261,13 @@ class FileEditor:
                         start = max(start, prev)
                     if first_matched is None:
                         first_matched = content[start:end]
+                    placed_text = follow_span_indentation(content, start, end, old_text, new_text)
+                    indent_followed = indent_followed or placed_text != new_text
                     parts.append(content[prev:start])
                     out_len += start - prev
-                    parts.append(new_text)
-                    placed.append((out_len, out_len + len(new_text)))
-                    out_len += len(new_text)
+                    parts.append(placed_text)
+                    placed.append((out_len, out_len + len(placed_text)))
+                    out_len += len(placed_text)
                     prev = end
                 parts.append(content[prev:])
                 content = self._normalize_placed_spans("".join(parts), placed, quote_style)
@@ -1283,6 +1292,8 @@ class FileEditor:
                 }
                 if truncated:
                     detail["truncated"] = True
+                if indent_followed:
+                    detail["layout_notes"] = [NOTE_INDENT_FOLLOWS_FILE]
                 applied_edits.append(detail)
             else:
                 if len(spans) != 1 and occurrence is None:
@@ -1308,7 +1319,8 @@ class FileEditor:
                         content, start, end, old_text, replacement=new_text
                     )
                 matched_text = content[start:end]
-                content, new_text = self._place_new_text(content, start, end, new_text, quote_style)
+                placed_text = follow_span_indentation(content, start, end, old_text, new_text)
+                content, written = self._place_new_text(content, start, end, placed_text, quote_style)
                 detail = {
                     "op": "replace",
                     "match_mode": "fuzzy",
@@ -1316,11 +1328,13 @@ class FileEditor:
                     "matched_original": _preview(matched_text),
                     "warning": FUZZY_EDIT_WARNING,
                     "old_preview": _preview(old_text),
-                    "new_preview": _preview(new_text),
+                    "new_preview": _preview(written),
                     "match_count": len(spans),
                 }
                 if occurrence is not None:
                     detail["occurrence"] = occurrence
+                if placed_text != new_text:
+                    detail["layout_notes"] = [NOTE_INDENT_FOLLOWS_FILE]
                 applied_edits.append(detail)
 
         return content
