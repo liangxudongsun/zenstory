@@ -215,6 +215,18 @@ Agent 可以通过两种方式交接：
   模型重存任务板时 `execute_update_plan` 把同名任务的记录接过去，收尾时剔除已删掉文件的编号）；
   带 `artifact` 的要写出这个文件；本请求什么都没写不补。模型自己把范围任务标 done 而项目里缺文件时，
   `execute_update_plan` 在结果里返回 `unverified_done` 提醒。
+- 空文件守卫（一次只流式写一个文件）挡住的 create_file，若要建的正是挡路的那个空文件（同标题、
+  同父目录、同类型，且没有建库途中的占坑），返回那个文件（`content=""`、`next_step` 提示直接写
+  `<file>` 正文），不再报 `pending_empty_file_unwritten`；挡路的是别的文件时照旧拒绝
+  （`mcp_tools._repeat_of_pending_empty_file`）。
+- 项目备注（AI 记忆 notes）按来源分三块存成纯文本：未标来源 / 【作者确认】/ 【AI 提议·待作者确认】
+  （`config/project_notes.py`）。`update_project` 的 notes 新条目逐条核对：那一条本身得是 `author_quotes`
+  里某句逐字出现在作者本轮消息里的原话（或其中连续的一段），才进「作者确认」，否则记成 AI 提议
+  （结果里 `notes_recorded_as_proposals`）；一句原话不给别的条目作保。`proposals` 整体替换 AI 提议块，
+  和 notes 共用 4000 字（超出返回 `notes_over_budget`，不写任何字段）。上下文里三块分开渲染
+  （`render_project_notes`），标题行能被解析回原分区，AI 提议写明不是设定。
+- 回复语言跟随作者最近一条消息（`message_manager.detect_author_language`），系统提示末尾写明本轮
+  语言，所有角色（含审稿人）共用；界面语言只在消息看不出语言时兜底。
 
 ## 关键组件详解
 

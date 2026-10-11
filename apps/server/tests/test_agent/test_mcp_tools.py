@@ -1710,3 +1710,283 @@ async def test_two_create_files_without_body_in_between_still_rejected(db_sessio
         assert rejected["pending_file_id"] == first["data"]["id"]
     finally:
         ToolContext.clear_context()
+
+
+def _count_files_titled(db_session, project_id: str, title: str) -> int:
+    from sqlmodel import select
+
+    from models import File
+
+    rows = db_session.exec(
+        select(File).where(
+            File.project_id == project_id,
+            File.title == title,
+            File.is_deleted.is_(False),
+        )
+    ).all()
+    return len(list(rows))
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_repeat_create_file_of_the_pending_empty_file_returns_that_file(db_session):
+    """刚建好、正文还空着的文件，模型下一次回复又用同样参数 create_file：返回同一个文件让它写正文，不报错。"""
+    from agent.tools.mcp_tools import ToolContext
+
+    user, project = _make_user_and_project(db_session, "repeatcreate")
+    ToolContext.set_context(
+        session=db_session, user_id=user.id, project_id=project.id, session_id="sess-repeat"
+    )
+    try:
+        first = _parse_payload(await create_file({"title": "灵脉与修炼等级", "file_type": "lore"}))
+        assert first["status"] == "success"
+        first_id = first["data"]["id"]
+
+        repeat = _parse_payload(
+            await asyncio.create_task(
+                create_file({"title": "灵脉与修炼等级", "file_type": "lore"})
+            )
+        )
+        assert repeat["status"] == "success"
+        assert repeat["data"]["id"] == first_id
+        assert repeat["data"]["content"] == ""
+        # 不是「复用已有文件」：它就是本轮刚建的空文件，适配器照常重新等 <file> 正文
+        assert repeat["data"].get("reused_existing") is not True
+        assert repeat["mutation_applied"] is False
+        assert "<file>" in repeat["data"]["next_step"]
+        assert _count_files_titled(db_session, project.id, "灵脉与修炼等级") == 1
+        assert [e["file_id"] for e in ToolContext.get_pending_empty_files()] == [first_id]
+    finally:
+        ToolContext.clear_context()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_repeat_create_file_with_different_type_or_parent_still_rejected(db_session):
+    """同标题但类型或父目录不同，不是同一个文件：照旧按一次一个文件拒绝。"""
+    from agent.tools.mcp_tools import ToolContext
+
+    user, project = _make_user_and_project(db_session, "repeatmismatch")
+    ToolContext.set_context(
+        session=db_session, user_id=user.id, project_id=project.id, session_id="sess-mismatch"
+    )
+    try:
+        folder = _parse_payload(await create_file({"title": "卷一", "file_type": "folder"}))
+        folder_id = folder["data"]["id"]
+        first = _parse_payload(
+            await create_file({"title": "雾港码头", "file_type": "draft", "parent_id": folder_id})
+        )
+        assert first["status"] == "success"
+
+        other_type = _parse_payload(
+            await create_file({"title": "雾港码头", "file_type": "lore", "parent_id": folder_id})
+        )
+        assert other_type["status"] == "error"
+        assert other_type["error_type"] == "pending_empty_file_unwritten"
+
+        other_parent = _parse_payload(await create_file({"title": "雾港码头", "file_type": "draft"}))
+        assert other_parent["status"] == "error"
+        assert other_parent["error_type"] == "pending_empty_file_unwritten"
+        assert _count_files_titled(db_session, project.id, "雾港码头") == 1
+    finally:
+        ToolContext.clear_context()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_repeat_create_file_while_another_create_is_in_flight_still_rejected(db_session):
+    """有别的 create_file 正在建库途中：不认作重复，照旧拒绝。"""
+    from agent.tools.mcp_tools import ToolContext
+
+    user, project = _make_user_and_project(db_session, "repeatinflight")
+    ToolContext.set_context(
+        session=db_session, user_id=user.id, project_id=project.id, session_id="sess-inflight"
+    )
+    try:
+        first = _parse_payload(await create_file({"title": "周砚", "file_type": "character"}))
+        assert first["status"] == "success"
+        state = ToolContext._get_pending_empty_file_state()
+        state._reservations["ticket-inflight"] = "许青"
+
+        repeat = _parse_payload(await create_file({"title": "周砚", "file_type": "character"}))
+        assert repeat["status"] == "error"
+        assert repeat["error_type"] == "pending_empty_file_unwritten"
+    finally:
+        ToolContext.clear_context()
+
+
+def _set_author_round(db_session, user, project, message: str) -> None:
+    from agent.tools.mcp_tools import ToolContext
+
+    ToolContext.set_context(
+        session=db_session,
+        user_id=user.id,
+        project_id=project.id,
+        session_id=f"sess-notes-{uuid4().hex[:6]}",
+        author_message=message,
+    )
+
+
+def _stored_notes(db_session, project) -> str:
+    db_session.expire_all()
+    from models import Project
+
+    return db_session.get(Project, project.id).notes or ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_update_project_notes_backed_by_author_words_are_author_confirmed(db_session):
+    """作者本轮亲口说的约定，带上作者原话记进备注：存进「作者确认」。"""
+    from agent.tools.mcp_tools import ToolContext
+    from config.project_notes import split_project_notes
+
+    user, project = _make_user_and_project(db_session, "notesok")
+    _set_author_round(db_session, user, project, "记住，女主第五章才出场，别提前写她。")
+    try:
+        payload = _parse_payload(
+            await update_project(
+                {"notes": "女主第5章才出场", "author_quotes": ["女主第五章才出场"]}
+            )
+        )
+        assert payload["status"] == "success"
+        assert not payload["data"].get("notes_recorded_as_proposals")
+        sections = split_project_notes(_stored_notes(db_session, project))
+        assert sections.confirmed == ["女主第5章才出场"]
+        assert sections.proposals == []
+    finally:
+        ToolContext.clear_context()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_update_project_inferred_notes_are_recorded_as_ai_proposals(db_session):
+    """作者没说过的推断（哪怕模型自己标「已定」）不进作者确认，记成 AI 提议并告诉模型。"""
+    from agent.tools.mcp_tools import ToolContext
+    from config.project_notes import split_project_notes
+
+    user, project = _make_user_and_project(db_session, "notesinfer")
+    _set_author_round(db_session, user, project, "帮我建陆沉、陆渊两张角色卡。")
+    try:
+        payload = _parse_payload(
+            await update_project(
+                {
+                    "notes": "【已定】沉+渊=深渊，陆渊是陆沉的心魔",
+                    # 编出来的「原话」作者没说过，不算依据
+                    "author_quotes": ["陆渊是陆沉的心魔"],
+                }
+            )
+        )
+        assert payload["status"] == "success"
+        assert payload["data"]["notes_recorded_as_proposals"] == ["沉+渊=深渊，陆渊是陆沉的心魔"]
+        sections = split_project_notes(_stored_notes(db_session, project))
+        assert sections.confirmed == []
+        assert sections.unlabeled == []
+        assert sections.proposals == ["沉+渊=深渊，陆渊是陆沉的心魔"]
+    finally:
+        ToolContext.clear_context()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_update_project_keeps_existing_unlabeled_notes_without_relabeling(db_session):
+    """旧备注（没有来源分区）照旧保留在未标来源一块，不被洗成作者确认，也不被降成提议。"""
+    from agent.tools.mcp_tools import ToolContext
+    from config.project_notes import split_project_notes
+
+    user, project = _make_user_and_project(db_session, "noteslegacy")
+    project.notes = "反派身份第20章前不得揭露"
+    db_session.add(project)
+    db_session.commit()
+
+    _set_author_round(db_session, user, project, "再记一条：主角不会游泳。")
+    try:
+        payload = _parse_payload(
+            await update_project(
+                {
+                    "notes": "反派身份第20章前不得揭露；主角不会游泳",
+                    "author_quotes": ["主角不会游泳"],
+                    "proposals": "主角童年落水留下心理阴影（待作者确认）",
+                }
+            )
+        )
+        assert payload["status"] == "success"
+        sections = split_project_notes(_stored_notes(db_session, project))
+        assert sections.unlabeled == ["反派身份第20章前不得揭露"]
+        assert sections.confirmed == ["主角不会游泳"]
+        assert sections.proposals == ["主角童年落水留下心理阴影（待作者确认）"]
+    finally:
+        ToolContext.clear_context()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_update_project_promotes_proposal_only_when_author_agrees(db_session):
+    """AI 提议在作者明确同意（原话可核对）后才转进作者确认。"""
+    from agent.tools.mcp_tools import ToolContext
+    from config.project_notes import CONFIRMED_HEADER, PROPOSALS_HEADER, split_project_notes
+
+    user, project = _make_user_and_project(db_session, "notespromote")
+    project.notes = f"{PROPOSALS_HEADER}\n魂灯有代价：点一次少活一年"
+    db_session.add(project)
+    db_session.commit()
+
+    _set_author_round(db_session, user, project, "灯油那个代价就按你说的，点一次少活一年。")
+    try:
+        payload = _parse_payload(
+            await update_project(
+                {
+                    "notes": "魂灯有代价：点一次少活一年",
+                    "author_quotes": ["就按你说的，点一次少活一年"],
+                }
+            )
+        )
+        assert payload["status"] == "success"
+        stored = _stored_notes(db_session, project)
+        sections = split_project_notes(stored)
+        assert sections.confirmed == ["魂灯有代价：点一次少活一年"]
+        assert sections.proposals == []
+        assert CONFIRMED_HEADER in stored and PROPOSALS_HEADER not in stored
+    finally:
+        ToolContext.clear_context()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_update_project_notes_over_shared_budget_fail_before_any_write(db_session):
+    """notes 与 AI 提议块共用备注字段的长度上限：超出时给出两块各占多少，整次调用不写入任何字段。"""
+    from agent.tools.mcp_tools import ToolContext
+    from config.project_notes import CONFIRMED_HEADER, PROPOSALS_HEADER
+
+    user, project = _make_user_and_project(db_session, "notesbudget")
+    kept_rules = "约" * 3200
+    existing = f"{CONFIRMED_HEADER}\n{kept_rules}\n{PROPOSALS_HEADER}\n" + "提" * 1000
+    project.notes = existing
+    project.summary = "旧摘要"
+    db_session.add(project)
+    db_session.commit()
+
+    _set_author_round(db_session, user, project, "记住，主角不会游泳。")
+    try:
+        payload = _parse_payload(
+            await update_project(
+                {
+                    "summary": "新摘要",
+                    # notes 本身在 schema 的上限内；加上库里的 AI 提议块才超
+                    "notes": f"{kept_rules}\n主角不会游泳",
+                    "author_quotes": ["主角不会游泳"],
+                }
+            )
+        )
+        assert payload["status"] == "error"
+        assert payload["error_type"] == "notes_over_budget"
+        assert payload["proposals_chars"] == 1000
+        assert "1000" in payload["error"] and "proposals" in payload["error"]
+        db_session.expire_all()
+        from models import Project
+
+        stored = db_session.get(Project, project.id)
+        assert stored.notes == existing
+        assert stored.summary == "旧摘要"
+    finally:
+        ToolContext.clear_context()

@@ -9,6 +9,7 @@ Handles:
 
 import asyncio
 import json as json_module
+import re
 from typing import Any
 
 from sqlalchemy import desc
@@ -23,6 +24,27 @@ from ..utils.world_model_visibility import (
     extract_item_metadata,
     resolve_world_model_channels,
 )
+
+_HAN_CHAR_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+_LATIN_WORD_RE = re.compile(r"[A-Za-z]{2,}")
+_URL_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
+
+
+def detect_author_language(text: str | None) -> str | None:
+    """作者这条消息用的是中文还是英文；看不出来（选项字母、数字、链接）时返回 None。
+
+    汉字和英文词混写时按量比：一个英文词大致抵两个汉字（「把 POV 改成第一人称」是中文，
+    「Write chapter 3 where 苏晚 meets 沈砚」是英文）。
+    """
+    cleaned = _URL_RE.sub(" ", text or "")
+    han = len(_HAN_CHAR_RE.findall(cleaned))
+    words = len(_LATIN_WORD_RE.findall(cleaned))
+    if han == 0:
+        return "en" if words >= 2 else None
+    if words == 0:
+        return "zh"
+    return "zh" if han >= words * 2 else "en"
+
 
 logger = get_logger(__name__)
 
@@ -458,6 +480,7 @@ class MessageManager:
         language: str | None = None,
         skill_catalog: str | None = None,
         selected_skills: list[dict[str, Any]] | None = None,
+        author_message: str | None = None,
     ) -> str:
         """
         Build system prompt for the AI assistant.
@@ -473,6 +496,7 @@ class MessageManager:
             selected_skills: Skills the user explicitly selected for this message
                 (dicts with name / instructions / resources); their full
                 instructions are injected
+            author_message: 作者本轮的原话；用来写明本轮给作者的回复用哪种语言
 
         Returns:
             Complete system prompt string
@@ -526,9 +550,8 @@ class MessageManager:
         # === STATIC PREFIX (stable across turns for context caching) ===
         parts = [prompt]
 
-        # Force output language mode
-        if force_en:
-            parts.extend(self._build_language_section())
+        # 回复语言规则（跟随作者最近一条消息；界面语言只在判断不了时兜底）
+        parts.extend(self._build_language_section(force_en))
 
         constraints, world_truth, world_surface = self._extract_structured_context(
             context_items=context_items,
@@ -570,21 +593,58 @@ class MessageManager:
         # Add task board state
         parts.extend(self._build_task_board_section(session_id, force_en))
 
+        # 本轮作者消息的语言：所有角色共用系统提示，审稿人收到的是系统拼的任务消息，
+        # 只能从这里知道作者用的是什么语言
+        parts.extend(self._build_author_language_line(author_message))
+
         return "\n".join(parts)
 
-    def _build_language_section(self) -> list[str]:
-        """Build language enforcement section for English mode."""
+    def _build_language_section(self, force_en: bool) -> list[str]:
+        """回复语言规则：跟随作者最近一条消息，看不出来时才按界面语言。"""
+        if force_en:
+            return [
+                "",
+                "## Reply language",
+                "- Write chat replies to the author in the language of the author's latest message: "
+                "Chinese when the author writes Chinese, English when the author writes English. "
+                "When the author switches language, switch with them; earlier replies do not decide it.",
+                "- When the latest message has no clear language (only an option letter, a number or a link), "
+                "keep the language the author has been using in this conversation; if that is unclear too, "
+                "fall back to English (the author's interface language).",
+                "- Do not mix Chinese and English in one chat reply.",
+                "- This rule covers chat replies only. File content (<file> blocks, edit_file text, "
+                "create_file content) stays in the manuscript's existing language; a new file follows "
+                "the language the author asked for or the language of the existing manuscript.",
+            ]
         return [
             "",
-            "## CRITICAL: Output Language",
-            "You MUST write your chat replies to the user ENTIRELY in English for this session.",
-            "- Reply in English even if the user writes in Chinese.",
-            "- Do not mix Chinese and English in chat replies.",
-            "- This rule covers chat replies only. File content (<file> blocks, edit_file text, "
-            "create_file content) stays in the manuscript's existing language; a new file follows "
-            "the language the author asked for or the language of the existing manuscript.",
-            "- UI labels/tool names can remain as-is if needed.",
+            "## 回复语言",
+            "- 给作者的聊天回复用作者最近一条消息的语言：作者写中文就用中文，写英文就用英文；"
+            "作者换了语言就跟着换，之前的回复用的什么语言不算数。",
+            "- 作者最近一条消息看不出语言（只有选项字母、数字、链接）时，沿用作者在这段对话里一直用的语言；"
+            "还判断不了就用中文（作者的界面语言）。",
+            "- 这条只管聊天回复。文件内容（<file> 正文、edit_file 文本、create_file 内容）保持稿件原有语言；"
+            "新文件用作者要求的语言或已有稿件的语言。",
         ]
+
+    @staticmethod
+    def _build_author_language_line(author_message: str | None) -> list[str]:
+        """写明本轮作者消息的语言（判断不了时不写，交给上面的兜底规则）。"""
+        detected = detect_author_language(author_message)
+        if detected == "zh":
+            return [
+                "",
+                "## 本轮回复语言",
+                "本轮作者用中文写消息：这一轮给作者的所有回复都用中文，每个角色都一样，包括审稿后的总结。",
+            ]
+        if detected == "en":
+            return [
+                "",
+                "## Reply language for this turn",
+                "The author wrote this turn's message in English: every reply to the author this turn is in English, "
+                "for every role, including the review summary.",
+            ]
+        return []
 
     def _build_task_board_section(
         self, session_id: str | None, force_en: bool

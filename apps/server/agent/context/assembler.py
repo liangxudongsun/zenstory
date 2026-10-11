@@ -18,6 +18,7 @@ from sqlmodel import Session, select
 
 # Local
 from config.agent_runtime import AGENT_CONTEXT_TOKEN_BUDGET
+from config.project_notes import render_project_notes
 from utils.logger import get_logger, log_with_context
 
 from ..constants import CONTENT_FILE_TYPES, INVENTORY_FILE_TYPES
@@ -81,6 +82,15 @@ def _retrieval_semantic_timeout_s() -> float:
     except ValueError:
         return DEFAULT_RETRIEVAL_SEMANTIC_TIMEOUT_S
     return value if value > 0 else DEFAULT_RETRIEVAL_SEMANTIC_TIMEOUT_S
+
+
+def _render_project_notes(notes: str) -> list[str]:
+    """备注按来源分开渲染：作者确认 / 未标来源 / AI 提议（见 config/project_notes）。
+
+    AI 提议单独成块并写明不是设定，后续轮次不会把它当成作者定下的事实。标题行是
+    split_project_notes 认得的形式：模型把这几块照抄回 update_project 的 notes 时分区不变。
+    """
+    return render_project_notes(notes)
 
 
 class ContextAssembler:
@@ -1966,7 +1976,7 @@ class ContextAssembler:
             parts.append("")
 
             if project_status.get("summary"):
-                parts.append("【项目简介】")
+                parts.append("【项目简介】（概要，可能是 AI 根据对话和稿件整理的；具体设定以作者原话和稿件为准）")
                 parts.append(project_status["summary"])
                 parts.append("")
 
@@ -1981,16 +1991,14 @@ class ContextAssembler:
                 parts.append("")
 
             if project_status.get("notes"):
-                parts.append("【备注】")
-                parts.append(project_status["notes"])
-                parts.append("")
+                parts.extend(_render_project_notes(project_status["notes"]))
         else:
             # Remind AI to collect project info when status is empty
             parts.append(separator)
             parts.append("项目状态 [待收集]")
             parts.append(separator)
             parts.append("")
-            parts.append("⚠️ 项目信息尚未记录！当用户提到以下内容时，请立即调用 update_project 记录：")
+            parts.append("⚠️ 项目信息尚未记录！作者亲口说到以下内容时，用 update_project 记下作者说的（不记你自己的推断）：")
             parts.append("- 小说类型/题材/背景 → summary")
             parts.append("- 写作风格/语言偏好 → writing_style")
             parts.append("- 特殊要求/注意事项 → notes")

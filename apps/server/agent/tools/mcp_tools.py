@@ -49,8 +49,11 @@ from agent.tools.file_ops.serialization import (
     QUERY_FILES_DEFAULT_LIMIT,
     QUERY_FILES_FULL_MODE_DEFAULT_LIMIT,
     QUERY_FILES_RESPONSE_MODE_FULL,
+    serialize_file,
 )
 from agent.tools.permissions import NotFoundError
+from config.project_notes import ProjectNotesMerge, merge_project_notes, split_project_notes
+from config.project_status import PROJECT_STATUS_MAX_LENGTHS
 from utils.logger import get_logger, log_with_context
 from utils.title_sequence import extract_chapter_like_sequence_number, parse_chinese_number
 
@@ -326,6 +329,24 @@ class _PendingEmptyFileState:
 
             self._reservations[ticket] = title
             return True, None
+
+    def sole_unwritten_entry(self) -> dict[str, str] | None:
+        """没有建库途中的占坑、且恰好只有一个尚未写出正文的条目时返回它，否则 None。
+
+        create_file 被挡住时用来判断"模型是不是在重复创建正挡路的那个文件"。
+        """
+        with self._lock:
+            if self._reservations:
+                return None
+            unwritten = [
+                (file_id, title_)
+                for file_id, title_ in self._entries.items()
+                if file_id not in self._streamed
+            ]
+            if len(unwritten) != 1:
+                return None
+            file_id, title_ = unwritten[0]
+            return {"file_id": file_id, "title": title_}
 
     def bind(self, ticket: str, file_id: str, title: str) -> None:
         """占坑成功且文件已落库：把票据换成真实 file_id。"""
@@ -1644,6 +1665,82 @@ def _pending_empty_file_rejection(blocking_title: str | None, title: str) -> dic
     return _make_mcp_payload(payload, tool_name="create_file")
 
 
+def _repeat_of_pending_empty_file(args: dict[str, Any], project_id: str) -> dict[str, Any] | None:
+    """create_file 被挡住时，判断它是不是在重复创建正挡路的那个空文件；是就把那个文件交回去。
+
+    模型常见的做法是：上一次回复 create_file(X) 成功，下一次回复本该以 <file> 开头写
+    X 的正文，却又调用一次 create_file(X)。这次调用要的就是已经建好的那个空文件，
+    按「一次只能流式写一个文件」拒绝它只会多烧一轮、给作者留一张失败卡。
+
+    只在以下条件同时成立时认作重复：没有建库途中的占坑、恰好只有一个尚未写出正文的
+    条目、标题相同，且库里那一行仍在本项目、未删除、正文为空、父目录与类型都对得上。
+    不新增条目、不新建文件；返回的 content 为空且不带 reused_existing，
+    StreamAdapter 会照常为同一个 file_id 重新等待 <file> 正文。
+    """
+    from models import File
+
+    state = ToolContext._get_pending_empty_file_state()
+    if state is None:
+        return None
+    entry = state.sole_unwritten_entry()
+    if entry is None:
+        return None
+
+    title = str(args.get("title") or "").strip()
+    if not title or str(entry.get("title") or "").strip() != title:
+        return None
+
+    file_id = str(entry.get("file_id") or "")
+    if not file_id:
+        return None
+    try:
+        row = ToolContext.get_session().exec(
+            select(File).where(File.id == file_id).execution_options(populate_existing=True)
+        ).first()
+    except Exception as e:
+        logger.debug(f"Pending empty-file repeat probe failed: {e}")
+        return None
+    if (
+        row is None
+        or row.is_deleted
+        or row.project_id != project_id
+        or str(row.content or "").strip()
+        or str(row.title or "").strip() != title
+    ):
+        return None
+
+    requested_parent = args.get("parent_id") or None
+    if requested_parent != (row.parent_id or None):
+        return None
+    requested_type = str(args.get("file_type") or "draft").strip().lower()
+    row_type = str(row.file_type or "").strip().lower()
+    # crud 会把剧本目录下分集的 draft/document 规范成 script，重复调用照原参数传来时也算同一个文件
+    if requested_type != row_type and not (
+        row_type == "script" and requested_type in {"draft", "document"}
+    ):
+        return None
+
+    log_with_context(
+        logger,
+        20,  # INFO
+        "agent.create_file.same_title_repeat",
+        project_id=project_id,
+        file_id=file_id,
+        title=title,
+        file_type=row_type,
+    )
+    data = serialize_file(row)
+    data["content"] = ""
+    data["next_step"] = (
+        f"「{title}」已经建好，正文还是空的。不要再调用 create_file，"
+        "接下来直接以 <file> 开头写它的正文，写完用 </file> 结束。"
+    )
+    return _make_result(
+        {"status": "success", "mutation_applied": False, "data": data},
+        tool_name="create_file",
+    )
+
+
 async def create_file(args: dict[str, Any]) -> dict[str, Any]:
     """创建新文件。"""
     if _should_offload_tool_execution():
@@ -1686,6 +1783,11 @@ def _create_file_sync(args: dict[str, Any]) -> dict[str, Any]:
                 reservation, title
             )
         if not acquired:
+            # 挡路的正是本次要建的这个空文件（同标题、同父目录、同类型）：交回它，
+            # 让模型直接写正文；挡路的是别的文件时照旧拒绝。
+            repeat = _repeat_of_pending_empty_file(args, project_id)
+            if repeat is not None:
+                return repeat
             return _pending_empty_file_rejection(blocking_title, title)
 
     try:
@@ -2317,6 +2419,86 @@ async def update_project(args: dict[str, Any]) -> dict[str, Any]:
     return _update_project_sync(args)
 
 
+def _author_quotes_arg(raw: Any) -> list[str]:
+    if isinstance(raw, str):
+        return [raw]
+    if isinstance(raw, list):
+        return [item for item in raw if isinstance(item, str)]
+    return []
+
+
+def _merge_notes_by_source(project_id: str, normalized_args: dict[str, Any]) -> ProjectNotesMerge:
+    """把 update_project 的 notes / proposals 合进现有备注，按来源分区（见 config/project_notes）。
+
+    「作者确认」只收作者原话撑得住的条目，逐条核对：那一条得是 author_quotes 里某句
+    逐字出现在作者本轮消息里的原话本身（或其中连续的一段）。拿不到作者原话（不是应用内
+    对话）时不核对，和以前一样照单记下。
+    """
+    from models import Project
+
+    # 合并要基于库里当前的备注（作者可能刚在 AI 记忆里改过），不用会话里缓存的旧实例
+    project = ToolContext.get_session().get(Project, project_id, populate_existing=True)
+    existing = getattr(project, "notes", None) if project is not None else None
+    author_messages = (
+        ToolContext.get_author_messages()
+        if isinstance(ToolContext._get_context().get("author_message"), str)
+        else None
+    )
+    notes_arg = normalized_args.get("notes")
+    proposals_arg = normalized_args.get("proposals")
+    merged = merge_project_notes(
+        existing,
+        notes=notes_arg if isinstance(notes_arg, str) else None,
+        proposals=proposals_arg if isinstance(proposals_arg, str) else None,
+        author_quotes=_author_quotes_arg(normalized_args.get("author_quotes")),
+        author_messages=author_messages,
+    )
+    if merged.downgraded:
+        log_with_context(
+            logger,
+            20,  # INFO
+            "update_project notes without author words recorded as AI proposals",
+            project_id=project_id,
+            downgraded_count=len(merged.downgraded),
+        )
+    return merged
+
+
+def _notes_over_budget_error(merged: ProjectNotesMerge) -> dict[str, Any] | None:
+    """notes 和 AI 提议块存在同一个备注字段里，共用一个长度上限。
+
+    合并后超出时在写入任何字段之前返回，说清两块各占多少，让模型精简后整次重发；
+    不偷偷丢掉旧提议（那是作者看得到的内容），也不只写一部分字段。
+    """
+    limit = PROJECT_STATUS_MAX_LENGTHS["notes"]
+    total = len(merged.text.strip())
+    if total <= limit:
+        return None
+    sections = split_project_notes(merged.text)
+    notes_chars = sum(len(line) for line in [*sections.unlabeled, *sections.confirmed])
+    proposals_chars = sum(len(line) for line in sections.proposals)
+    downgraded_part = (
+        f"（其中 {len(merged.downgraded)} 条是这次没核对到作者原话、记成提议的）"
+        if merged.downgraded
+        else ""
+    )
+    return {
+        "status": "error",
+        "error_type": "notes_over_budget",
+        "error": (
+            f"备注没有保存：notes 和 AI 提议块存在同一个备注字段里，合计上限 {limit} 字；"
+            f"这次合并后约定部分约 {notes_chars} 字、AI 提议块约 {proposals_chars} 字"
+            f"{downgraded_part}，加上分区标题共 {total} 字。"
+            "这次调用的其他字段（title、summary、tasks 等）也都没有写入。"
+            "下一步：传 proposals 删掉过时或作者已否定的提议（proposals=\"\" 清空整块），"
+            "或在作者同意的前提下精简 notes，然后整次重新调用 update_project。"
+        ),
+        "notes_chars": notes_chars,
+        "proposals_chars": proposals_chars,
+        "limit": limit,
+    }
+
+
 def _update_project_sync(args: dict[str, Any]) -> dict[str, Any]:
     """Synchronous update_project implementation."""
     tool_name = "update_project"
@@ -2331,6 +2513,16 @@ def _update_project_sync(args: dict[str, Any]) -> dict[str, Any]:
     try:
         normalized_args = _normalize_update_project_args(args)
         result = {}
+
+        # 备注按来源分区：notes 里没有作者原话支撑的条目记成 AI 提议（见 config/project_notes）
+        downgraded_notes: list[str] = []
+        if normalized_args.get("notes") is not None or normalized_args.get("proposals") is not None:
+            merged_notes = _merge_notes_by_source(project_id, normalized_args)
+            over_budget = _notes_over_budget_error(merged_notes)
+            if over_budget is not None:
+                return _make_mcp_payload(over_budget, tool_name=tool_name)
+            normalized_args["notes"] = merged_notes.text
+            downgraded_notes = merged_notes.downgraded
 
         # 更新项目状态（支持空字符串清空字段）
         status_keys = ["summary", "current_phase", "writing_style", "notes"]
@@ -2446,6 +2638,15 @@ def _update_project_sync(args: dict[str, Any]) -> dict[str, Any]:
                 "has_plan": "plan" in result,
             },
         )
+
+        if downgraded_notes:
+            result["notes_recorded_as_proposals"] = downgraded_notes
+            result["notes_note"] = (
+                "这些条目不是作者本轮的原话（逐条核对：一条得是 author_quotes 里某句作者原话本身或其中连续的一段），"
+                "已记在备注的「AI 提议·待作者确认」里，不算作者定下的设定：" + "；".join(downgraded_notes)
+                + "。如果作者确实这样说过，用作者的原话写这一条、把原话放进 author_quotes 再记一次；"
+                "是你的推断就留在提议里。"
+            )
 
         return _make_result({"status": "success", "data": result}, tool_name=tool_name)
     except Exception as e:
