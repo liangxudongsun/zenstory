@@ -712,7 +712,60 @@ async def test_stop_after_chapter_body_was_written_is_charged_and_keeps_files(
     assert db_session.get(File, placeholder.id).is_deleted is False
     assert db_session.get(File, filled.id).is_deleted is False
     outcome = json.loads(db_session.get(ChatMessage, message_id).message_metadata)["stop_outcome"]
-    assert outcome == {"reason": "user_stopped", "charged": True, "saved_output": True}
+    # 终态列出写进了正文的章节（空白的第1章不算），作者刷新后知道写了什么。
+    assert outcome == {
+        "reason": "user_stopped",
+        "charged": True,
+        "saved_output": True,
+        "written_files": [{"id": filled.id, "title": "第2章 入宅", "words": 4}],
+    }
+
+
+@pytest.mark.integration
+async def test_disconnect_after_a_chapter_was_written_records_which_chapter(
+    client: AsyncClient, db_session
+):
+    """U088：create_file 已带正文写好第2章，回复只有一句开场白时连接断开。计费，终态写明
+    写进了《第2章 入宅》和字数，而不只是「已写入的内容已保存」。"""
+    from models import ChatMessage
+
+    _token, project, user = await _login_with_project(client, db_session)
+    message_id, _placeholder, filled, _older = _seed_round(db_session, project, user)
+    body = "雨还在下。旧书店的门没有锁。"
+
+    async def frames():
+        yield _sse("session_started", {"session_id": "s1"})
+        yield _sse("content", {"text": "我先看卷一细纲里第2章的要求。"})
+        yield _sse(
+            "tool_result",
+            {
+                "tool_name": "create_file",
+                "status": "success",
+                "data": {"id": filled.id, "title": filled.title, "content": body, "file_type": "draft"},
+            },
+        )
+        await asyncio.sleep(30)
+
+    with (
+        patch("api.agent.get_agent_service", return_value=_FakeService(frames, message_id)),
+        patch("api.agent.quota_service.reserve_ai_conversation", return_value=_CHARGED_PERIOD),
+        patch("api.agent.quota_service.release_ai_conversation", return_value=True) as refund,
+    ):
+        response = await _stream(db_session, user, project, None)
+        iterator = response.body_iterator
+        for _ in range(3):
+            await iterator.__anext__()
+        await iterator.aclose()
+        await asyncio.gather(*agent_api._detached_refund_tasks)
+        await asyncio.gather(*agent_api._round_outcome_tasks)
+
+    refund.assert_not_called()
+    db_session.expire_all()
+    outcome = json.loads(db_session.get(ChatMessage, message_id).message_metadata)["stop_outcome"]
+    assert outcome["reason"] == "client_disconnected"
+    assert outcome["charged"] is True
+    assert outcome["saved_output"] is True
+    assert outcome["written_files"] == [{"id": filled.id, "title": "第2章 入宅", "words": 12}]
 
 
 @pytest.mark.integration

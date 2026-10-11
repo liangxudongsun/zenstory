@@ -1,4 +1,5 @@
-"""停止 / 断线一轮的收尾（agent.core.round_outcome）：空白占位文件的数据安全校验、终态落库、等消息 id。
+"""停止 / 断线一轮的收尾（agent.core.round_outcome）：空白占位文件的数据安全校验、终态落库、等消息 id、
+本轮写入了哪些文件。
 
 见 .agents/notes/implemented/architecture/2026-10-09-stop-output-definition-and-round-outcome.md。
 """
@@ -10,6 +11,7 @@ from uuid import uuid4
 import pytest
 
 from agent.core.round_outcome import (
+    RoundWrittenFiles,
     RunOutcome,
     build_stop_outcome,
     record_round_outcome,
@@ -239,3 +241,113 @@ async def test_wait_message_id_does_not_swallow_cancellation():
     # 消息 id 之后照样能交回（后台的终态记录还要用它）。
     outcome.resolve_message_id("m2")
     assert await outcome.wait_message_id(1.0) == "m2"
+
+
+# ---------------------------------------------------------------------- RoundWrittenFiles
+
+
+def _frame(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _created(file_id: str, title: str, content: str = "", **extra) -> str:
+    return _frame(
+        "tool_result",
+        {
+            "tool_name": "create_file",
+            "status": "success",
+            "data": {"id": file_id, "title": title, "content": content, "file_type": "draft", **extra},
+        },
+    )
+
+
+def _edited(file_id: str, title: str, *, mutation_applied: bool = True) -> str:
+    return _frame(
+        "tool_result",
+        {
+            "tool_name": "edit_file",
+            "status": "success",
+            "data": {"id": file_id, "title": title, "mutation_applied": mutation_applied},
+        },
+    )
+
+
+def _written(*frames: str) -> list[dict]:
+    files = RoundWrittenFiles()
+    for frame in frames:
+        files.observe(frame)
+    return files.files()
+
+
+def test_written_files_list_a_chapter_created_with_its_body_and_its_word_count():
+    """create_file 直接带正文（U088 那种「第2章写进去了、回复只剩一句开场白」）：列出标题与编辑器口径的字数。"""
+    assert _written(_created("ch-2", "第2章 入宅", "雨还在下。Rain 落在窗上。")) == [
+        {"id": "ch-2", "title": "第2章 入宅", "words": 9},
+    ]
+
+
+def test_written_files_count_the_streamed_body_across_chunks():
+    """空章节 + 流式正文：字数按整段正文算，被切在两帧之间的英文单词只算一次。"""
+    assert _written(
+        _created("ch-1", "第1章"),
+        _frame("file_created", {"file_id": "ch-1", "file_type": "draft", "title": "第1章"}),
+        _frame("file_content", {"file_id": "ch-1", "chunk": "雨还在下。Ra"}),
+        _frame("file_content", {"file_id": "ch-1", "chunk": "in 落在窗上。"}),
+        _frame("file_content_end", {"file_id": "ch-1"}),
+    ) == [{"id": "ch-1", "title": "第1章", "words": 9}]
+
+
+def test_written_files_skip_blank_placeholders_reads_failures_and_folders():
+    assert _written(
+        _created("ch-blank", "第3章"),
+        _frame("file_content", {"file_id": "ch-blank", "chunk": "  \n"}),
+        _frame("tool_result", {"tool_name": "query_files", "status": "success", "data": {"id": "x", "title": "大纲"}}),
+        _frame("tool_result", {"tool_name": "create_file", "status": "error", "data": {"id": "e", "title": "失败"}}),
+        _created("folder-1", "第一卷", "不会有正文", file_type="folder"),
+        _edited("ch-old", "第0章", mutation_applied=False),
+    ) == []
+
+
+def test_written_files_list_edits_without_a_word_count():
+    """改动了已有文件：列出标题，字数未知（本轮只改了其中几处）就不写。"""
+    assert _written(
+        _created("ch-1", "第1章", "开头一句。"),
+        _edited("ch-1", "第1章"),
+        _edited("ch-5", "第5章"),
+    ) == [
+        {"id": "ch-1", "title": "第1章"},
+        {"id": "ch-5", "title": "第5章"},
+    ]
+
+
+def test_written_files_skip_a_reused_chapter_whose_existing_body_the_stream_may_not_replace():
+    """幂等复用命中已写满的分集：中断时残稿不会覆盖原文（截断覆盖保护），不能说它「已保存」。"""
+    assert _written(
+        _created("ep-2", "第2集", "原有的整集正文。", reused_existing=True),
+        _frame("file_content", {"file_id": "ep-2", "chunk": "新写的开头"}),
+    ) == []
+
+
+def test_written_files_keep_the_order_of_first_write_once_each():
+    assert _written(
+        _created("ch-2", "第2章"),
+        _created("ch-3", "第3章", "第三章正文。"),
+        _frame("file_content", {"file_id": "ch-2", "chunk": "第二章正文。"}),
+        _frame("file_content", {"file_id": "ch-2", "chunk": "又一句。"}),
+    ) == [
+        {"id": "ch-3", "title": "第3章", "words": 5},
+        {"id": "ch-2", "title": "第2章", "words": 8},
+    ]
+
+
+def test_stop_outcome_lists_written_files_only_when_there_are_some():
+    """旧消息、只有并行写章 / 删除这类拿不到文件的写入：没有 written_files，前端照旧显示。"""
+    assert "written_files" not in build_stop_outcome(
+        stop_kind="client_disconnected", charged=True, saved_output=True, written_files=[]
+    )
+    assert build_stop_outcome(
+        stop_kind="client_disconnected",
+        charged=True,
+        saved_output=True,
+        written_files=[{"id": "ch-2", "title": "第2章 入宅", "words": 9}],
+    )["written_files"] == [{"id": "ch-2", "title": "第2章 入宅", "words": 9}]
