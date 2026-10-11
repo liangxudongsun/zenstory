@@ -39,6 +39,7 @@ from agent.graph.author_scope import (
     previous_question_offers_one_edit,
     request_asks_for_a_plan,
 )
+from agent.graph.completion_evidence import ends_on_file_block, find_unbacked_change_claim
 from agent.graph.nodes import (
     detect_task_complete,
     ends_with_question_to_user,
@@ -61,6 +62,7 @@ from agent.openai_agents.repeat_read_guard import RepeatReadGuard
 from agent.openai_agents.runner import extract_text_from_message_content
 from agent.openai_agents.tool_failure_breaker import ToolFailureBreaker
 from agent.tools.mcp_tools import ToolContext, update_project
+from agent.tools.task_progress import format_units, task_text, task_unit_spec, title_units
 from config.agent_runtime import (
     AGENT_AUTO_REVIEW_THRESHOLD_CHARS,
     AGENT_COLLABORATION_MAX_ITERATIONS,
@@ -444,6 +446,91 @@ async def _roll_back_empty_files_after_exhaustion(
     notice = _unfinished_file_notice(rolled_back_titles, unresolved_titles)
     if notice:
         yield StreamEvent(type=StreamEventType.TEXT, data={"text": notice})
+
+
+# 写完 </file> 就结束了 run（openai-agents 把不带工具调用的回复当作最终输出）：同一个 agent
+# 接着跑一轮，见 completion_evidence.ends_on_file_block 与主循环里的续写分支。
+FILE_STREAM_CONTINUATION_MARKER = "[系统提醒] 你上一次回复写完 </file> 就结束了"
+
+# 回复说「已还原 / 已保存…」但本请求没有任何写入时，同一个 agent 补的那一轮的开头。
+UNBACKED_CLAIM_MARKER = "[系统提醒] 你刚才对作者说"
+
+# 不能再补一轮时（只读请求、没有协作轮数、已经补过一次仍然这样说）直接告诉作者的更正。
+UNBACKED_CLAIM_NOTICE = "\n\n——\n更正：这一轮实际没有修改任何文件或项目信息。"
+
+# 本请求成功即说明「确实改了东西」的工具（parallel_execute 可能带写入子任务，按改过算）。
+_REQUEST_WRITE_TOOL_NAMES = frozenset(
+    {"create_file", "edit_file", "delete_file", "parallel_execute", "update_project"}
+)
+
+
+def _open_board_tasks() -> list[dict[str, Any]]:
+    """任务计划板上还没完成的任务（读不到时为空，不影响续写）。"""
+    session_id = ToolContext.get_session_id()
+    if not session_id:
+        return []
+    try:
+        from services.infra.task_board_service import task_board_service
+
+        tasks = task_board_service.get_tasks(
+            session_id,
+            user_id=ToolContext.get_user_id(),
+            project_id=ToolContext.get_project_id(),
+        ) or []
+    except Exception as e:
+        logger.debug(f"Failed to read task board for continuation: {e}")
+        return []
+    return [
+        task
+        for task in tasks
+        if isinstance(task, dict) and task.get("status") in {"pending", "in_progress"}
+    ]
+
+
+def _file_stream_continuation_context(
+    written_titles: list[str],
+    open_tasks: list[dict[str, Any]],
+    user_scope: str,
+) -> str:
+    """写完 </file> 就结束 run 之后，同一个 agent 接着那一轮的交接说明。"""
+    saved = "、".join(f"《{title}》" for title in written_titles if title)
+    lines = [
+        f"{FILE_STREAM_CONTINUATION_MARKER}，没有接着建下一个文件，也没有给作者写总结，"
+        "作者在对话里还什么都没看到。"
+    ]
+    if saved:
+        lines.append(f"本请求已保存：{saved}。这些文件不要重写。")
+    if user_scope:
+        lines.append(f"作者这一轮要求的交付范围：{user_scope}。")
+    if open_tasks:
+        status_names = {"pending": "未开始", "in_progress": "进行中"}
+        task_lines = []
+        for task in open_tasks:
+            line = f"- {task.get('task')}（{status_names.get(str(task.get('status')), '')}）"
+            progress = str(task.get("progress") or "").strip()
+            if progress:
+                line += f"：{progress}"
+            task_lines.append(line)
+        lines.append("任务计划板上还没完成的任务：\n" + "\n".join(task_lines))
+    lines.append(
+        "对照作者的要求：还有没写的文件，就调用 create_file 写下一个（工具返回后，下一次回复以 <file> 开头"
+        "写正文），写完 </file> 后在同一次回复里接着建下一个，或者写总结；"
+        "全部写完了，就不再调用写文件的工具，直接用 1–3 行告诉作者实际写了哪些文件、各多少字"
+        "（按工具返回的字数），没写完的如实说明。"
+    )
+    return "\n".join(lines)
+
+
+def _unbacked_claim_context(claim: str) -> str:
+    """回复说改了、本请求却没有任何写入时，同一个 agent 补的那一轮的交接说明。"""
+    return (
+        f"{UNBACKED_CLAIM_MARKER}「{claim}」，但本请求到现在没有任何文件或项目信息被实际修改"
+        "（没有一次写入工具调用成功）。\n"
+        "如果作者确实需要这处改动：现在调用对应的工具（edit_file / create_file / update_project）"
+        "真正完成，完成后用一句话说明改了什么。\n"
+        "如果不需要改：不要调用写入工具，用一句话向作者更正——这一轮没有修改任何内容。"
+        "不要重复上一条回复。"
+    )
 
 
 def _author_facing_handoff_event_data(event_data: dict[str, Any]) -> dict[str, Any]:
@@ -848,8 +935,40 @@ def _format_file_inventory(inventory: dict[str, list[dict[str, Any]]]) -> str:
     return "\n".join(parts) if parts else ""
 
 
-def _build_completion_task_payload(tasks: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
-    """将任务板中的 in_progress 任务标记为 done。"""
+def _normalize_artifact_title(text: str) -> str:
+    return re.sub(r"[\s《》「」『』\"'“”]+", "", text or "").lower()
+
+
+def _artifact_written(artifact: str, written_titles: list[str]) -> bool:
+    """任务的产出物（文件名）是不是本请求实际写出的某个文件。"""
+    target = _normalize_artifact_title(artifact)
+    if not target:
+        return False
+    for title in written_titles:
+        normalized = _normalize_artifact_title(title)
+        if normalized and (target in normalized or normalized in target):
+            return True
+    return False
+
+
+def _build_completion_task_payload(
+    tasks: list[dict[str, Any]],
+    written_titles: list[str],
+) -> list[dict[str, Any]] | None:
+    """按本请求实际写出的文件给 in_progress 任务收尾；没有可改的返回 None。
+
+    written_titles 是本请求写过、现在仍存在且有正文的文件标题（见 _existing_written_titles）。
+
+    - 任务写了编号范围（「撰写第2-5集剧本」「第一卷正文（第1-119章）」）：范围里每个编号都有
+      对应文件才标 done；只写了一部分时保持 in_progress，记下已写 / 待写（done_units / progress，
+      跨请求累计）；一个都没写时不动。
+    - 任务写了产出物（artifact）：本请求写出了这个文件才标 done，否则不动。
+    - 其余任务：本请求确实写出了文件才标 done。
+    - 本请求什么都没写：一律不动。pending 任务不动。
+    """
+    if not written_titles:
+        return None
+
     updated_tasks: list[dict[str, Any]] = []
     has_updates = False
 
@@ -858,7 +977,37 @@ def _build_completion_task_payload(tasks: list[dict[str, Any]]) -> list[dict[str
             continue
 
         normalized_task = dict(task)
-        if normalized_task.get("status") == "in_progress":
+        if normalized_task.get("status") != "in_progress":
+            updated_tasks.append(normalized_task)
+            continue
+
+        spec = task_unit_spec(task_text(normalized_task))
+        artifact = str(normalized_task.get("artifact") or "").strip()
+        if spec is not None:
+            prior = {
+                number
+                for number in normalized_task.get("done_units") or []
+                if isinstance(number, int) and number in spec.numbers
+            }
+            covered = (title_units(written_titles, spec.unit) & spec.numbers) | prior
+            missing = set(spec.numbers) - covered
+            if not missing:
+                normalized_task["status"] = "done"
+                normalized_task.pop("progress", None)
+                normalized_task.pop("done_units", None)
+                has_updates = True
+            elif covered and covered != prior:
+                normalized_task["done_units"] = sorted(covered)
+                normalized_task["progress"] = (
+                    f"已写：{format_units(covered, spec.unit)}；"
+                    f"待写：{format_units(missing, spec.unit)}"
+                )
+                has_updates = True
+        elif artifact:
+            if _artifact_written(artifact, written_titles):
+                normalized_task["status"] = "done"
+                has_updates = True
+        else:
             normalized_task["status"] = "done"
             has_updates = True
         updated_tasks.append(normalized_task)
@@ -866,11 +1015,32 @@ def _build_completion_task_payload(tasks: list[dict[str, Any]]) -> list[dict[str
     return updated_tasks if has_updates else None
 
 
-async def _auto_finalize_task_board_on_completion() -> list[StreamEvent]:
-    """
-    在 workflow 完成时自动补一次 update_project(tasks=[...])。
+def _existing_written_titles(file_ids: list[str]) -> list[str]:
+    """本请求写过的文件里，现在仍存在且有正文的那些的标题（删掉的、空的不算产物）。"""
+    if not file_ids:
+        return []
+    from sqlmodel import select
 
-    仅将 in_progress 任务改为 done，避免误改 pending 任务。
+    from models import File
+
+    with ToolContext.short_lived_session() as session:
+        rows = session.exec(
+            select(File.title, File.content).where(
+                File.id.in_(file_ids),  # type: ignore[attr-defined]
+                File.is_deleted.is_(False),  # type: ignore[attr-defined]
+            )
+        ).all()
+    return [str(title or "") for title, content in rows if str(content or "").strip()]
+
+
+async def _auto_finalize_task_board_on_completion(
+    guard: RepeatReadGuard | None = None,
+) -> list[StreamEvent]:
+    """
+    在 workflow 完成时按实际产物补一次 update_project(tasks=[...])。
+
+    只有本请求确实写出对应文件的 in_progress 任务改为 done（规则见
+    _build_completion_task_payload）；pending 任务不动，什么都没写时不补。
     """
     session_id = ToolContext.get_session_id()
     if not session_id:
@@ -880,6 +1050,10 @@ async def _auto_finalize_task_board_on_completion() -> list[StreamEvent]:
     project_id = ToolContext.get_project_id()
 
     try:
+        written_ids = guard.written_file_ids() if guard is not None else []
+        if not written_ids:
+            return []
+
         from services.infra.task_board_service import task_board_service
 
         current_tasks = task_board_service.get_tasks(
@@ -887,7 +1061,12 @@ async def _auto_finalize_task_board_on_completion() -> list[StreamEvent]:
             user_id=user_id,
             project_id=project_id,
         ) or []
-        completion_tasks = _build_completion_task_payload(current_tasks)
+        if not any(
+            isinstance(task, dict) and task.get("status") == "in_progress" for task in current_tasks
+        ):
+            return []
+        written_titles = await asyncio.to_thread(_existing_written_titles, written_ids)
+        completion_tasks = _build_completion_task_payload(current_tasks, written_titles)
         if not completion_tasks:
             return []
 
@@ -1066,6 +1245,10 @@ async def run_writing_workflow_streaming(
     # 被纠偏打断那一轮是否以向用户提问收尾：纠偏轮只补正文，它的收尾文本
     # （「已补齐」）不能把原 agent 还在等用户回答的问题冲掉。
     carried_ended_with_question: bool = False
+    # 本请求是否有写工具成功（create/edit/delete_file、parallel_execute、update_project），
+    # 用于核对回复里「已还原 / 已保存」这类话；以及是否已经为这类话补过一轮（只补一次）。
+    request_write_succeeded = False
+    unbacked_claim_corrected = False
 
     # 工具失败熔断器按请求共享：每个 agent run 都从 state 取同一个（见 runner），
     # writer → 审稿人 → writer 的往返不会让「同一调用连续失败」的计数归零。
@@ -1425,6 +1608,12 @@ async def run_writing_workflow_streaming(
             agent_message_started = False
             mid_run_steering_seen = False
             agent_run_errored = False
+            # 本次 run 里的 create_file / 写工具调用与其中失败的：runner 给每次调用都发
+            # TOOL_RESULT，没有失败的就是成功的。run 停在写完的 <file> 上时据此确认刚建过文件，
+            # 回复说「已保存」时据此确认真的写过。
+            run_create_call_ids: set[str] = set()
+            run_write_call_ids: set[str] = set()
+            run_failed_call_ids: set[str] = set()
 
             text_shaper = AgentTextShaper(
                 previous_text=accumulated_content,
@@ -1456,6 +1645,21 @@ async def run_writing_workflow_streaming(
                     agent_tail_text += text
                 elif event.type in (StreamEventType.TOOL_USE, StreamEventType.TOOL_RESULT):
                     agent_tail_text = ""
+
+                if (
+                    event.type == StreamEventType.TOOL_USE
+                    and event.data.get("status") == "complete"
+                ):
+                    tool_name = str(event.data.get("name") or "").strip()
+                    call_id = str(event.data.get("id") or "")
+                    if tool_name == "create_file":
+                        run_create_call_ids.add(call_id)
+                    if tool_name in _REQUEST_WRITE_TOOL_NAMES:
+                        run_write_call_ids.add(call_id)
+                elif event.type == StreamEventType.TOOL_RESULT and _tool_result_failed(
+                    event.data.get("result")
+                ):
+                    run_failed_call_ids.add(str(event.data.get("tool_use_id") or ""))
 
                 if (
                     current_agent_type == "writer"
@@ -1548,6 +1752,9 @@ async def run_writing_workflow_streaming(
                     yield event
 
             writer_used_write_tools = writer_write_calls > writer_write_failures
+            run_create_succeeded = bool(run_create_call_ids - run_failed_call_ids)
+            if run_write_call_ids - run_failed_call_ids:
+                request_write_succeeded = True
             ended_with_question = ends_with_question_to_user(agent_tail_text)
 
             # Carry forward conversation evolution from this agent turn so that
@@ -1805,6 +2012,102 @@ async def run_writing_workflow_streaming(
                         incoming_handoff_packet = None
                         continue
 
+            # 本轮能不能为同一个 agent 再跑一轮（续写 / 更正）：已经停下的轮次、显式交接、
+            # 只读或先问清楚的请求、最后一轮都不行。
+            run_ended_normally = (
+                not next_agent
+                and deferred_handoff is None
+                and not clarification_stopped
+                and not invalid_handoff_stopped
+                and not tool_call_exhausted
+                and not agent_run_errored
+            )
+            can_rerun_same_agent = (
+                run_ended_normally
+                and _agent_can_write_files(current_agent_type)
+                and not read_only_request
+                and not clarify_first_request
+                and iteration < max_iterations
+            )
+
+            # 写完 </file> 就结束了 run（I08）：流式写文件协议把正文放在回复文字里，
+            # openai-agents 把不带工具调用的回复当作最终输出，模型写完一个文件没在同一次
+            # 回复里接着调用 create_file 时，run 就在这里停了——计划里没写的文件、给作者的
+            # 总结都还没写，这不是模型决定收尾。同一个 agent 接着跑一轮，带上已保存的文件、
+            # 作者的范围和任务板上没完成的任务：还有没写的接着写，写完了就给作者总结。
+            # 每一轮都必须真的新建并写完一个文件才会再续，受 max_iterations 约束；放在计划交接 /
+            # 自动质检之前，规划师写完再交给 writer、writer 写完再送审。
+            if (
+                can_rerun_same_agent
+                and run_create_succeeded
+                and not ToolContext.has_pending_empty_file()
+                and ends_on_file_block(agent_tail_text)
+            ):
+                continuation_guard = _guard_from_state(state)
+                written_titles = (
+                    list(continuation_guard.files_written.values()) if continuation_guard else []
+                )
+                handoff_context = _file_stream_continuation_context(
+                    written_titles, _open_board_tasks(), user_scope
+                )
+                if mid_run_steering_seen:
+                    handoff_context += "\n" + _steering_followup_context(
+                        current_agent_type, read_only=read_only_request
+                    )
+                log_with_context(
+                    logger,
+                    20,  # INFO
+                    "Agent run ended on a closed <file> block; continuing the same agent",
+                    agent_type=current_agent_type,
+                    iteration=iteration,
+                    written_files=len(written_titles),
+                )
+                # 续写轮是这一轮的延续：正文与写工具信号接续过去，自动质检门按整轮判断。
+                carried_agent_content = agent_content
+                carried_writer_used_write_tools = writer_used_write_tools
+                carried_writer_emitted_file_markers = writer_emitted_file_markers
+                previous_agent = current_agent_type
+                incoming_handoff_packet = None
+                continue
+
+            # 回复说「已还原 / 已保存 / 已改好 / 已录入」，本请求却没有任何写入成功（I09）：
+            # 让回复与实际写入一致。能写的 agent 再跑一轮（只补一次），要么真的去改，要么
+            # 向作者更正；不能补时直接附一句更正。审稿人没有写权限，它说的「已修改」指的是
+            # 别人改的，不核对。
+            claim_guard = _guard_from_state(state)
+            if (
+                run_ended_normally
+                and _agent_can_write_files(current_agent_type)
+                and not request_write_succeeded
+                and not (claim_guard is not None and claim_guard.write_succeeded)
+            ):
+                claim = find_unbacked_change_claim(agent_content)
+                if claim:
+                    if can_rerun_same_agent and not unbacked_claim_corrected:
+                        unbacked_claim_corrected = True
+                        log_with_context(
+                            logger,
+                            30,  # WARNING
+                            "Agent reply claims a change but no write succeeded this request; re-running it",
+                            agent_type=current_agent_type,
+                            claim=claim,
+                        )
+                        carried_ended_with_question = ended_with_question
+                        handoff_context = _unbacked_claim_context(claim)
+                        previous_agent = current_agent_type
+                        incoming_handoff_packet = None
+                        continue
+                    log_with_context(
+                        logger,
+                        30,  # WARNING
+                        "Agent reply claims a change but no write succeeded this request; adding a correction",
+                        agent_type=current_agent_type,
+                        claim=claim,
+                    )
+                    yield StreamEvent(
+                        type=StreamEventType.TEXT, data={"text": UNBACKED_CLAIM_NOTICE}
+                    )
+
             # Structured clarification stop is canonical and must block planned/auto handoff.
             if clarification_stopped:
                 terminated_via_break = True
@@ -1956,7 +2259,9 @@ async def run_writing_workflow_streaming(
                     type=StreamEventType.TEXT,
                     data={"text": _review_limit_text(review_limit_notes)},
                 )
-                for auto_task_update_event in await _auto_finalize_task_board_on_completion():
+                for auto_task_update_event in await _auto_finalize_task_board_on_completion(
+                    _guard_from_state(state)
+                ):
                     yield auto_task_update_event
                 if (notice := _take_read_only_notice()) is not None:
                     yield notice
@@ -2252,7 +2557,9 @@ async def run_writing_workflow_streaming(
                     )
 
                     # Best-effort: 自动补发一次 update_project(tasks) 把 in_progress 任务收尾。
-                    auto_task_update_events = await _auto_finalize_task_board_on_completion()
+                    auto_task_update_events = await _auto_finalize_task_board_on_completion(
+                        _guard_from_state(state)
+                    )
                     for auto_task_update_event in auto_task_update_events:
                         yield auto_task_update_event
 

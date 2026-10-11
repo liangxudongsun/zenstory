@@ -9,7 +9,17 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from agent.core.workflow_events import StreamEvent, StreamEventType
+from agent.openai_agents.repeat_read_guard import ReadPlan
 from agent.tools.mcp_tools import ToolContext
+
+
+def _record_created_file(state, file_id: str, title: str) -> None:
+    """像 runner 一样把一次成功的 create_file 记进本请求的读写台账。"""
+    state["repeat_read_guard"].observe(
+        "create_file",
+        ReadPlan(arguments=json.dumps({"title": title})),
+        json.dumps({"status": "success", "data": {"id": file_id, "title": title}}),
+    )
 
 
 @pytest.mark.unit
@@ -18,10 +28,11 @@ class TestWritingGraphCompletionHooks:
 
     @pytest.mark.asyncio
     async def test_task_complete_triggers_update_project_for_in_progress_tasks(self):
-        """Workflow completion should auto-call update_project to close in_progress tasks."""
+        """Workflow completion closes in_progress tasks once this request actually wrote a file."""
         from agent.graph.writing_graph import run_writing_workflow_streaming
 
-        async def fake_run_streaming_agent(*_args, **_kwargs):
+        async def fake_run_streaming_agent(state, *_args, **_kwargs):
+            _record_created_file(state, "file-1", "第一章")
             yield StreamEvent(
                 type=StreamEventType.TEXT,
                 data={"text": "任务完成 [TASK_COMPLETE]"},
@@ -63,6 +74,10 @@ class TestWritingGraphCompletionHooks:
                         {"task": "step-2", "status": "in_progress"},
                         {"task": "step-3", "status": "pending"},
                     ],
+                ),
+                patch(
+                    "agent.graph.writing_graph._existing_written_titles",
+                    return_value=["第一章"],
                 ),
                 patch("agent.graph.writing_graph.update_project", mock_update_project),
             ):
@@ -708,7 +723,8 @@ class TestWritingGraphAutoReviewGate:
         """Auto finalize failures should not block WORKFLOW_COMPLETE."""
         from agent.graph.writing_graph import run_writing_workflow_streaming
 
-        async def fake_run_streaming_agent(*_args, **_kwargs):
+        async def fake_run_streaming_agent(state, *_args, **_kwargs):
+            _record_created_file(state, "file-1", "第一章")
             yield StreamEvent(
                 type=StreamEventType.TEXT,
                 data={"text": "任务完成 [TASK_COMPLETE]"},
@@ -736,6 +752,10 @@ class TestWritingGraphAutoReviewGate:
                     "services.infra.task_board_service.task_board_service.get_tasks",
                     return_value=[{"task": "step-2", "status": "in_progress"}],
                 ),
+                patch(
+                    "agent.graph.writing_graph._existing_written_titles",
+                    return_value=["第一章"],
+                ),
                 patch("agent.graph.writing_graph.update_project", mock_update_project),
             ):
                 events = [
@@ -757,6 +777,20 @@ class TestWritingGraphAutoReviewGate:
         assert any(event.type == StreamEventType.WORKFLOW_COMPLETE for event in events)
 
 
+def _create_file_done(call_id: str = "create-1") -> list[StreamEvent]:
+    """fake agent 真的调用过一次 create_file（成功）：runner 对每次工具调用都发这两个事件。"""
+    return [
+        StreamEvent(
+            type=StreamEventType.TOOL_USE,
+            data={"id": call_id, "name": "create_file", "status": "complete", "input": {}},
+        ),
+        StreamEvent(
+            type=StreamEventType.TOOL_RESULT,
+            data={"tool_use_id": call_id, "name": "create_file", "result": {}},
+        ),
+    ]
+
+
 @pytest.mark.unit
 class TestWritingGraphFileCorrection:
     """The workflow must re-run the writer when it leaves a created file empty."""
@@ -773,6 +807,8 @@ class TestWritingGraphFileCorrection:
                 # Writer created an empty file (guard set) but only narrated and
                 # marked complete — it never streamed the <file> body.
                 ToolContext.set_pending_empty_file("file-X", "第51章")
+                for event in _create_file_done():
+                    yield event
                 yield StreamEvent(
                     type=StreamEventType.TEXT,
                     data={"text": "正文文件已创建，需直接写入内容。[TASK_COMPLETE]"},
@@ -833,6 +869,8 @@ class TestWritingGraphFileCorrection:
                     ToolContext.set_pending_empty_file("file-X", "第51章")
 
                 await asyncio.create_task(tool_task())
+                for event in _create_file_done():
+                    yield event
                 yield StreamEvent(
                     type=StreamEventType.TEXT,
                     data={"text": "正文文件已创建，需直接写入内容。[TASK_COMPLETE]"},
@@ -940,6 +978,8 @@ class TestWritingGraphFileCorrectionDbVerification:
             if len(calls) == 1:
                 # 只有第一轮调用了 create_file(空)，标记因此只置一次
                 ToolContext.set_pending_empty_file(file_id, title)
+                for event in _create_file_done():
+                    yield event
             yield StreamEvent(
                 type=StreamEventType.TEXT,
                 data={"text": "已写入正文。[TASK_COMPLETE]"},
@@ -1038,6 +1078,8 @@ class TestWritingGraphFileCorrectionDbVerification:
                     target.content = "第一章正文" * 50
                     tool_session.add(target)
                     tool_session.commit()
+                for event in _create_file_done():
+                    yield event
             yield StreamEvent(
                 type=StreamEventType.TEXT,
                 data={"text": "已写入正文。[TASK_COMPLETE]"},
@@ -1399,7 +1441,7 @@ class TestWritingGraphUserScope:
                     type=StreamEventType.TOOL_RESULT,
                     data={"tool_use_id": "t1", "name": "query_files", "result": {}},
                 )
-                yield StreamEvent(type=StreamEventType.TEXT, data={"text": "大纲已更新。"})
+                yield StreamEvent(type=StreamEventType.TEXT, data={"text": "大纲梳理完毕。"})
                 return
             yield StreamEvent(type=StreamEventType.TEXT, data={"text": "第一章写好了。"})
 

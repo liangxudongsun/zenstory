@@ -616,6 +616,10 @@ class MessageManager:
                         icon = "✅"
                     else:  # pending
                         icon = "⏳"
+                    # 工作流按实际写出的文件记下的进度（「已写：第2集；待写：第3–5集」）。
+                    progress = str(t.get("progress") or "").strip()
+                    if progress and status != "done":
+                        task_desc = f"{task_desc}（{progress}）"
                     task_lines.append(f"{icon} {task_desc}")
 
                 parts.extend([

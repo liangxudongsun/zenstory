@@ -28,6 +28,20 @@ from agent.graph.author_scope import (
 )
 
 
+def _edit_done() -> list[StreamEvent]:
+    """fake agent 说「改好了」前真的调用过一次 edit_file（成功）。"""
+    return [
+        StreamEvent(
+            type=StreamEventType.TOOL_USE,
+            data={"id": "edit-1", "name": "edit_file", "status": "complete", "input": {}},
+        ),
+        StreamEvent(
+            type=StreamEventType.TOOL_RESULT,
+            data={"tool_use_id": "edit-1", "name": "edit_file", "result": {}},
+        ),
+    ]
+
+
 def _route(payload: dict[str, object]) -> AsyncMock:
     return AsyncMock(
         return_value={"content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]}
@@ -179,6 +193,8 @@ async def test_vague_reply_to_the_ais_question_is_not_asked_again():
     async def fake_agent(state, agent_type, **_kwargs):
         calls.append(agent_type)
         assert state.get("clarify_first") is not True
+        for event in _edit_done():
+            yield event
         yield StreamEvent(type=StreamEventType.TEXT, data={"text": "改好了。"})
 
     asked = [
@@ -224,6 +240,8 @@ async def test_vague_reply_to_a_single_proposed_edit_goes_ahead():
 
     async def fake_agent(state, agent_type, **_kwargs):
         seen["clarify_first"] = state.get("clarify_first")
+        for event in _edit_done():
+            yield event
         yield StreamEvent(type=StreamEventType.TEXT, data={"text": "改好了。"})
 
     history = [
