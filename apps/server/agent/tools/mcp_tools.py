@@ -2355,7 +2355,8 @@ def _hybrid_search_sync(args: dict[str, Any]) -> dict[str, Any]:
         return _make_error(str(e), tool_name=tool_name)
 
 
-_PHASE_CN_CHAPTER_PATTERN = re.compile(r"第\s*([零一二三四五六七八九十百千\d]+)\s*章")
+# 剧本项目按「集」记进度（「已写至第3集」），小说 / 短篇按「章」。
+_PHASE_CN_CHAPTER_PATTERN = re.compile(r"第\s*([零一二三四五六七八九十百千\d]+)\s*[章集]")
 _PHASE_EN_CHAPTER_PATTERN = re.compile(r"\bchapter\s+(\d+)\b", re.IGNORECASE)
 
 
@@ -2412,6 +2413,7 @@ def _suggest_auto_current_phase_from_drafts(project_id: str) -> str | None:
 
     session = ToolContext.get_session()
     from models import File, Project
+    from models.entities import PROJECT_TYPE_SCREENPLAY
 
     project = session.get(Project, project_id)
     if not project:
@@ -2447,7 +2449,9 @@ def _suggest_auto_current_phase_from_drafts(project_id: str) -> str | None:
     if current_phase and current_phase_chapter is None:
         return None
 
-    return f"已写至第{inferred_latest}章"
+    # live run 2 场景 A：短剧项目被写成「已写至第3章」。短篇也是按章写，只有剧本用「集」。
+    unit = "集" if project.project_type == PROJECT_TYPE_SCREENPLAY else "章"
+    return f"已写至第{inferred_latest}{unit}"
 
 
 def _coerce_bool_arg(value: Any) -> bool:
