@@ -1908,7 +1908,7 @@ class ContextAssembler:
             shown = metadata.get("shown_chars")
             total = metadata.get("original_chars")
             size = (
-                f"显示 {shown}/{total} 字"
+                f"显示 {shown}/{total} 个字符"
                 if isinstance(shown, int) and isinstance(total, int)
                 else "仅显示开头部分"
             )
@@ -1922,7 +1922,7 @@ class ContextAssembler:
         """单个条目标题行在「标题 + 正文」之外的渲染开销（按最长的「已截断」标注计，宁多勿少）。"""
         n = max(len(item.content or ""), int((item.metadata or {}).get("original_chars") or 0))
         return estimate_text_tokens(
-            f' (id={item.id}) ← 当前焦点 [已截断：显示 {n}/{n} 字；'
+            f' (id={item.id}) ← 当前焦点 [已截断：显示 {n}/{n} 个字符；'
             f'全文用 query_files(id="{item.id}")]'
         )
 

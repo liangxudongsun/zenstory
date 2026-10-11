@@ -1048,8 +1048,8 @@ class StreamAdapter:
             )
             warning_text = (
                 f"\n\n[系统提醒] 《{title or result.file_id}》的流式写入没有收到结尾的 "
-                f"</file>，本次只收到 {len(result.final_content)} 字，而该文件已有 "
-                f"{original_length} 字正文。为避免覆盖已完成的内容，本次内容未保存，"
+                f"</file>，本次只收到 {len(result.final_content)} 个字符，而该文件已有 "
+                f"{original_length} 个字符的正文。为避免覆盖已完成的内容，本次内容未保存，"
                 "原文保持不变。请用 edit_file 继续补写，或重新完整输出并以 </file> 结尾。"
             )
             if not self._content_started:

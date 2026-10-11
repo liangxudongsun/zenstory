@@ -25,6 +25,7 @@ from config.agent_runtime import (
 )
 from database import create_session
 from utils.logger import get_logger, log_with_context
+from utils.text_metrics import count_words
 
 logger = get_logger(__name__)
 
@@ -480,12 +481,14 @@ class SessionLoader:
             content = file.content or ""
             if len(full_blocks) < max_files and used_chars + len(content) <= max_chars:
                 action = "上一轮已修改" if ref["action"] == "write" else "上一轮已读取"
+                # 字数用编辑器口径（count_words），不是 len()：live run 2 场景 C 里标签写成
+                # 「2467 字」（字符数，编辑器是 2018），模型据此告诉作者「少了近 500 字」。
                 full_blocks.append(
-                    f"### {label} [全文，{len(content)} 字；{action}]\n{content}".rstrip()
+                    f"### {label} [全文，{count_words(content)} 字；{action}]\n{content}".rstrip()
                 )
                 used_chars += len(content)
             else:
-                omitted.append(f"- {label}（{len(content)} 字）")
+                omitted.append(f"- {label}（{count_words(content)} 字）")
 
         if not full_blocks and not omitted and not in_context:
             return ""
