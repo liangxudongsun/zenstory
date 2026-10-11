@@ -714,6 +714,20 @@ _OFFER_OTHER_CHAPTER = "第3章是你手动改过的，我没动它：那里摊�
 _OFFER_ONE_LINE = "核心大纲第七行和新结局对不上。要不要我把大纲那一行同步改成新落点？你说改我就改，不改就留着。"
 _OFFER_DECLINE_FIRST = "第四节是你手动改过的。\n\n- 第四节先不动，以后再说\n- 按这个改第四节，把那句换成冷库停电"
 _OFFER_NEXT_STEPS = "第3章写好了。\n\n接下来你可以：\n1. 把第3章开头改紧凑一点\n2. 继续写第4章"
+# AI 交代这一轮做了什么（「第四节是你手动改过的，我没动它」）不是提议改第四节。
+_REPORT_BULLETS_THEN_QUESTION = (
+    "第五节写好了。\n\n"
+    "- **第四节**：是你手动改过的，我没动它\n"
+    "- **第五节**：按细纲写完了，结尾留了钩子\n\n"
+    "要不要继续写第六节？"
+)
+_REPORT_INLINE_QUESTION = "第五节写好了。第四节是你手动改过的，要我继续吗？"
+_REPORT_RUN_WITH_OFFER = (
+    "这轮做了：\n- 第四节：你手动改过，我没动\n- 第五节写完了\n需要的话我可以接着写第六节。"
+)
+# 改第四节和「继续写第五节」并列时，「继续」选的是接着写。
+_OFFER_EDIT_OR_CONTINUE = "要不要我把第四节结尾改紧凑一点？还是继续写第五节？"
+_OFFER_ONE_QUESTION_CH4 = "要不要我把第四节结尾改紧凑一点？"
 
 _CH4 = {"file_id": "ch4", "title": "第四节 码头夜谈", "file_type": "draft"}
 _CH6 = {"file_id": "ch6", "title": "第六节 翻盘", "file_type": "draft"}
@@ -767,6 +781,25 @@ class TestReplyToThePreviousOffer:
             # 作者复述了改法、却点名的是别的章：不是在选这一项。
             (_OFFER_NEXT_STEPS, "第5章的开头改紧凑一点", _CH3, False),
             (_OFFER_NEXT_STEPS, "1", _CH3, True),
+            # AI 交代的是做了什么、问的是别的事：「好 / 1」不放开它说「没动」的第四节。
+            (_REPORT_BULLETS_THEN_QUESTION, "好", _CH4, False),
+            (_REPORT_BULLETS_THEN_QUESTION, "1", _CH4, False),
+            (_REPORT_INLINE_QUESTION, "好", _CH4, False),
+            (_REPORT_RUN_WITH_OFFER, "1", _CH4, False),
+            (_REPORT_RUN_WITH_OFFER, "好", _CH4, False),
+            # 「继续」选的是并列的「继续写第五节」，不是改第四节。
+            (_OFFER_EDIT_OR_CONTINUE, "继续", _CH4, False),
+            (_OFFER_EDIT_OR_CONTINUE, "好的，继续", _CH4, False),
+            (_OFFER_EDIT_OR_CONTINUE, "好", _CH4, True),
+            (_OFFER_EDIT_OR_CONTINUE, "改吧", _CH4, True),
+            # 客套话不是答应；「继续」单独说也不算答应改（可能只是让 AI 往下写）。
+            (_OFFER_ONE_QUESTION_CH4, "辛苦了", _CH4, False),
+            (_OFFER_ONE_QUESTION_CH4, "谢谢", _CH4, False),
+            (_OFFER_ONE_QUESTION_CH4, "麻烦了", _CH4, False),
+            (_OFFER_ONE_QUESTION_CH4, "吧", _CH4, False),
+            (_OFFER_ONE_QUESTION_CH4, "继续", _CH4, False),
+            (_OFFER_ONE_QUESTION_CH4, "好的，谢谢", _CH4, True),
+            (_OFFER_ONE_QUESTION_CH4, "可以吧", _CH4, True),
         ],
     )
     def test_assent_or_pick_unlocks_only_the_file_the_ai_offered_to_change(self, offer, reply, file, unlocked):

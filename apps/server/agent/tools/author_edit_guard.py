@@ -706,10 +706,21 @@ _CONDITIONAL_OFFER_RE = re.compile(
 _QUESTION_MARKER_RE = re.compile(
     r"(?:[？?]|吗|要不要|要我|需不需要|是否|好不好|行不行|可不可以|" + _CONDITIONAL_OFFER_RE.pattern + ")"
 )
-# AI 提议里「不改 / 先不动」的说法：这一分句里的章节不是要改的。
+# AI 提议里「不改 / 先不动」的说法，以及交代「我没动它」的说法：这一分句里的章节不是要改的。
 _OFFER_DECLINE_RE = re.compile(
-    r"(?:先不动|不动|别动|保持原样|保持不变|维持原样|原样|先留着|留着|先不改|不改|暂不|暂时不|先放着|不用改|先不处理|不处理)"
+    r"(?:先不动|不动|别动|保持原样|保持不变|维持原样|原样|先留着|留着|先不改|不改|暂不|暂时不|先放着|不用改|先不处理|不处理"
+    r"|没(?:有)?(?:直接|再|去|敢)?(?:动|碰|改)|未(?:动|改))"
 )
+# 交代状态的说法：「你手动改过的」「改好了」「已经改了」里的「改」是在说做过什么，不是提议改。
+_OFFER_STATE_RE = re.compile(
+    r"(?:(?:是)?(?:你|作者)(?:自己|亲手|亲自)?(?:手动|手工)?(?:改|修改|动|编辑|调整|写|加)(?:过)?(?:的|了)"
+    r"|(?:你|作者)?(?:自己|亲手|亲自)?(?:手动|手工)?(?:改|修改|动|编辑|调整)过(?:了|的)?"
+    r"|(?:已经?|都)?(?:改|修改|写|补|换|调整|理顺|压掉|同步)(?:好|完)了"
+    r"|已经?(?:改|修改|补|换|调整|同步)(?:了|过)?)"
+)
+# 选项前一行是在交代做了什么（「这轮做了：」「改动如下：」），下面那一串是清单，不是选项。
+_REPORT_LEAD_RE = re.compile(r"(?:做了|完成|改动|变更|进度|小结|总结|汇总|如下|情况|结果|清单)[^？?]*[：:]$")
+_CHOICE_LEAD_RE = re.compile(r"(?:你|挑|选|哪|可以|要不要|需要|想)")
 # AI 提议改动的说法（比作者的改动说法宽：「写进第四节」「压掉」「理顺」都是改已有的字）。
 _OFFER_EDIT_WORDS: tuple[str, ...] = (
     *_EDIT_VERBS,
@@ -727,20 +738,29 @@ _OFFER_EDIT_WORDS: tuple[str, ...] = (
 # 「第九章细纲」「第3章的大纲」是大纲里的一段，不是那一章的正文。
 _SEQUENCE_OF_PLAN_RE = re.compile(r"^的?(?:细纲|大纲|梗概|人设|设定)")
 
-# 作者的回答。整句只有这些说法（去掉标点）时，是在答应上一轮的提议。
+# 作者的回答。整句只有这些说法（去掉标点）、且至少有一个 _ASSENT_TOKENS 时，是在答应上一轮的提议。
 _ASSENT_TOKENS: tuple[str, ...] = tuple(
     sorted(
         (
             "好的", "好啊", "好吧", "好呀", "好嘞", "好", "行吧", "行啊", "行", "可以的", "可以啊",
-            "可以", "可", "嗯嗯", "嗯", "对的", "对", "是的", "ok", "okay", "没问题", "同意", "继续",
+            "可以", "可", "嗯嗯", "嗯", "对的", "对", "是的", "ok", "okay", "没问题", "同意",
             "改吧", "改", "就这么改", "按这个改", "按这个来", "按你说的改", "按你说的", "按你的来",
             "照这个改", "照这个来", "那就改", "动吧", "来吧", "做吧", "确认", "你改吧", "要", "要的",
-            "麻烦了", "辛苦了", "谢谢", "吧",
         ),
         key=len,
         reverse=True,
     )
 )
+# 只能跟在答应后面的话：客套（「辛苦了」「谢谢」）和「继续」单独说都不是答应改。
+_ASSENT_FILLERS: tuple[str, ...] = tuple(
+    sorted(
+        ("麻烦你了", "麻烦了", "辛苦了", "辛苦", "谢谢你", "谢谢", "多谢", "继续", "接着", "吧", "啊", "呀", "哈", "啦", "呗", "那"),
+        key=len,
+        reverse=True,
+    )
+)
+# 作者说「继续」，AI 的提议里有一项是接着往下写：选的是那一项。
+_CONTINUE_RE = re.compile(r"(?:继续|接着|往下)")
 _REPLY_PUNCT_RE = re.compile(r"[\s，,。.！!？?~～、…:：;；「」『』“”\"'（）()]+")
 # 「两件都做」「都改」「全部按这个来」：以上的提议都要。
 _ALL_PICK_RE = re.compile(
@@ -820,7 +840,9 @@ def _question_items(line: str) -> list[OfferItem]:
 def previous_offer_items(reply_text: str) -> tuple[OfferItem, ...]:
     """上一轮 AI 收尾时给作者的提议：末尾那一串选项，加上选项前面（或没有选项时结尾）的问句。
 
-    只看收尾的几行：前面交代做了什么（「第3章改好了」「我没动它」）不是提议。
+    只看收尾的几行。交代做了什么的话（「第3章改好了」「第四节是你手动改过的，我没动它」，
+    包括「这轮做了：」下面的清单）不是提议：清单不当选项，交代状态的分句不算改动的说法
+    （见 _offer_clauses）。
     """
     lines = _offer_tail_lines(reply_text)
     if not lines:
@@ -833,6 +855,10 @@ def previous_offer_items(reply_text: str) -> tuple[OfferItem, ...]:
     while start > 0 and _OPTION_LINE_RE.match(lines[start - 1]):
         start -= 1
     options = lines[start:end]
+    lead = lines[start - 1] if options and start > 0 else ""
+    if lead and _REPORT_LEAD_RE.search(lead) and not _CHOICE_LEAD_RE.search(lead):
+        # 「这轮做了：」下面是清单：只看结尾的问句。
+        options = []
     items: list[OfferItem] = []
     if options:
         for line in lines[max(0, start - _OFFER_LEAD_LINES):start]:
@@ -889,13 +915,14 @@ def _names_any_unit(normalized: str) -> bool:
 
 
 def _offer_clauses(item: OfferItem) -> list[str] | None:
-    """提议里要改的那几个分句（去掉「先不动 / 留着」的分句）；整项是「先不动」时为 None。"""
-    clauses = [clause for clause in re.split(r"[，,；;。！!？?\n]", _offer_normalize(item.text)) if clause]
+    """提议里要改的那几个分句：去掉「先不动 / 留着 / 我没动它」的分句，再去掉「你手动改过的 /
+    改好了」这类交代状态的说法（剩下的改动说法才是提议）；整项是「先不动」时为 None。"""
+    clauses = [clause for clause in re.split(r"[，,；;。！!？?\n—]", _offer_normalize(item.text)) if clause]
     if not clauses:
         return []
     if item.index is not None and _OFFER_DECLINE_RE.search(clauses[0]):
         return None
-    return [clause for clause in clauses if not _OFFER_DECLINE_RE.search(clause)]
+    return [_OFFER_STATE_RE.sub("", clause) for clause in clauses if not _OFFER_DECLINE_RE.search(clause)]
 
 
 def _offer_names_file(
@@ -930,7 +957,11 @@ def _is_bare_assent(bare: str) -> bool:
     remainder = bare
     for token in _ASSENT_TOKENS:
         remainder = remainder.replace(token, "")
-    return bool(bare) and not remainder
+    if not bare or remainder == bare:
+        return False
+    for filler in _ASSENT_FILLERS:
+        remainder = remainder.replace(filler, "")
+    return not remainder
 
 
 def _longest_common_run(first: str, second: str) -> tuple[int, int]:
@@ -1036,6 +1067,11 @@ def author_accepts_offer(
 
     if not _is_bare_assent(bare):
         return False
+    # 「好的，继续」而提议里有一项是接着往下写（「还是继续写第五节？」）：选的是那一项。
+    if _CONTINUE_RE.search(bare):
+        for item in offer:
+            if not item.picks_all and _CONTINUE_RE.search(_bare(item.text)):
+                return targets(item)
     for item in offer:
         if item.picks_all:
             continue
