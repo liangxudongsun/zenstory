@@ -1329,6 +1329,8 @@ class StreamAdapter:
 
 
 # 这些事件之前，图没有丢掉的扣留文字照常放出（保持在本 agent 的段落里）。
+# 只放 agent run 的边界事件：STEERING_RECEIVED 会在 writer run 中途（工具边界）出现，
+# 那时放出并结束扣留，之后的总结就会直接流给作者，送审时又多一份审稿人的总结。
 _CHAT_HOLD_RELEASE_EVENT_TYPES: frozenset[str] = frozenset(
     {
         StreamEventType.AGENT_SELECTED.value,
@@ -1336,7 +1338,6 @@ _CHAT_HOLD_RELEASE_EVENT_TYPES: frozenset[str] = frozenset(
         StreamEventType.WORKFLOW_STOPPED.value,
         StreamEventType.WORKFLOW_COMPLETE.value,
         StreamEventType.ITERATION_EXHAUSTED.value,
-        StreamEventType.STEERING_RECEIVED.value,
         StreamEventType.ERROR.value,
     }
 )

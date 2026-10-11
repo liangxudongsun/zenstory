@@ -6,6 +6,7 @@ Provides streaming multi-agent orchestration with router, planner, writer, and q
 
 import asyncio
 import contextlib
+import functools
 import os
 import re
 from collections.abc import AsyncIterator
@@ -17,6 +18,7 @@ from agent.core.author_facing_text import (
     author_facing_handoff_reason,
     author_facing_text,
     text_contains_cjk,
+    trailing_question_text,
 )
 from agent.core.events import READ_ONLY_HANDOFF_BLOCKED_REASON
 from agent.core.run_meter import AgentRunMeter
@@ -43,7 +45,12 @@ from agent.graph.author_scope import (
     previous_question_offers_one_edit,
     request_asks_for_a_plan,
 )
-from agent.graph.body_writes import BodyWrite, BodyWriteTracker, body_words_written
+from agent.graph.body_writes import (
+    BodyWrite,
+    BodyWriteTracker,
+    body_words_written,
+    measured_body_words,
+)
 from agent.graph.nodes import (
     detect_task_complete,
     ends_with_question_to_user,
@@ -714,6 +721,13 @@ WRITER_CHAT_SUPERSEDED_NOTE = (
     "其中作者需要知道的取舍和可选的下一步一并写进去。需要再改时照常不写文字，"
     "交给内容创作者修改，由它修完后回复作者。"
 )
+# writer 以问作者的问题收尾、它的说明又被丢掉了：问题原样交给审稿人 / 返修 writer。
+WRITER_QUESTION_HEADER = "[内容创作者要问作者的问题]"
+_WRITER_QUESTION_FOR_REVIEWER_NOTE = (
+    "作者还没看到这个问题。不需要再改时，把它原样放在你回复的最后（不算进可选建议）；"
+    "需要再改时照常交给内容创作者，由它修完后问。"
+)
+_WRITER_QUESTION_FOR_REWORK_NOTE = "作者还没看到这个问题：改完后把它原样放在你回复的最后问作者。"
 WRITER_REWORK_AFTER_SUPERSEDED_NOTE = (
     "[作者看到的回复] 你送检前写给作者的说明作者没有看到。这次改完后的回复就是作者看到的"
     "唯一一份总结：说清这一轮写了什么，字数只用 edit_file 返回的 new_word_count，"
@@ -780,29 +794,40 @@ def _collect_length_requirement_sources() -> list[tuple[str, str]]:
 _LENGTH_REQUIREMENT_HISTORY_LIMIT = 40
 
 
-async def _bounded_review_read(func: Any, *args: Any, label: str) -> Any:
-    """送审前的一次性读取：放进工作线程、受送审预算约束；失败或超时只记 WARNING，返回 None。"""
+async def _bounded_review_reads(reads: dict[str, Any]) -> dict[str, Any]:
+    """送审前的几次一次性读取，共用一份送审预算（REVIEW_AUTO_CHECK_TIMEOUT_SECONDS）。
+
+    在同一个工作线程里按顺序读（测试 / 非 offload 路径共用一个 session，不能并发），超时时
+    返回已经读完的那些，没读完的是 None；失败或超时只记 WARNING。超时后线程不能被取消，
+    会把正在做的那次读取做完（用的是用完即还的短 session），结果不再采用。
+    """
+    results: dict[str, Any] = dict.fromkeys(reads)
+
+    def _run() -> None:
+        for label, func in reads.items():
+            try:
+                results[label] = func()
+            except Exception as exc:
+                log_with_context(
+                    logger,
+                    30,  # WARNING
+                    "Review handoff read failed; handing off without it",
+                    read=label,
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
+
     try:
-        return await asyncio.wait_for(
-            asyncio.to_thread(func, *args),
-            timeout=REVIEW_AUTO_CHECK_TIMEOUT_SECONDS,
-        )
+        await asyncio.wait_for(asyncio.to_thread(_run), timeout=REVIEW_AUTO_CHECK_TIMEOUT_SECONDS)
     except TimeoutError:
         log_with_context(
             logger,
             30,  # WARNING
-            f"{label} timed out; handing off without it",
+            "Review handoff reads timed out; handing off with what was read",
             timeout_seconds=REVIEW_AUTO_CHECK_TIMEOUT_SECONDS,
+            missing=[label for label, value in results.items() if value is None],
         )
-    except Exception as exc:
-        log_with_context(
-            logger,
-            30,  # WARNING
-            f"{label} failed; handing off without it",
-            error=str(exc),
-            error_type=type(exc).__name__,
-        )
-    return None
+    return dict(results)
 
 
 def _format_body_word_counts(counts: list[tuple[str, int]] | None) -> str:
@@ -1181,6 +1206,8 @@ async def run_writing_workflow_streaming(
     # writer 送审前写给作者的文字被图丢掉了（审稿人的回复会取代它）：审稿人交回 writer
     # 返修时据此告诉 writer，作者没看到它之前的说明。
     writer_chat_discarded = False
+    # 被丢掉的 writer 说明以问作者的问题收尾时，那几句问题（返修 writer 也要原样问）。
+    writer_superseded_question: str = ""
     # 被纠偏打断那一轮是否以向用户提问收尾：纠偏轮只补正文，它的收尾文本
     # （「已补齐」）不能把原 agent 还在等用户回答的问题冲掉。
     carried_ended_with_question: bool = False
@@ -1514,6 +1541,11 @@ async def run_writing_workflow_streaming(
                         and writer_chat_discarded
                         else ""
                     )
+                    if superseded_note and writer_superseded_question:
+                        superseded_note += (
+                            f"\n\n{WRITER_QUESTION_HEADER}\n{writer_superseded_question}\n"
+                            f"{_WRITER_QUESTION_FOR_REWORK_NOTE}"
+                        )
                     modified_state["user_message"] = (
                         f"[来自上一个Agent的交接信息]: "
                         f"{handoff_context}{packet_items_text}{work_log_text}{inventory_text}"
@@ -1545,12 +1577,15 @@ async def run_writing_workflow_streaming(
             body_tracker = BodyWriteTracker()
             # 这一 run 写完正文以后、可能还会送审：之后给作者的文字先扣在适配器里，
             # 真的送审时丢掉（审稿人或返修后的 writer 写唯一一份总结），不送审时原样放出。
+            # 审稿只可能来自自动质检门或计划好的 quality_reviewer：两者都没有时不扣。
+            reviewer_planned_next = bool(workflow_agents) and workflow_agents[0] == "quality_reviewer"
             chat_hold_eligible = (
                 current_agent_type == "writer"
                 and generation_mode != "fast"
                 and not read_only_request
                 and not rework_from_reviewer
                 and review_round < MAX_REVIEW_ROUNDS
+                and (enable_graph_auto_review or reviewer_planned_next)
             )
             chat_hold_started = False
             agent_message_started = False
@@ -1666,7 +1701,20 @@ async def run_writing_workflow_streaming(
                     StreamEventType.TOOL_RESULT,
                 ):
                     body_write = body_tracker.observe(event, text_length=len(agent_content))
-                    if body_write is not None and chat_hold_eligible and not chat_hold_started:
+                    if (
+                        body_write is not None
+                        and chat_hold_eligible
+                        and not chat_hold_started
+                        and (
+                            reviewer_planned_next
+                            # create_file 的正文还没写出来，字数要等 <file> 块，可能送审。
+                            or body_write.text_offset is not None
+                            # edit_file / write_chapter 的字数已知：到了送审阈值才可能送审，
+                            # 只改几个字时说明照常流式显示。
+                            or measured_body_words([*carried_writer_body_writes, *body_tracker.writes])
+                            >= auto_review_threshold
+                        )
+                    ):
                         # 正文写好了：之后的文字（总结、选项）在送审时会被审稿人的回复取代。
                         chat_hold_started = True
                         yield StreamEvent(
@@ -2281,23 +2329,30 @@ async def run_writing_workflow_streaming(
                 # 字数和篇幅要求给审稿人确定的数（I05）：writer 在 <file> 正文后面同一次回复里
                 # 写的「约N字」是还没有工具结果时的估计；作者早先说过、写进项目设定的篇幅
                 # 要求，审稿人原来只看本轮原话时看不到。
-                body_counts = await _bounded_review_read(
-                    _collect_body_word_counts,
-                    payload_guard.written_file_ids() if payload_guard else [],
-                    label="Review body word counts",
+                written_ids = payload_guard.written_file_ids() if payload_guard else []
+                review_reads = await _bounded_review_reads(
+                    {
+                        "body_word_counts": functools.partial(_collect_body_word_counts, written_ids),
+                        "length_requirements": lambda: find_length_requirements(
+                            _collect_length_requirement_sources()
+                        ),
+                    }
                 )
+                body_counts = review_reads["body_word_counts"]
                 if not body_counts:
                     body_counts = [
                         (write.title, write.words) for write in writer_body_writes if write.full_body
                     ] or None
                 handoff_context += _format_body_word_counts(body_counts)
-                length_requirements = await _bounded_review_read(
-                    lambda: find_length_requirements(_collect_length_requirement_sources()),
-                    label="Review length requirements",
-                )
-                handoff_context += _format_length_requirements(length_requirements)
+                handoff_context += _format_length_requirements(review_reads["length_requirements"])
                 if chat_hold_started:
                     handoff_context += f"\n\n{WRITER_CHAT_SUPERSEDED_NOTE}"
+                    # writer 最后在问作者：图手里有这几句，原样交给审稿人，不靠它从历史里转述。
+                    question = trailing_question_text(agent_tail_text) if ended_with_question else ""
+                    if question:
+                        handoff_context += (
+                            f"\n\n{WRITER_QUESTION_HEADER}\n{question}\n{_WRITER_QUESTION_FOR_REVIEWER_NOTE}"
+                        )
                 if body_counts and pending_handoff_event_data is not None and isinstance(
                     pending_handoff_event_data.get("handoff_packet"), dict
                 ):
@@ -2444,6 +2499,9 @@ async def run_writing_workflow_streaming(
                 # 送审：writer 写完正文后给作者的文字丢掉，审稿人（或返修后的 writer）
                 # 写作者看到的唯一一份总结，字数用编辑器的数（I03 / I05）。
                 writer_chat_discarded = True
+                writer_superseded_question = (
+                    trailing_question_text(agent_tail_text) if ended_with_question else ""
+                )
                 yield StreamEvent(
                     type=StreamEventType.CHAT_HOLD,
                     data={"action": CHAT_HOLD_DISCARD, "reason": "superseded_by_review"},

@@ -52,11 +52,26 @@ def _writer_writes_chapter(*, summary: str = WRITER_SUMMARY, body: str = BODY):
     return events
 
 
-async def _run_graph(fake_agent, *, generation_mode: str = "", session=None, project_id="p", session_id="s"):
+async def _run_graph(
+    fake_agent,
+    *,
+    generation_mode: str = "",
+    session=None,
+    project_id="p",
+    session_id="s",
+    auto_review: str = "true",
+    workflow_agents: list[str] | None = None,
+):
     from agent.graph.writing_graph import run_writing_workflow_streaming
     from agent.tools.mcp_tools import ToolContext
 
-    router = AsyncMock(return_value={"current_agent": "writer", "workflow_plan": "quick", "workflow_agents": []})
+    router = AsyncMock(
+        return_value={
+            "current_agent": "writer",
+            "workflow_plan": "standard" if workflow_agents else "quick",
+            "workflow_agents": list(workflow_agents or []),
+        }
+    )
     ToolContext.set_context(
         session=session, user_id="u", project_id=project_id, session_id=session_id, author_message="写第三章"
     )
@@ -69,7 +84,7 @@ async def _run_graph(fake_agent, *, generation_mode: str = "", session=None, pro
     }
     try:
         with (
-            patch.dict("os.environ", {"AGENT_ENABLE_GRAPH_AUTO_REVIEW": "true"}),
+            patch.dict("os.environ", {"AGENT_ENABLE_GRAPH_AUTO_REVIEW": auto_review}),
             patch("agent.graph.writing_graph.router_node", router),
             patch("agent.graph.writing_graph.run_streaming_agent", new=fake_agent),
             patch("agent.tools.mcp_tools.ToolContext.refresh_file_inventory", return_value={}),
@@ -201,6 +216,145 @@ async def test_rework_writer_is_told_its_earlier_summary_was_not_shown():
     assert "现在 452 字" in visible
 
 
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_steering_mid_run_does_not_release_the_held_summary():
+    """作者在 writer 写完正文后、总结前发了一条引导：总结仍然被扣住，送审时丢掉，不出现两份总结。"""
+    calls: list[str] = []
+    reviewer_messages: list[str] = []
+
+    async def fake_agent(state, agent_type, *_args, **_kwargs):
+        calls.append(agent_type)
+        if agent_type == "writer":
+            yield StreamEvent(type=StreamEventType.MESSAGE_START, data={})
+            for event in create_file_events("draft-3", "第三章"):
+                yield event
+            yield _text(f"<file>{BODY}</file>\n\n我再核对一下字数。")
+            yield StreamEvent(
+                type=StreamEventType.TOOL_USE,
+                data={"id": "q1", "name": "query_files", "status": "complete", "input": {"id": "draft-3"}},
+            )
+            yield StreamEvent(
+                type=StreamEventType.TOOL_RESULT,
+                data={"tool_use_id": "q1", "name": "query_files", "result": {"status": "success", "data": {}}},
+            )
+            yield StreamEvent(
+                type=StreamEventType.STEERING_RECEIVED,
+                data={"message_id": "m1", "preview": "结尾别太煽情"},
+            )
+            yield _text(WRITER_SUMMARY)
+            return
+        reviewer_messages.append(state["user_message"])
+        yield _text(REVIEWER_SUMMARY)
+
+    events = await _run_graph(fake_agent)
+
+    assert calls == ["writer", "quality_reviewer"]
+    visible = await _author_visible_text(events)
+    assert "2781" not in visible
+    assert "我再核对一下字数" not in visible
+    assert visible.count("写好了") == 1, "作者只看到一份总结"
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_writer_question_survives_when_its_summary_is_superseded():
+    """writer 以问作者的问题收尾、又被自动送审：问题原样交给审稿人和返修 writer，不随总结一起丢掉。"""
+    from agent.graph.writing_graph import WRITER_QUESTION_HEADER
+
+    question = "第二章结尾要走悲剧还是圆满？"
+    messages: list[tuple[str, str]] = []
+
+    async def fake_agent(state, agent_type, *_args, **_kwargs):
+        messages.append((agent_type, state["user_message"]))
+        if agent_type == "writer" and len(messages) == 1:
+            for event in _writer_writes_chapter(summary=f"第一章写好了，约1200字。\n\n{question}"):
+                yield event
+            return
+        if agent_type == "quality_reviewer":
+            yield _handoff("writer", "把结尾那句换个写法")
+            return
+        for event in edit_file_events("fix-1", "她把炉门带上。", file_id="draft-3", title="第三章"):
+            yield event
+        yield _text("第一章结尾改好了。")
+
+    events = await _run_graph(fake_agent)
+
+    assert [agent for agent, _ in messages] == ["writer", "quality_reviewer", "writer"]
+    reviewer_message = messages[1][1]
+    assert f"{WRITER_QUESTION_HEADER}\n{question}" in reviewer_message
+    assert "约1200字" not in reviewer_message.split(WRITER_QUESTION_HEADER, 1)[1]
+    assert f"{WRITER_QUESTION_HEADER}\n{question}" in messages[2][1]
+    assert question not in await _author_visible_text(events)
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_no_chat_hold_when_auto_review_is_disabled():
+    """自动质检门关掉（非高质量模式）时不扣文字：没有审稿会取代 writer 的回复。"""
+
+    async def fake_agent(state, agent_type, *_args, **_kwargs):
+        for event in _writer_writes_chapter(summary="第三章写好了。"):
+            yield event
+
+    events = await _run_graph(fake_agent, auto_review="false")
+
+    assert not any(e.type == StreamEventType.CHAT_HOLD for e in events)
+    assert "第三章写好了。" in await _author_visible_text(events)
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_planned_review_holds_summary_even_when_auto_review_is_off():
+    """计划里下一个就是审稿人：自动质检门关着、正文只改几个字，也扣住 writer 的说明并在送审时丢掉。"""
+    calls: list[str] = []
+
+    async def fake_agent(state, agent_type, *_args, **_kwargs):
+        calls.append(agent_type)
+        if agent_type == "writer":
+            for event in edit_file_events("e1", "老锻", file_id="draft-3", title="第三章"):
+                yield event
+            yield _text("把名字改好了，共 2781 字。")
+            return
+        yield _text(REVIEWER_SUMMARY)
+
+    events = await _run_graph(
+        fake_agent, auto_review="false", workflow_agents=["writer", "quality_reviewer"]
+    )
+
+    assert calls == ["writer", "quality_reviewer"]
+    assert [e.data.get("action") for e in events if e.type == StreamEventType.CHAT_HOLD] == [
+        CHAT_HOLD_BEGIN,
+        CHAT_HOLD_DISCARD,
+    ]
+    assert "2781" not in await _author_visible_text(events)
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_review_reads_share_one_budget(monkeypatch):
+    """送审前的两次读取共用一份时间预算：一次慢了只丢它自己，不额外再等一份。"""
+    import time
+
+    from agent.graph import writing_graph
+
+    monkeypatch.setattr(writing_graph, "REVIEW_AUTO_CHECK_TIMEOUT_SECONDS", 0.2)
+
+    def fast():
+        return "counts"
+
+    def slow():
+        time.sleep(0.5)
+        return "requirements"
+
+    started = time.monotonic()
+    results = await writing_graph._bounded_review_reads({"counts": fast, "requirements": slow})
+    elapsed = time.monotonic() - started
+
+    assert results == {"counts": "counts", "requirements": None}
+    assert elapsed < 0.4
+
+
 # ------------------------------------------------------------- 独占一行的标签（I03）
 
 
@@ -288,9 +442,11 @@ async def test_small_draft_fix_with_long_explanation_is_not_auto_reviewed():
             yield event
         yield _text("把「老段」改成了「老锻」。" + "前后文里这个名字的用法说明。" * 60)
 
-    await _run_graph(fake_agent)
+    events = await _run_graph(fake_agent)
 
     assert calls == ["writer"]
+    # 只改几个字的 edit_file 到不了送审阈值：说明照常流式显示，不扣。
+    assert not any(e.type == StreamEventType.CHAT_HOLD for e in events)
 
 
 @pytest.mark.asyncio

@@ -160,14 +160,19 @@ Agent 可以通过两种方式交接：
 - 每个 agent run 的 TEXT 经 `core/author_facing_text.AgentTextShaper` 整理：和前一个角色的文字之间、
   同一个 agent 隔着工具调用的两段文字之间补空行；作者写中文时，紧接着工具调用的英文过程句
   （「Now create the … file.」）不发给作者。
-- 作者只看到一份总结：writer（非快速模式、非返修、未到审查上限）写完正文类文件后，图发
-  `StreamEventType.CHAT_HOLD(begin)`，StreamAdapter 把之后的对话文字（正文不扣）先扣住；本轮真的
-  交给 quality_reviewer 时图在 HANDOFF 前发 `CHAT_HOLD(discard)` 丢掉它，由审稿人（或返修后的
-  writer）写唯一一份总结；不送审时扣着的文字在下一个 agent / 交接 / 收尾 / 出错事件前、或流结束时
-  原样放出。CHAT_HOLD 只在图和适配器之间，不发给前端。
+- 作者只看到一份总结：writer（非快速模式、非返修、未到审查上限，且开着自动质检门或计划里下一个
+  是 quality_reviewer）写完正文类文件、可能送审时（create_file 正文还没写出来；edit_file /
+  write_chapter 累计字数到了送审阈值；或计划送审），图发 `StreamEventType.CHAT_HOLD(begin)`，
+  StreamAdapter 把之后的对话文字（正文不扣）先扣住；本轮真的交给 quality_reviewer 时图在 HANDOFF
+  前发 `CHAT_HOLD(discard)` 丢掉它，由审稿人（或返修后的 writer）写唯一一份总结，writer 收尾时问
+  作者的问题以 `[内容创作者要问作者的问题]` 原样交给它们；不送审时扣着的文字在下一个 agent / 交接 /
+  收尾 / 出错事件前、或流结束时原样放出（run 中途的 STEERING_RECEIVED 不放出、不结束扣留）。
+  CHAT_HOLD 只在图和适配器之间，不发给前端。
 - 送审交接附 `[本轮正文字数（编辑器口径）]`（本请求写过的 draft / script 落库后的 `count_words`，
   也写进交接包 evidence）和 `[作者的篇幅要求]`（项目简介 / 写作风格 / 备注、本会话作者说过的话、
   本轮原话里带「数字 + 字」的篇幅分句，`review_evidence.find_length_requirements`），审稿人按它们判篇幅。
+  两次读取在同一个工作线程里按顺序做，共用一份 0.5 秒预算（超时时用已读到的）；之后的逐字复读 /
+  数字事实检查另有自己的 0.5 秒。
 - StreamProcessor 在 IDLE（没有进行中的捕获）时丢掉独占一行的 `<file>` / `</file>`（不在 ``` 围栏里），
   行内提到、反引号包着的照常保留。
 - 只读请求（router `read_only=true`）不交接给有写权限的 agent，显式 handoff 也拦下，并给一张

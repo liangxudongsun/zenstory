@@ -196,4 +196,9 @@ def body_words_written(writes: list[BodyWrite]) -> int:
     return sum(write.words for write in writes)
 
 
-__all__ = ["BodyWrite", "BodyWriteTracker", "body_words_written"]
+def measured_body_words(writes: list[BodyWrite]) -> int:
+    """已经知道字数的写入合计（run 进行中：不含正文还没写出来的 create_file）。"""
+    return sum(write.words for write in writes if write.text_offset is None)
+
+
+__all__ = ["BodyWrite", "BodyWriteTracker", "body_words_written", "measured_body_words"]
