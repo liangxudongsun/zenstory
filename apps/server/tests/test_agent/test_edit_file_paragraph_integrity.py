@@ -231,6 +231,46 @@ def test_append_paragraph_without_break_is_separated_from_the_last_line(editor):
     assert notes
 
 
+HEADED = "第30章 雨夜\n\n" + CHAPTER
+
+
+@pytest.mark.parametrize("heading", ["第31章 天亮", "第五集", "第十二回：夜奔", "## 尾声", "Chapter 31"])
+def test_append_heading_follows_the_files_unindented_headings(editor, heading):
+    """本文标题顶格：追加的章节/分集标题也顶格，只有正文段落补「　　」。"""
+    notes: list[str] = []
+    pos, text = editor._position_insert(
+        HEADED, len(HEADED), f"\n\n{heading}\n\n雨停了。", direction="after",
+        snap_sentence=False, notes=notes,
+    )
+    assert (pos, text) == (len(HEADED), f"\n\n{heading}\n\n　　雨停了。")
+
+
+def test_insert_between_paragraphs_keeps_new_heading_unindented(editor):
+    result, _ = _insert_after(editor, HEADED, P3, "\n\n第31章 天亮\n\n雨停了。")
+    assert result.endswith(P3 + "\n\n第31章 天亮\n\n　　雨停了。")
+
+
+def test_heading_indent_follows_the_files_indented_headings(editor):
+    """本文标题本身带缩进时，追加的标题照它的写法缩进。"""
+    content = "　　第30章 雨夜\n\n" + CHAPTER
+    notes: list[str] = []
+    _pos, text = editor._position_insert(
+        content, len(content), "\n\n第31章 天亮\n\n雨停了。", direction="after",
+        snap_sentence=False, notes=notes,
+    )
+    assert text == "\n\n　　第31章 天亮\n\n　　雨停了。"
+
+
+def test_body_line_that_starts_like_a_heading_is_still_indented(editor):
+    """「第三部电影…」是正文不是标题：照常补段首缩进。"""
+    notes: list[str] = []
+    _pos, text = editor._position_insert(
+        HEADED, len(HEADED), "\n\n第三部电影散场了。", direction="after",
+        snap_sentence=False, notes=notes,
+    )
+    assert text == "\n\n　　第三部电影散场了。"
+
+
 # --------------------------------------------- 插入点不落在字和标点之间 --
 
 

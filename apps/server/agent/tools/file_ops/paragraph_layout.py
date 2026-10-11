@@ -28,6 +28,13 @@ _COLON_CHARS = frozenset("：:")
 _LEADING_BLANK_LINES = re.compile(r"\A(?:[ \t　]*\r?\n)+")
 _NEWLINE_RUN = re.compile(r"(?:\r?\n)+")
 _WORD_CHAR = re.compile(r"[0-9A-Za-z㐀-䶿一-鿿豈-﫿]")
+# 章节/分集标题行：「第31章 …」「第五集」「Chapter 3」、markdown 标题。标题的缩进跟本文已有的标题走，
+# 不套正文段首缩进；「第三部电影…」这种正文不算（单位字后面必须是行尾、空白或标题分隔符）。
+_HEADING_LINE = re.compile(
+    r"[ \t　]*(?:#{1,6}[ \t]"
+    r"|第[0-9０-９零〇一二两三四五六七八九十百千万]+[章节回集卷幕部篇](?=$|[ \t　:：·.、—-])"
+    r"|(?i:chapter|episode)[ \t]+[0-9]+)"
+)
 
 NOTE_SENTENCE_SNAP = "插入点原本落在句子中间，已移到这句话的边界"
 NOTE_PARAGRAPH = "已按本文的段落分隔与缩进补齐新段落的前后分隔"
@@ -180,13 +187,25 @@ def _dominant_separator(content: str, text: str) -> str:
     return own.group(0) if own else "\n"
 
 
-def _apply_indent(block: str, indent: str) -> str:
-    """给 block 里没有缩进、且有正文字符的行补上本文的段首缩进。"""
-    if not indent:
+def _heading_indent(content: str) -> str:
+    """本文已有标题行最常用的缩进；没有标题（或标题都顶格）时为空。"""
+    indents = Counter(
+        _line_indent(line, 0) for line in content.split("\n") if _HEADING_LINE.match(line)
+    )
+    return indents.most_common(1)[0][0] if indents else ""
+
+
+def _apply_indent(block: str, indent: str, heading_indent: str = "") -> str:
+    """给 block 里没有缩进、且有正文字符的行补上本文的段首缩进；标题行用本文标题的缩进。"""
+    if not indent and not heading_indent:
         return block
     lines = block.split("\n")
     for n, line in enumerate(lines):
-        if line and (_WORD_CHAR.match(line[0]) or _is_opening(line, 0)):
+        if not line or line[0] in INLINE_SPACE:
+            continue
+        if _HEADING_LINE.match(line):
+            lines[n] = heading_indent + line
+        elif indent and (_WORD_CHAR.match(line[0]) or _is_opening(line, 0)):
             lines[n] = indent + line
     return "\n".join(lines)
 
@@ -237,27 +256,28 @@ def layout_insertion(
     next_indent = _line_indent(content, next_line_start) if has_next else ""
 
     core = _LEADING_BLANK_LINES.sub("", text)
+    heading_indent = _heading_indent(content)
     if has_prev and has_next:
         indent = prev_indent if prev_indent and prev_indent == next_indent else ""
         first_newline = gap.find("\n")
         separator = gap[first_newline : last_newline + 1]
         placed_at = prev_end
-        written = separator + _apply_indent(core.rstrip(), indent)
+        written = separator + _apply_indent(core.rstrip(), indent, heading_indent)
     elif has_next:  # 文件开头
         written = core.rstrip() + _dominant_separator(content, text)
         placed_at = next_line_start
     else:  # 文件末尾：保留模型自己写的结尾，后面接着追加的写法不受影响
         placed_at = len(content)
         if "\n" in gap:
-            written = _apply_indent(core, prev_indent)
+            written = _apply_indent(core, prev_indent, heading_indent)
         elif starts_break or starts_indent:
-            written = _dominant_separator(content, text) + _apply_indent(core, prev_indent)
+            written = _dominant_separator(content, text) + _apply_indent(core, prev_indent, heading_indent)
         else:
             # 前文没以换行收尾、text 开头也没有分段标记：这是接着上一块往下写
             # （续写被截断的半句，或分块追加），第一行接在行尾，不另起一段；
             # text 结尾的换行只说明下一块从新行开始。后面各行照常补缩进。
             first, newline, rest = core.partition("\n")
-            written = first + newline + _apply_indent(rest, prev_indent)
+            written = first + newline + _apply_indent(rest, prev_indent, heading_indent)
 
     if (placed_at, written) == (pos, text):
         return pos, text, []
