@@ -274,11 +274,18 @@ SCOPE_DIRECTIVE_NO_CONTENT = (
 )
 
 
-def _build_scope_directive(routing_metadata: dict[str, Any] | None) -> str:
+def _build_scope_directive(
+    routing_metadata: dict[str, Any] | None, *, agent_type: str | None = None
+) -> str:
     """把路由对用户范围的判断（read_only / write_content / scope）转成系统提示约束。
 
     交接包和 handoff 文本只在交接时出现，而本轮第一个 agent 也需要知道范围，
     因此统一走系统提示，由 nodes.run_streaming_agent 追加到每个 agent 的提示末尾。
+
+    agent_type 是这次要跑的 agent。「规划完成后直接交接 writer 写正文」只是写给规划类
+    角色的：计划交接后的 writer、审稿人也读到它时，会把它当成「作者要正文」的事实，
+    和交接说明「作者要的已经全部交付时直接结束」、自己的「只为客观缺陷交接」互相打架
+    （10-10 U070：writer 在两条之间来回权衡 20 万字后撞上输出上限）。
     """
     if not isinstance(routing_metadata, dict):
         return ""
@@ -292,6 +299,7 @@ def _build_scope_directive(routing_metadata: dict[str, Any] | None) -> str:
     elif (
         routing_metadata.get("write_content") is True
         and routing_metadata.get("agent_type") in PLANNING_AGENTS
+        and (agent_type is None or agent_type in PLANNING_AGENTS)
     ):
         # 作者已经要正文：规划师不要按「首轮问一句要不要开始写」的规则截停（P2-21）。
         parts.append(SCOPE_DIRECTIVE_WITH_CONTENT_AFTER_PLANNING)
@@ -625,11 +633,66 @@ async def _review_auto_checks(file_ids: list[str]) -> tuple[list[str], list[str]
     return None
 
 
+# 送审内容的总预算（_format_review_payload 按它截头尾）。
+REVIEW_PAYLOAD_MAX_CHARS = 9000
+# 只附改动段时，改动前后各带多少字符的原文（按整行对齐）。
+_REVIEW_CHANGED_CONTEXT_CHARS = 600
+
+
+def _changed_span(before: str, after: str) -> tuple[int, int] | None:
+    """after 里和 before 不一样的那一段 [start, end)；两者相同时为 None。"""
+    if before == after:
+        return None
+    limit = min(len(before), len(after))
+    start = 0
+    while start < limit and before[start] == after[start]:
+        start += 1
+    end_after, end_before = len(after), len(before)
+    while end_after > start and end_before > start and before[end_before - 1] == after[end_after - 1]:
+        end_after -= 1
+        end_before -= 1
+    return start, end_after
+
+
+def _review_payload_block(title: str, content: str, before: str | None) -> str:
+    """一个文件的送审块：系统标注（文件名 + 编辑器字数）+ 正文或本请求改动的那一段。
+
+    - 字数由系统按编辑器口径算好：审稿人「第一行报文件名和字数」「篇幅是否达标」不必为了
+      一个数字再把整份文件读一遍（10-10 U072 / U074、10-11 U094：summary 读取不带
+      word_count，模型反复权衡要不要全文重读）。
+    - 本请求之前就有正文、而且整份放不进送审预算的文件，只附改动的那一段和前后少量原文，
+      并写明其余部分没改、没附上。以前取的是整份文件的开头和结尾：在 14 万字的单文件里
+      追加第 101—105 章，审稿人收到的「待审查内容」是第 1—4 章（10-10 U074）。
+    """
+    words = count_words(content)
+    body = content.strip()
+    span = _changed_span(before, content) if before and before.strip() else None
+    if span is None or len(body) <= REVIEW_PAYLOAD_MAX_CHARS:
+        return f"[《{title}》编辑器字数 {words}]\n{body}"
+    start, end = span
+    context_start = max(0, start - _REVIEW_CHANGED_CONTEXT_CHARS)
+    line_break = content.find("\n", context_start, start)
+    if context_start > 0 and line_break != -1:
+        context_start = line_break + 1
+    context_end = min(len(content), end + _REVIEW_CHANGED_CONTEXT_CHARS)
+    line_break = content.rfind("\n", end, context_end)
+    if context_end < len(content) and line_break != -1:
+        context_end = line_break
+    excerpt = content[context_start:context_end].strip()
+    note = (
+        f"[《{title}》编辑器字数 {words}。下面是本请求改动的部分和前后少量原文；"
+        f"它前面的 {count_words(content[:context_start])} 字、后面的 {count_words(content[context_end:])} 字"
+        "本请求没有改动，没有附上，核对前文事实时再读取]"
+    )
+    return f"{note}\n{excerpt}"
+
+
 def _collect_review_payload_text(file_ids: list[str]) -> str | None:
     """读本请求写过的正文（draft / script）落库后的内容，按写入顺序拼成送审内容。
 
     流式落库和 edit_file 会把半角引号规范成稿件风格，库里这份才是作者看到的正文；
     模型原始输出里那些已经修好的半角引号不能再送审。没有可用正文时返回 None。
+    每个文件带系统标注的编辑器字数；长文件只附本请求改动的那一段（见 _review_payload_block）。
     """
     project_id = ToolContext.get_project_id()
     if not project_id or not file_ids:
@@ -641,15 +704,26 @@ def _collect_review_payload_text(file_ids: list[str]) -> str | None:
 
     with ToolContext.short_lived_session() as session:
         rows = session.exec(
-            select(File.id, File.content).where(
+            select(File.id, File.title, File.content).where(
                 File.project_id == project_id,
                 File.id.in_(file_ids),
                 File.file_type.in_(CONTENT_FILE_TYPES),
                 File.is_deleted.is_(False),
             )
         ).all()
-    contents = {row.id: (row.content or "").strip() for row in rows}
-    return "\n\n".join(contents[file_id] for file_id in file_ids if contents.get(file_id)) or None
+    files = {row.id: (row.title or "", row.content or "") for row in rows if (row.content or "").strip()}
+    ordered = [file_id for file_id in file_ids if file_id in files]
+    if not ordered:
+        return None
+    blocks = [
+        _review_payload_block(files[file_id][0], files[file_id][1], ToolContext.pre_write_content(file_id))
+        for file_id in ordered
+    ]
+    if len(ordered) > 1:
+        # 多个文件拼起来超出预算时，中间几个文件的标注会被截掉；字数清单放在最前面。
+        counts = "、".join(f"《{files[file_id][0]}》{count_words(files[file_id][1])}" for file_id in ordered)
+        blocks.insert(0, f"[本请求写过的正文（编辑器字数）：{counts}]")
+    return "\n\n".join(blocks)
 
 
 async def _review_payload_text(file_ids: list[str]) -> str | None:
@@ -750,7 +824,7 @@ def _extract_review_payload(agent_content: str) -> str:
     return "\n\n".join(blocks).strip() if blocks else raw
 
 
-def _format_review_payload(text: str, *, max_chars: int = 9000) -> str:
+def _format_review_payload(text: str, *, max_chars: int = REVIEW_PAYLOAD_MAX_CHARS) -> str:
     """Trim extremely long draft content while keeping head+tail for reviewer context."""
     normalized = (text or "").strip()
     if not normalized:
@@ -1340,6 +1414,20 @@ async def run_writing_workflow_streaming(
                     work_summary = read_guard.handoff_summary()
                     if work_summary:
                         work_log_text = f"\n\n[本请求的读写记录]: {work_summary}"
+                # 被「作者手改保护」拒绝的写入只出现在上一个 agent 的工具结果里，不跨 agent
+                # 回放：不说出来，审稿人会把「这个文件没改」当成缺陷要求返工，而工具层在本请求
+                # 里不会放行（10-11 U094）。
+                refused_ids = ToolContext.author_edit_refused_file_ids()
+                if refused_ids:
+                    refused_labels = "、".join(
+                        read_guard.file_label(file_id) if read_guard is not None else f"(id={file_id})"
+                        for file_id in refused_ids
+                    )
+                    work_log_text += (
+                        f"\n\n[本请求没有改成的文件]: {refused_labels} 是作者手动改过的，"
+                        "本请求里工具不会修改它们；不要再要求改这些文件，"
+                        "需要改时在给作者的回复里问作者。"
+                    )
 
                 # 刷新文件清单
                 inventory_text = ""
@@ -1422,6 +1510,15 @@ async def run_writing_workflow_streaming(
             writer_write_failures = 0
             writer_write_call_ids: set[str] = set()
             writer_emitted_file_markers = False
+            # 范围约束按这次要跑的 agent 生成：规划类角色专用的那句不给 writer / 审稿人。
+            agent_scope_directive = _build_scope_directive(
+                routing_metadata, agent_type=current_agent_type
+            )
+            if agent_scope_directive:
+                modified_state["scope_directive"] = agent_scope_directive
+            else:
+                modified_state.pop("scope_directive", None)
+
             agent_message_started = False
             mid_run_steering_seen = False
             agent_run_errored = False

@@ -302,7 +302,11 @@ def stage_pre_ai_write_backup(session: Session, file_id: str, current_content: s
     备份用的也是它。这里只负责 AI 写入路径的失败策略：在调用方的同一个锁和事务
     里开 savepoint，任何失败只回滚 savepoint、记 WARNING、返回 False，不阻断 AI
     写入（沿用「版本失败正文照存」的语义）。
+
+    这里也是 AI 覆盖正文前唯一的必经点，顺带记下本请求第一次写入前的正文，
+    送审时据此只附本请求改动的那一段（见 ToolContext.remember_pre_write_content）。
     """
+    remember_pre_write_content(file_id, current_content)
     try:
         with session.begin_nested():
             backup = FileVersionService().backup_unversioned_content(
@@ -319,6 +323,16 @@ def stage_pre_ai_write_backup(session: Session, file_id: str, current_content: s
             extra={"file_id": file_id, "error": str(exc)},
         )
         return False
+
+
+def remember_pre_write_content(file_id: str, content: str | None) -> None:
+    """记下本请求第一次写入前的正文；失败只记 DEBUG，不影响写入。"""
+    try:
+        from agent.tools.mcp_tools import ToolContext
+
+        ToolContext.remember_pre_write_content(file_id, content)
+    except Exception as exc:  # pragma: no cover - 防御：送审辅助信息不能拖垮写入
+        logger.debug("Failed to remember pre-write content", extra={"file_id": file_id, "error": str(exc)})
 
 
 class FileEditor:

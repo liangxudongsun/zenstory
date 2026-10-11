@@ -61,6 +61,7 @@ from utils.title_sequence import (
 from .edit import (
     NORMALIZED_QUOTE_FILE_TYPES,
     acquire_file_write_lock,
+    remember_pre_write_content,
     resolve_write_quote_style,
     stage_pre_ai_write_backup,
 )
@@ -543,6 +544,10 @@ class FileCRUD:
 
         self.session.commit()
         self.session.refresh(file)
+
+        if file.file_type != FILE_TYPE_FOLDER:
+            # 本请求新建的文件整份都是新写的（之后同一请求里的 edit_file 不改变这一点）。
+            remember_pre_write_content(file.id, "")
 
         if content and file.file_type != FILE_TYPE_FOLDER:
             activation_event_service.record_ai_write_accepted(

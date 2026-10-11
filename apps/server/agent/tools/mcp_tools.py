@@ -364,6 +364,31 @@ class _SkillUsageClaims:
             return True
 
 
+class _PreWriteContents:
+    """本次请求里每个文件第一次被 AI 写入之前的正文（跨子任务/线程共享，原因同上）。
+
+    送审时用它找出「本请求改了哪一段」：在 14 万字的单文件里追加 5 章，送审内容不能是
+    文件开头的旧章节（10-10 U074）。只记第一次：同一请求里后面的写入覆盖的是本请求
+    自己写的字。本请求新建的文件记为空串（整份都是新写的）。
+    """
+
+    __slots__ = ("_contents", "_lock")
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._contents: dict[str, str] = {}
+
+    def remember(self, file_id: str, content: str) -> None:
+        if not file_id:
+            return
+        with self._lock:
+            self._contents.setdefault(file_id, content or "")
+
+    def get(self, file_id: str) -> str | None:
+        with self._lock:
+            return self._contents.get(file_id)
+
+
 class ToolContext:
     """
     Holds session and user_id for tool execution.
@@ -427,6 +452,7 @@ class ToolContext:
                 str(item) for item in (author_confirmed_file_ids or []) if item
             ),
             "author_edit_refusals": author_edit_refusals,
+            "pre_write_contents": _PreWriteContents(),
         })
         _owned_session_var.set(None)
         _pending_empty_file_var.set(None)
@@ -557,6 +583,29 @@ class ToolContext:
         holder = cls._get_context().get("author_edit_refusals")
         if isinstance(holder, AuthorEditRefusals):
             holder.add(file_id)
+
+    @classmethod
+    def author_edit_refused_file_ids(cls) -> list[str]:
+        """本请求里因为作者手改过而没改成的文件 id（按先后）；没有上下文时为空。"""
+        holder = cls._get_context().get("author_edit_refusals")
+        if isinstance(holder, AuthorEditRefusals):
+            return holder.file_ids()
+        return []
+
+    @classmethod
+    def remember_pre_write_content(cls, file_id: str, content: str | None) -> None:
+        """记下文件在本请求第一次被 AI 写入之前的正文；没有请求上下文时什么也不做。"""
+        holder = cls._get_context().get("pre_write_contents")
+        if isinstance(holder, _PreWriteContents):
+            holder.remember(str(file_id or ""), content or "")
+
+    @classmethod
+    def pre_write_content(cls, file_id: str) -> str | None:
+        """文件在本请求第一次被 AI 写入之前的正文；本请求没写过它（或没有上下文）时为 None。"""
+        holder = cls._get_context().get("pre_write_contents")
+        if isinstance(holder, _PreWriteContents):
+            return holder.get(str(file_id or ""))
+        return None
 
     @classmethod
     def get_current_agent(cls) -> str | None:
