@@ -17,6 +17,8 @@ from agent.tools.author_edit_guard import (
     CONFIRM_FILE_IDS_ROUTING_KEY,
     AuthorEditRefusals,
     AuthorScope,
+    _title_sequence,
+    author_accepts_offer,
     confirmed_file_ids_from_history,
     ends_with_conditional_offer,
     latest_text_is_authors,
@@ -1056,3 +1058,49 @@ async def test_agreeing_to_the_ais_own_proposal_edits_the_author_edited_file(db_
         author_previous_offer=previous_offer_from_history(other),
     )
     assert refused["error_type"] == AUTHOR_EDIT_PROTECTED_ERROR
+
+
+# Live run 5 scenario C2: the AI listed three sectioned 改法 headings, the last one with
+# its own 好处 / 代价 bullets. 「1」 picked the bullet 「好处…」 instead of 改法一.
+_SECTIONED_OFFER_REPLY = """看了开头，慢在背景说明太集中。下面三个改法按改动大小排，都只动开头。
+
+**改法一｜最小改动：压缩背景，提前钩子**
+
+把第二、三段并成四五句，删掉作坊介绍那一段，在第一次停锤处插一句暗示这单活不寻常。
+
+**改法二｜悬念前置：从接活那天开场**
+
+把来客那一段提到最前，压成三五句，再接回打铁。
+
+**改法三｜倒叙：从敲门声开场**
+
+用结尾那声敲门作第一段。
+
+- 好处：问题和陌生人一起立起来，节奏最快
+- 代价：结尾得换个新的落点
+
+想按哪个改，告诉我编号就行。"""
+
+
+@pytest.mark.parametrize("answer", ["1", "选2", "方案三", "好的，按你说的改"])
+def test_sectioned_option_headings_are_the_offer_items(answer):
+    offer = previous_offer_items(_SECTIONED_OFFER_REPLY)
+    assert [item.index for item in offer if item.index is not None] == [1, 2, 3]
+    assert offer[0].text.startswith("改法一")
+    title = "第一章 铁匠"
+    assert author_accepts_offer(
+        answer,
+        offer,
+        title=title,
+        file_type="draft",
+        sequence=_title_sequence(title),
+        context_target=lambda: True,
+    )
+
+
+def test_sectioned_option_headings_still_refuse_a_decline():
+    offer = previous_offer_items(_SECTIONED_OFFER_REPLY)
+    title = "第一章 铁匠"
+    assert not author_accepts_offer(
+        "先不改了", offer, title=title, file_type="draft", sequence=_title_sequence(title), context_target=lambda: True
+    )

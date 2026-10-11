@@ -837,6 +837,39 @@ def _question_items(line: str) -> list[OfferItem]:
     return items
 
 
+# 「改法一｜…」「方案二：…」「选项 A」这类带编号的方案标题：AI 把几个方案分节列出时，
+# 作者回「1」「方案二」选的是这些标题，不是最后一节里的小点（好处 / 代价）。
+_LABELED_OPTION_RE = re.compile(
+    r"^(?:改法|方案|选项|思路|办法|路线|版本|方向|做法)\s*([一二三四五六七八九十]|\d+|[A-Da-d])(?=[\s|｜:：、.．)）（(，,—-]|$)"
+)
+
+
+def _labeled_option_items(reply_text: str) -> list[OfferItem]:
+    """分节列出的编号方案：每个标题连同它下面的内容算一项；少于两个时不算。"""
+    text = reply_text or ""
+    close = text.lower().rfind("</file>")
+    if close != -1:
+        text = text[close + len("</file>"):]
+    lines = [line.strip() for line in _MARKDOWN_RE.sub("", text).splitlines() if line.strip()]
+    sections: list[tuple[int, list[str]]] = []
+    for line in lines:
+        match = _LABELED_OPTION_RE.match(line)
+        if match:
+            token = match.group(1)
+            index = int(token) if token.isdigit() else _LETTER_INDEX.get(token.lower()) or _parse_number(token)
+            if index:
+                sections.append((index, [line]))
+                continue
+        if sections:
+            sections[-1][1].append(line)
+    if len(sections) < 2 or [index for index, _ in sections] != list(range(1, len(sections) + 1)):
+        return []
+    return [
+        OfferItem(text=" ".join(body)[:_OFFER_ITEM_MAX_CHARS], index=index)
+        for index, body in sections
+    ]
+
+
 def previous_offer_items(reply_text: str) -> tuple[OfferItem, ...]:
     """上一轮 AI 收尾时给作者的提议：末尾那一串选项，加上选项前面（或没有选项时结尾）的问句。
 
@@ -847,6 +880,13 @@ def previous_offer_items(reply_text: str) -> tuple[OfferItem, ...]:
     lines = _offer_tail_lines(reply_text)
     if not lines:
         return ()
+    labeled = _labeled_option_items(reply_text)
+    if labeled:
+        # 分节的编号方案优先；问句仍取结尾几行。
+        questions: list[OfferItem] = []
+        for line in lines[-3:]:
+            questions.extend(_question_items(line))
+        return tuple([*labeled, *questions][:_OFFER_MAX_ITEMS])
     end = len(lines)
     # 选项后面跟一句收尾（「挑一个就行」）。
     if end >= 2 and not _OPTION_LINE_RE.match(lines[-1]) and _OPTION_LINE_RE.match(lines[-2]):
