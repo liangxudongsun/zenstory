@@ -23,6 +23,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+from agent.constants import coerce_bool
 from agent.core.stream_billing import _parse_sse as parse_sse_frame
 from utils.logger import get_logger, log_with_context
 from utils.text_metrics import count_words
@@ -172,8 +173,8 @@ class RoundWrittenFiles:
                 return
             self._remember_title(file_id, data.get("title"))
             content = str(data.get("content") or "")
-            if data.get("reused_existing") is True:
-                if content.strip():
+            if coerce_bool(data.get("reused_existing")):
+                if _reused_file_had_body(data, content):
                     self._kept_bodies.add(file_id)
                 return
             if content.strip():
@@ -189,6 +190,20 @@ class RoundWrittenFiles:
                 return
             self._remember_title(file_id, data.get("title"))
             self._entry(file_id).edited = True
+
+
+def _reused_file_had_body(data: dict[str, Any], content: str) -> bool:
+    """复用到的文件原本是否已有正文——与 StreamAdapter 截断覆盖保护同一判据。
+
+    生产里复用分支的 content 会被 mcp_tools._elide_reused_file_content 省略成 ""，
+    只留 content_elided / original_content_length；StreamAdapter 也是按
+    original_content_length（缺失时退回 content 长度）判定「原本非空」，不能只看 content。
+    """
+    try:
+        original_length = int(data.get("original_content_length") or 0)
+    except (TypeError, ValueError):
+        original_length = 0
+    return original_length > 0 or bool(content) or data.get("content_elided") is True
 
 
 def remove_empty_placeholders(

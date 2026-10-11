@@ -320,12 +320,53 @@ def test_written_files_list_edits_without_a_word_count():
     ]
 
 
+def _reused_frame(file_id: str, title: str, existing_body: str) -> str:
+    """生产里复用分支真正发给前端的 tool_result 帧：crud 结果经 mcp_tools 省略正文，再由事件构造器序列化。"""
+    from agent.core.events import tool_result_event
+    from agent.tools.mcp_tools import _elide_reused_file_content
+
+    crud_result = {
+        "id": file_id,
+        "title": title,
+        "file_type": "script",
+        "content": existing_body,
+        "reused_existing": True,
+        "original_content_length": len(existing_body),
+    }
+    return tool_result_event(
+        tool_name="create_file",
+        status="success",
+        data=_elide_reused_file_content(crud_result),
+    ).to_sse()
+
+
 def test_written_files_skip_a_reused_chapter_whose_existing_body_the_stream_may_not_replace():
-    """幂等复用命中已写满的分集：中断时残稿不会覆盖原文（截断覆盖保护），不能说它「已保存」。"""
+    """幂等复用命中已写满的分集：中断时残稿不会覆盖原文（截断覆盖保护），不能说它「已保存」。
+
+    帧用生产形状：复用分支的 content 已被省略成 ""，只剩 content_elided / original_content_length。
+    """
+    frame = _reused_frame("ep-2", "第2集", "原有的整集正文。" * 200)
+    assert json.loads(frame.split("data: ", 1)[1])["data"]["content"] == ""
     assert _written(
-        _created("ep-2", "第2集", "原有的整集正文。", reused_existing=True),
+        frame,
         _frame("file_content", {"file_id": "ep-2", "chunk": "新写的开头"}),
     ) == []
+
+
+def test_written_files_skip_a_reused_chapter_known_only_by_its_original_length():
+    """上游只给了 original_content_length（没有 content / content_elided）：同样按「原本非空」处理。"""
+    assert _written(
+        _created("ep-3", "第3集", reused_existing=True, original_content_length=4000),
+        _frame("file_content", {"file_id": "ep-3", "chunk": "新写的开头"}),
+    ) == []
+
+
+def test_written_files_list_a_reused_empty_episode_once_the_stream_writes_it():
+    """复用到的是空白分集（原本没有正文）：流式写下的正文会落库，照常列出并计字数。"""
+    assert _written(
+        _reused_frame("ep-4", "第4集", ""),
+        _frame("file_content", {"file_id": "ep-4", "chunk": "新写的开头"}),
+    ) == [{"id": "ep-4", "title": "第4集", "words": 5}]
 
 
 def test_written_files_keep_the_order_of_first_write_once_each():
