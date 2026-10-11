@@ -23,6 +23,10 @@ SKILL_CONTENT_TOKEN_BUDGET = 12_000
 # 其中显式选择区块（进 system prompt）最多占用的部分，给本轮的 load_skill 留出余量
 SELECTED_SKILLS_TOKEN_BUDGET = 8_000
 
+# 一次请求里 load_skill / read_skill_resource 最多读取的不同技能数。一个任务正常用 1–2 个技能，
+# 一次读十几个是异常；同一技能重复读取（续读、读资源）不另计。
+MAX_LOADED_SKILLS_PER_REQUEST = 3
+
 # read_skill_resource 用这个伪路径分段读取技能正文（SKILL.md 的正文部分）
 SKILL_BODY_PATH = "SKILL.md"
 
@@ -98,6 +102,7 @@ class SkillContentBudget:
     def __init__(self, total: int = SKILL_CONTENT_TOKEN_BUDGET, used: int = 0) -> None:
         self._total = total
         self._used = max(used, 0)
+        self._loaded_skill_ids: set[str] = set()
         self._lock = threading.Lock()
 
     @property
@@ -115,3 +120,13 @@ class SkillContentBudget:
             segment = take_segment(text, offset, max(self._total - self._used, 0))
             self._used += segment.tokens
             return segment
+
+    def admit_skill(self, skill_id: str) -> bool:
+        """本次请求还能不能读这个技能：已读过的照常放行，新技能最多 MAX_LOADED_SKILLS_PER_REQUEST 个。"""
+        with self._lock:
+            if skill_id in self._loaded_skill_ids:
+                return True
+            if len(self._loaded_skill_ids) >= MAX_LOADED_SKILLS_PER_REQUEST:
+                return False
+            self._loaded_skill_ids.add(skill_id)
+            return True

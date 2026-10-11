@@ -2791,6 +2791,16 @@ def _skill_budget_exhausted_error(tool_name: str) -> dict[str, Any]:
     )
 
 
+def _skill_limit_error(tool_name: str, skill_name: str) -> dict[str, Any]:
+    from agent.skills.content_budget import MAX_LOADED_SKILLS_PER_REQUEST
+
+    return _make_error(
+        f"本轮最多加载 {MAX_LOADED_SKILLS_PER_REQUEST} 个不同的技能，已达上限，没有加载「{skill_name}」。"
+        "请用已加载的技能完成任务；还需要其他技能时，请用户在下一条消息中继续。",
+        tool_name=tool_name,
+    )
+
+
 def _segment_fields(segment, *, skill_id: str, path: str) -> dict[str, Any]:
     """截断时告诉模型如何续读（read_skill_resource + offset）。"""
     if not segment.truncated:
@@ -2823,6 +2833,8 @@ def _load_skill_sync(args: dict[str, Any]) -> dict[str, Any]:
             return error
 
         budget = ToolContext.get_skill_content_budget()
+        if not budget.admit_skill(skill.id):
+            return _skill_limit_error(tool_name, skill.name)
         if budget.remaining <= 0:
             return _skill_budget_exhausted_error(tool_name)
         segment = budget.take(skill.instructions)
@@ -2929,6 +2941,8 @@ def _read_skill_resource_sync(args: dict[str, Any]) -> dict[str, Any]:
                 f"offset {offset} 超出内容长度（共 {len(content)} 个字符）", tool_name=tool_name
             )
         budget = ToolContext.get_skill_content_budget()
+        if not budget.admit_skill(skill.id):
+            return _skill_limit_error(tool_name, skill.name)
         if budget.remaining <= 0 and offset < len(content):
             return _skill_budget_exhausted_error(tool_name)
         segment = budget.take(content, offset)
