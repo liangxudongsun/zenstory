@@ -52,7 +52,7 @@ from agent.graph.body_writes import (
     body_words_written,
     measured_body_words,
 )
-from agent.graph.completion_evidence import ends_on_file_block, find_unbacked_change_claim
+from agent.graph.completion_evidence import ends_on_file_block
 from agent.graph.nodes import (
     detect_task_complete,
     ends_with_question_to_user,
@@ -469,17 +469,6 @@ async def _roll_back_empty_files_after_exhaustion(
 # 接着跑一轮，见 completion_evidence.ends_on_file_block 与主循环里的续写分支。
 FILE_STREAM_CONTINUATION_MARKER = "[系统提醒] 你上一次回复写完 </file> 就结束了"
 
-# 回复说「已还原 / 已保存…」但本请求没有任何写入时，同一个 agent 补的那一轮的开头。
-UNBACKED_CLAIM_MARKER = "[系统提醒] 你刚才对作者说"
-
-# 不能再补一轮时（只读请求、没有协作轮数、已经补过一次仍然这样说）直接告诉作者的更正。
-UNBACKED_CLAIM_NOTICE = "\n\n——\n更正：这一轮实际没有修改任何文件或项目信息。"
-
-# 本请求成功即说明「确实改了东西」的工具（parallel_execute 可能带写入子任务，按改过算）。
-_REQUEST_WRITE_TOOL_NAMES = frozenset(
-    {"create_file", "edit_file", "delete_file", "parallel_execute", "update_project"}
-)
-
 
 def _open_board_tasks() -> list[dict[str, Any]]:
     """任务计划板上还没完成的任务（读不到时为空，不影响续写）。"""
@@ -536,19 +525,6 @@ def _file_stream_continuation_context(
         "（按工具返回的字数），没写完的如实说明。"
     )
     return "\n".join(lines)
-
-
-def _unbacked_claim_context(claim: str) -> str:
-    """回复说改了、本请求却没有任何写入时，同一个 agent 补的那一轮的交接说明。"""
-    return (
-        f"{UNBACKED_CLAIM_MARKER}「{claim}」，但本请求到现在没有任何文件或项目信息被实际修改"
-        "（没有一次写入工具调用成功）。\n"
-        "只有作者这一轮的消息明确要求了这处改动时，才调用对应的工具（edit_file / create_file / "
-        "update_project）真正完成，完成后用一句话说明改了什么。\n"
-        "作者没有要求改（例如只是在提问、解释或确认现状）：不要调用写入工具，不要自己找东西改，"
-        "用一句话向作者更正——这一轮没有修改任何内容。"
-        "不要重复上一条回复。"
-    )
 
 
 def _author_facing_handoff_event_data(event_data: dict[str, Any]) -> dict[str, Any]:
@@ -1448,10 +1424,6 @@ async def run_writing_workflow_streaming(
     # 被纠偏打断那一轮是否以向用户提问收尾：纠偏轮只补正文，它的收尾文本
     # （「已补齐」）不能把原 agent 还在等用户回答的问题冲掉。
     carried_ended_with_question: bool = False
-    # 本请求是否有写工具成功（create/edit/delete_file、parallel_execute、update_project），
-    # 用于核对回复里「已还原 / 已保存」这类话；以及是否已经为这类话补过一轮（只补一次）。
-    request_write_succeeded = False
-    unbacked_claim_corrected = False
 
     # 工具失败熔断器按请求共享：每个 agent run 都从 state 取同一个（见 runner），
     # writer → 审稿人 → writer 的往返不会让「同一调用连续失败」的计数归零。
@@ -1832,11 +1804,9 @@ async def run_writing_workflow_streaming(
             agent_message_started = False
             mid_run_steering_seen = False
             agent_run_errored = False
-            # 本次 run 里的 create_file / 写工具调用与其中失败的：runner 给每次调用都发
-            # TOOL_RESULT，没有失败的就是成功的。run 停在写完的 <file> 上时据此确认刚建过文件，
-            # 回复说「已保存」时据此确认真的写过。
+            # 本次 run 里的 create_file 调用与其中失败的：runner 给每次调用都发 TOOL_RESULT，
+            # 没有失败的就是成功的。run 停在写完的 <file> 上时据此确认刚建过文件。
             run_create_call_ids: set[str] = set()
-            run_write_call_ids: set[str] = set()
             run_failed_call_ids: set[str] = set()
 
             text_shaper = AgentTextShaper(
@@ -1878,8 +1848,6 @@ async def run_writing_workflow_streaming(
                     call_id = str(event.data.get("id") or "")
                     if tool_name == "create_file":
                         run_create_call_ids.add(call_id)
-                    if tool_name in _REQUEST_WRITE_TOOL_NAMES:
-                        run_write_call_ids.add(call_id)
                 elif event.type == StreamEventType.TOOL_RESULT and _tool_result_failed(
                     event.data.get("result")
                 ):
@@ -1986,8 +1954,6 @@ async def run_writing_workflow_streaming(
 
             writer_body_writes = body_tracker.finish(agent_content)
             run_create_succeeded = bool(run_create_call_ids - run_failed_call_ids)
-            if run_write_call_ids - run_failed_call_ids:
-                request_write_succeeded = True
             ended_with_question = ends_with_question_to_user(agent_tail_text)
 
             # Carry forward conversation evolution from this agent turn so that
@@ -2285,44 +2251,6 @@ async def run_writing_workflow_streaming(
                 previous_agent = current_agent_type
                 incoming_handoff_packet = None
                 continue
-
-            # 回复说「已还原 / 已保存 / 已改好 / 已录入」，本请求却没有任何写入成功（I09）：
-            # 让回复与实际写入一致。能写的 agent 再跑一轮（只补一次），要么真的去改，要么
-            # 向作者更正；不能补时直接附一句更正。审稿人没有写权限，它说的「已修改」指的是
-            # 别人改的，不核对。
-            claim_guard = _guard_from_state(state)
-            if (
-                run_ended_normally
-                and _agent_can_write_files(current_agent_type)
-                and not request_write_succeeded
-                and not (claim_guard is not None and claim_guard.write_succeeded)
-            ):
-                claim = find_unbacked_change_claim(agent_content)
-                if claim:
-                    if can_rerun_same_agent and not unbacked_claim_corrected:
-                        unbacked_claim_corrected = True
-                        log_with_context(
-                            logger,
-                            30,  # WARNING
-                            "Agent reply claims a change but no write succeeded this request; re-running it",
-                            agent_type=current_agent_type,
-                            claim=claim,
-                        )
-                        carried_ended_with_question = ended_with_question
-                        handoff_context = _unbacked_claim_context(claim)
-                        previous_agent = current_agent_type
-                        incoming_handoff_packet = None
-                        continue
-                    log_with_context(
-                        logger,
-                        30,  # WARNING
-                        "Agent reply claims a change but no write succeeded this request; adding a correction",
-                        agent_type=current_agent_type,
-                        claim=claim,
-                    )
-                    yield StreamEvent(
-                        type=StreamEventType.TEXT, data={"text": UNBACKED_CLAIM_NOTICE}
-                    )
 
             # Structured clarification stop is canonical and must block planned/auto handoff.
             if clarification_stopped:

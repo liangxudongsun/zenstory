@@ -203,11 +203,8 @@ Agent 可以通过两种方式交接：
   作者范围、任务板上没完成的任务）：还有没写的接着写，写完了给作者总结。放在计划交接 / 自动质检
   之前，正文与正文写入记录（`writer_body_writes`）接续给续写轮；受 `max_iterations` 约束，每一轮都要
   真的新建并写完文件才会再续。
-- 回复说这一轮「已还原 / 已保存 / 改好了 / 已录入」（`completion_evidence.find_unbacked_change_claim`；
-  「已 + 动词」只在分句开头、主语是我 / 这一轮或紧跟「了」时才算，现状描述、问句、「记住了」不算），
-  本请求却没有任何写工具（create/edit/delete_file、parallel_execute、update_project）成功：有写权限的
-  agent 再跑一轮（每请求一次），要么真的改，要么向作者更正；不能补（只读 / 先问清楚 / 最后一轮 /
-  已补过）时附一句 `UNBACKED_CLAIM_NOTICE`。审稿人不核对。
+- 回复里「已保存 / 已还原 / 已修改」是否属实不做文字检测，靠提示词约束（`prompts/base.py` 统一执行
+  协议：只有本轮对应的工具调用成功后才这样说，没改就直说没改）。
 - 收尾补发的 `update_project(tasks)`（`_auto_finalize_task_board_on_completion`）只按本请求实际写出、
   仍存在且有正文的文件收尾 in_progress 任务：编号范围（「第2-5集」，`tools/task_progress.py`）全部有
   对应文件才 done，只写了一部分时保持 in_progress 并记 `done_units` / `progress`（任务板提示里显示；

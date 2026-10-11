@@ -1,4 +1,4 @@
-"""写完 </file> 就结束 run 时同一个 agent 接着写（I08），回复说改了却没有写入时补一轮或更正（I09）。
+"""写完 </file> 就结束 run 时同一个 agent 接着写（I08）。
 
 流式写文件协议把正文放在回复文字里；openai-agents 把不带工具调用的回复当作最终输出，模型写完
 一个文件没在同一次回复里接着调用 create_file 时，run 就停在 </file>：计划里没写的文件、给作者的
@@ -13,11 +13,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from agent.core.workflow_events import StreamEvent, StreamEventType
-from agent.graph.completion_evidence import (
-    author_text_outside_files,
-    ends_on_file_block,
-    find_unbacked_change_claim,
-)
+from agent.graph.completion_evidence import ends_on_file_block
 from agent.openai_agents.repeat_read_guard import ReadPlan
 from agent.tools.mcp_tools import ToolContext
 
@@ -28,8 +24,8 @@ def _text(text: str) -> StreamEvent:
     return StreamEvent(type=StreamEventType.TEXT, data={"text": text})
 
 
-def _tool(call_id: str, name: str, *, failed: bool = False) -> list[StreamEvent]:
-    payload = {"status": "error", "error": "boom"} if failed else {"status": "success"}
+def _tool(call_id: str, name: str) -> list[StreamEvent]:
+    payload = {"status": "success"}
     return [
         StreamEvent(
             type=StreamEventType.TOOL_USE,
@@ -146,7 +142,7 @@ async def test_writer_that_stops_at_file_close_continues_and_summarizes():
     assert "撰写第2-3集剧本（进行中）" in continuation
     assert "第2-3集" in continuation
     # 作者最后看到的是总结，不是空回复或开场句。
-    assert author_text_outside_files(_visible_text(events)).endswith("各约 120 字。")
+    assert _visible_text(events).rstrip().endswith("各约 120 字。")
     assert not any(event.type == StreamEventType.ITERATION_EXHAUSTED for event in events)
 
 
@@ -248,123 +244,6 @@ async def test_rework_writer_that_stops_at_file_close_continues():
     assert runs == ["writer", "quality_reviewer", "writer", "writer"]
 
 
-# ------------------------------------------------- I09: 说改了，本请求却没有写入
-
-
-async def test_claimed_revert_without_any_write_reruns_the_agent_once():
-    """U044 形状：作者只是解释断句，回复「已还原」却零工具调用。"""
-    runs: list[tuple[str, str]] = []
-
-    async def fake_agent(state, agent_type, *_args, **_kwargs):
-        runs.append((agent_type, str(state.get("user_message") or "")))
-        if len(runs) == 1:
-            yield _text("已还原：第二章那句仍作原文，别处未动。\n[TASK_COMPLETE]")
-        else:
-            for event in _tool("e1", "edit_file"):
-                yield event
-            yield _text("把刚才加的逗号删掉了，第二章那句恢复成你的原文。")
-
-    events = await _run(fake_agent, message="我只是在解释断句")
-
-    assert [agent for agent, _ in runs] == ["writer", "writer"]
-    assert "你刚才对作者说「已还原」" in runs[1][1]
-    assert "没有任何文件或项目信息被实际修改" in runs[1][1]
-    assert "更正：这一轮实际没有修改" not in _visible_text(events)
-
-
-async def test_repeated_unbacked_claim_gets_a_correction_notice():
-    runs: list[str] = []
-
-    async def fake_agent(_state, agent_type, *_args, **_kwargs):
-        runs.append(agent_type)
-        yield _text("已录入项目记忆。")
-
-    events = await _run(fake_agent, message="记住主角叫陈默")
-
-    assert runs == ["writer", "writer"]
-    assert _visible_text(events).count("更正：这一轮实际没有修改任何文件或项目信息。") == 1
-
-
-async def test_unbacked_claim_on_read_only_request_is_corrected_without_rerun():
-    runs: list[str] = []
-
-    async def fake_agent(_state, agent_type, *_args, **_kwargs):
-        runs.append(agent_type)
-        yield _text("已保存到第二章。")
-
-    events = await _run(
-        fake_agent,
-        message="只回答，不要改文件",
-        routing_metadata={"agent_type": "writer", "read_only": True},
-    )
-
-    assert runs == ["writer"]
-    assert "更正：这一轮实际没有修改任何文件或项目信息。" in _visible_text(events)
-
-
-async def test_claim_backed_by_a_successful_write_is_left_alone():
-    runs: list[str] = []
-
-    async def fake_agent(_state, agent_type, *_args, **_kwargs):
-        runs.append(agent_type)
-        for event in _tool("e1", "edit_file"):
-            yield event
-        yield _text("已改好第二章的称呼。")
-
-    events = await _run(fake_agent)
-
-    assert runs == ["writer"]
-    assert "更正" not in _visible_text(events)
-
-
-async def test_claim_after_only_failed_writes_is_rechecked():
-    runs: list[str] = []
-
-    async def fake_agent(_state, agent_type, *_args, **_kwargs):
-        runs.append(agent_type)
-        if len(runs) == 1:
-            for event in _tool("e1", "edit_file", failed=True):
-                yield event
-            yield _text("已改好第二章的称呼。")
-        else:
-            yield _text("刚才的修改没有成功，第二章还没改。")
-
-    await _run(fake_agent)
-
-    assert runs == ["writer", "writer"]
-
-
-async def test_status_answer_that_describes_existing_files_is_left_alone():
-    """「我写到哪了」这类只读问答：回复描述项目现状，不是说这一轮改了东西，不补轮、不加更正。"""
-    runs: list[str] = []
-
-    async def fake_agent(_state, agent_type, *_args, **_kwargs):
-        runs.append(agent_type)
-        yield _text(
-            "目前第1-3章都已写好，第4章还没开始。主角名字已改为林舟，这一设定已经记录在人物卡里。"
-        )
-
-    for routing_metadata in (None, {"agent_type": "writer", "read_only": True}):
-        runs.clear()
-        events = await _run(fake_agent, message="我写到哪了", routing_metadata=routing_metadata)
-        assert runs == ["writer"]
-        assert "更正" not in _visible_text(events)
-
-
-async def test_reviewer_wording_is_not_checked():
-    """审稿人没有写权限，它说的「已修改」指别人改的内容。"""
-    runs: list[str] = []
-
-    async def fake_agent(_state, agent_type, *_args, **_kwargs):
-        runs.append(agent_type)
-        yield _text("第二章已修改的部分读起来顺了。")
-
-    events = await _run(fake_agent, initial="quality_reviewer", message="审一下第二章")
-
-    assert runs == ["quality_reviewer"]
-    assert "更正" not in _visible_text(events)
-
-
 # ------------------------------------------------------------ 文字信号
 
 
@@ -382,35 +261,3 @@ async def test_reviewer_wording_is_not_checked():
 )
 async def test_ends_on_file_block(tail, expected):
     assert ends_on_file_block(tail) is expected
-
-
-@pytest.mark.parametrize(
-    ("text", "claim"),
-    [
-        ("收到。\n\n已还原：第二章那句仍作原文。", "已还原"),
-        ("已录入项目记忆。", "已录入"),
-        ("兩處都已經刪除了。", "已經刪除了"),
-        ("好的已还原。", "已还原"),
-        ("我已经帮你保存到第二章。", "已经帮你保存"),
-        ("这一轮已更新人物卡。", "已更新"),
-        ("我给你改好了。", "改好了"),
-        ("第二章改好了。", "改好了"),
-        ("你之前已修改的第二章很好。", None),
-        ("上一轮已经写好第一章。", None),
-        ("这段还没保存。", None),
-        ("<file>\n已保存\n</file>\n", None),
-        ("你觉得接下来会发生什么？我认为雷池会认他。", None),
-        # 描述项目现状、问句、应答：不是这一轮做了改动的说法。
-        ("目前第1-3章都已写好，第4章还没开始。", None),
-        ("这一设定已经记录在人物卡里。", None),
-        ("主角名字已改为林舟，这是在第二章里定下的。", None),
-        ("这些伏笔已经补上了吗？我看了一下还没有。", None),
-        ("第二章已经改好了吗", None),
-        ("好的，我记住了", None),
-        ("好的，我记下了。", None),
-        ("已写好的章节有第1-3章。", None),
-        ("我看到第二章已写好。", None),
-    ],
-)
-async def test_find_unbacked_change_claim(text, claim):
-    assert find_unbacked_change_claim(text) == claim
