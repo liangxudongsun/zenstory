@@ -334,6 +334,23 @@ async def test_claim_after_only_failed_writes_is_rechecked():
     assert runs == ["writer", "writer"]
 
 
+async def test_status_answer_that_describes_existing_files_is_left_alone():
+    """「我写到哪了」这类只读问答：回复描述项目现状，不是说这一轮改了东西，不补轮、不加更正。"""
+    runs: list[str] = []
+
+    async def fake_agent(_state, agent_type, *_args, **_kwargs):
+        runs.append(agent_type)
+        yield _text(
+            "目前第1-3章都已写好，第4章还没开始。主角名字已改为林舟，这一设定已经记录在人物卡里。"
+        )
+
+    for routing_metadata in (None, {"agent_type": "writer", "read_only": True}):
+        runs.clear()
+        events = await _run(fake_agent, message="我写到哪了", routing_metadata=routing_metadata)
+        assert runs == ["writer"]
+        assert "更正" not in _visible_text(events)
+
+
 async def test_reviewer_wording_is_not_checked():
     """审稿人没有写权限，它说的「已修改」指别人改的内容。"""
     runs: list[str] = []
@@ -372,13 +389,27 @@ async def test_ends_on_file_block(tail, expected):
     [
         ("收到。\n\n已还原：第二章那句仍作原文。", "已还原"),
         ("已录入项目记忆。", "已录入"),
-        ("兩處都已經刪除了。", "已經刪除"),
+        ("兩處都已經刪除了。", "已經刪除了"),
+        ("好的已还原。", "已还原"),
+        ("我已经帮你保存到第二章。", "已经帮你保存"),
+        ("这一轮已更新人物卡。", "已更新"),
+        ("我给你改好了。", "改好了"),
         ("第二章改好了。", "改好了"),
         ("你之前已修改的第二章很好。", None),
         ("上一轮已经写好第一章。", None),
         ("这段还没保存。", None),
         ("<file>\n已保存\n</file>\n", None),
         ("你觉得接下来会发生什么？我认为雷池会认他。", None),
+        # 描述项目现状、问句、应答：不是这一轮做了改动的说法。
+        ("目前第1-3章都已写好，第4章还没开始。", None),
+        ("这一设定已经记录在人物卡里。", None),
+        ("主角名字已改为林舟，这是在第二章里定下的。", None),
+        ("这些伏笔已经补上了吗？我看了一下还没有。", None),
+        ("第二章已经改好了吗", None),
+        ("好的，我记住了", None),
+        ("好的，我记下了。", None),
+        ("已写好的章节有第1-3章。", None),
+        ("我看到第二章已写好。", None),
     ],
 )
 async def test_find_unbacked_change_claim(text, claim):

@@ -237,6 +237,161 @@ def test_task_that_was_already_done_is_not_rechecked(monkeypatch):
     ops.session.exec.assert_not_called()
 
 
+# ---------------------------------------------- 模型重存任务板时进度不能丢
+
+
+class _InMemoryBoard:
+    def __init__(self, tasks: list[dict]):
+        self.tasks = [dict(task) for task in tasks]
+
+    def get_tasks(self, *_args, **_kwargs):
+        return [dict(task) for task in self.tasks]
+
+    def save_tasks(self, _session_id, tasks, **_kwargs):
+        self.tasks = [dict(task) for task in tasks]
+        return True
+
+
+def _use_board(monkeypatch, board: _InMemoryBoard) -> None:
+    module = importlib.import_module("services.infra.task_board_service")
+    monkeypatch.setattr(module, "task_board_service", board)
+
+
+def test_range_progress_survives_the_model_resaving_the_board(monkeypatch):
+    """U084 形状：每次请求开头模型都重存「撰写第2-5集剧本 in_progress」（不带 done_units）。
+
+    请求 1 写了第2集，请求 2 写了第3/4/5集：第2集不能被忘掉、再被列成待写。
+    """
+    board = _InMemoryBoard([])
+    _use_board(monkeypatch, board)
+    ops = _ops_with_titles([])
+    model_plan = [{"task": "撰写第2-5集剧本", "status": "in_progress"}]
+
+    # 请求 1：模型建任务，写了第2集，收尾记下进度。
+    ops.execute_update_plan(session_id="s", tasks=model_plan, user_id="u", project_id="p")
+    first = _build_completion_task_payload(board.get_tasks(), ["第2集"])
+    ops.execute_update_plan(session_id="s", tasks=first, user_id="u", project_id="p")
+    assert board.tasks[0]["done_units"] == [2]
+
+    # 请求 2：模型照着渲染出来的任务板重存（不带 done_units），然后写第3/4/5集。
+    ops.execute_update_plan(session_id="s", tasks=model_plan, user_id="u", project_id="p")
+    assert board.tasks[0]["done_units"] == [2]
+    assert board.tasks[0]["progress"] == "已写：第2集；待写：第3–5集"
+
+    second = _build_completion_task_payload(board.get_tasks(), ["第3集", "第4集", "第5集"])
+    assert second == [{"task": "撰写第2-5集剧本", "status": "done"}]
+
+
+def test_resave_that_copies_the_rendered_progress_into_the_name_is_matched(monkeypatch):
+    recorded = {
+        "task": "撰写第2-5集剧本",
+        "status": "in_progress",
+        "done_units": [2],
+        "progress": "已写：第2集；待写：第3–5集",
+    }
+    board = _InMemoryBoard([recorded])
+    _use_board(monkeypatch, board)
+
+    _ops_with_titles([]).execute_update_plan(
+        session_id="s",
+        tasks=[{"task": "撰写第2-5集剧本（已写：第2集；待写：第3–5集）", "status": "in_progress"}],
+        user_id="u",
+        project_id="p",
+    )
+
+    assert board.tasks == [recorded]
+
+
+def test_resave_with_a_different_task_or_done_status_does_not_inherit_progress(monkeypatch):
+    board = _InMemoryBoard(
+        [
+            {
+                "task": "撰写第2-5集剧本",
+                "status": "in_progress",
+                "done_units": [2],
+                "progress": "已写：第2集；待写：第3–5集",
+            }
+        ]
+    )
+    _use_board(monkeypatch, board)
+    ops = _ops_with_titles([(f"第{n}集", "正文") for n in range(2, 6)])
+
+    ops.execute_update_plan(
+        session_id="s",
+        tasks=[{"task": "撰写第2-6集剧本", "status": "in_progress"}],
+        user_id="u",
+        project_id="p",
+    )
+    assert board.tasks == [{"task": "撰写第2-6集剧本", "status": "in_progress"}]
+
+    board.tasks = [{"task": "撰写第2-5集剧本", "status": "in_progress", "done_units": [2]}]
+    ops.execute_update_plan(
+        session_id="s",
+        tasks=[{"task": "撰写第2-5集剧本", "status": "done"}],
+        user_id="u",
+        project_id="p",
+    )
+    assert board.tasks == [{"task": "撰写第2-5集剧本", "status": "done"}]
+
+
+def test_recorded_units_whose_files_were_deleted_are_dropped():
+    task = _range_task(done_units=[2, 3], progress="已写：第2–3集；待写：第4–5集")
+
+    payload = _build_completion_task_payload([task], ["第4集", "第5集"], ["第2集", "第4集", "第5集"])
+
+    assert payload == [
+        {
+            "task": "撰寫第2-5集劇本",
+            "status": "in_progress",
+            "done_units": [2, 4, 5],
+            "progress": "已写：第2、4–5集；待写：第3集",
+        }
+    ]
+
+
+def test_existing_files_do_not_count_as_written_for_a_range():
+    """「重写第2-5集」开始前这几集都在：只重写了一集，不能按已有文件凑成 done。"""
+    task = {"task": "重写第2-5集", "status": "in_progress"}
+
+    payload = _build_completion_task_payload(
+        [task], ["第2集"], [f"第{n}集" for n in range(2, 6)]
+    )
+
+    assert payload is not None and payload[0]["status"] == "in_progress"
+    assert payload[0]["done_units"] == [2]
+
+
+@pytest.mark.asyncio
+async def test_finalize_checks_recorded_units_against_live_files():
+    update = AsyncMock(return_value={"content": []})
+    task = _range_task(done_units=[2, 3], progress="已写：第2–3集；待写：第4–5集")
+    ToolContext.set_context(session=None, user_id="u", project_id="p", session_id="s")
+    try:
+        with (
+            patch(
+                "services.infra.task_board_service.task_board_service.get_tasks",
+                return_value=[task],
+            ),
+            patch(
+                "agent.graph.writing_graph._existing_written_titles",
+                return_value=["第4集", "第5集"],
+            ),
+            patch(
+                "agent.graph.writing_graph._live_project_titles",
+                return_value=["第2集", "第4集", "第5集"],
+            ) as live,
+            patch("agent.graph.writing_graph.update_project", update),
+        ):
+            await _auto_finalize_task_board_on_completion(_guard_with_write("f4", "第4集"))
+    finally:
+        ToolContext.clear_context()
+
+    live.assert_called_once_with("p")
+    sent = update.await_args.args[0]["tasks"]
+    assert sent[0]["status"] == "in_progress"
+    assert sent[0]["progress"] == "已写：第2、4–5集；待写：第3集"
+
+
 # ------------------------------------------------------------ 编号解析
 
 

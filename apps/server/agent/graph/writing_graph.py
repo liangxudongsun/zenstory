@@ -526,9 +526,10 @@ def _unbacked_claim_context(claim: str) -> str:
     return (
         f"{UNBACKED_CLAIM_MARKER}「{claim}」，但本请求到现在没有任何文件或项目信息被实际修改"
         "（没有一次写入工具调用成功）。\n"
-        "如果作者确实需要这处改动：现在调用对应的工具（edit_file / create_file / update_project）"
-        "真正完成，完成后用一句话说明改了什么。\n"
-        "如果不需要改：不要调用写入工具，用一句话向作者更正——这一轮没有修改任何内容。"
+        "只有作者这一轮的消息明确要求了这处改动时，才调用对应的工具（edit_file / create_file / "
+        "update_project）真正完成，完成后用一句话说明改了什么。\n"
+        "作者没有要求改（例如只是在提问、解释或确认现状）：不要调用写入工具，不要自己找东西改，"
+        "用一句话向作者更正——这一轮没有修改任何内容。"
         "不要重复上一条回复。"
     )
 
@@ -954,14 +955,19 @@ def _artifact_written(artifact: str, written_titles: list[str]) -> bool:
 def _build_completion_task_payload(
     tasks: list[dict[str, Any]],
     written_titles: list[str],
+    live_titles: list[str] | None = None,
 ) -> list[dict[str, Any]] | None:
     """按本请求实际写出的文件给 in_progress 任务收尾；没有可改的返回 None。
 
     written_titles 是本请求写过、现在仍存在且有正文的文件标题（见 _existing_written_titles）。
+    live_titles 是项目里现在仍存在且有正文的全部文件标题；给了时，前几轮记下的 done_units
+    只保留还找得到文件的编号（作者在两次请求之间删掉的那一集不算已写）。
 
     - 任务写了编号范围（「撰写第2-5集剧本」「第一卷正文（第1-119章）」）：范围里每个编号都有
       对应文件才标 done；只写了一部分时保持 in_progress，记下已写 / 待写（done_units / progress，
-      跨请求累计）；一个都没写时不动。
+      跨请求累计：模型重存任务板时由 execute_update_plan 把同名任务的 done_units 接过去）；
+      一个都没写时不动。编号只认工作流在写入时记下的，不拿项目里已有的同编号文件凑数——
+      「重写第2-5集」开始前这几集都在，按已有文件算就会只重写一集就标 done。
     - 任务写了产出物（artifact）：本请求写出了这个文件才标 done，否则不动。
     - 其余任务：本请求确实写出了文件才标 done。
     - 本请求什么都没写：一律不动。pending 任务不动。
@@ -984,11 +990,14 @@ def _build_completion_task_payload(
         spec = task_unit_spec(task_text(normalized_task))
         artifact = str(normalized_task.get("artifact") or "").strip()
         if spec is not None:
-            prior = {
+            recorded = {
                 number
                 for number in normalized_task.get("done_units") or []
                 if isinstance(number, int) and number in spec.numbers
             }
+            prior = set(recorded)
+            if live_titles is not None:
+                prior &= title_units(live_titles, spec.unit)
             covered = (title_units(written_titles, spec.unit) & spec.numbers) | prior
             missing = set(spec.numbers) - covered
             if not missing:
@@ -996,12 +1005,16 @@ def _build_completion_task_payload(
                 normalized_task.pop("progress", None)
                 normalized_task.pop("done_units", None)
                 has_updates = True
-            elif covered and covered != prior:
-                normalized_task["done_units"] = sorted(covered)
-                normalized_task["progress"] = (
-                    f"已写：{format_units(covered, spec.unit)}；"
-                    f"待写：{format_units(missing, spec.unit)}"
-                )
+            elif covered != recorded:
+                if covered:
+                    normalized_task["done_units"] = sorted(covered)
+                    normalized_task["progress"] = (
+                        f"已写：{format_units(covered, spec.unit)}；"
+                        f"待写：{format_units(missing, spec.unit)}"
+                    )
+                else:
+                    normalized_task.pop("done_units", None)
+                    normalized_task.pop("progress", None)
                 has_updates = True
         elif artifact:
             if _artifact_written(artifact, written_titles):
@@ -1030,6 +1043,26 @@ def _existing_written_titles(file_ids: list[str]) -> list[str]:
                 File.is_deleted.is_(False),  # type: ignore[attr-defined]
             )
         ).all()
+    return [str(title or "") for title, content in rows if str(content or "").strip()]
+
+
+def _live_project_titles(project_id: str) -> list[str] | None:
+    """项目里现在仍存在且有正文的全部文件标题；查不到时返回 None（不据此删掉已记的进度）。"""
+    from sqlmodel import select
+
+    from models import File
+
+    try:
+        with ToolContext.short_lived_session() as session:
+            rows = session.exec(
+                select(File.title, File.content).where(
+                    File.project_id == project_id,
+                    File.is_deleted.is_(False),  # type: ignore[attr-defined]
+                )
+            ).all()
+    except Exception as exc:
+        logger.debug(f"Live project titles lookup skipped: {exc}")
+        return None
     return [str(title or "") for title, content in rows if str(content or "").strip()]
 
 
@@ -1066,7 +1099,15 @@ async def _auto_finalize_task_board_on_completion(
         ):
             return []
         written_titles = await asyncio.to_thread(_existing_written_titles, written_ids)
-        completion_tasks = _build_completion_task_payload(current_tasks, written_titles)
+        live_titles: list[str] | None = None
+        if project_id and any(
+            isinstance(task, dict) and task.get("status") == "in_progress" and task.get("done_units")
+            for task in current_tasks
+        ):
+            live_titles = await asyncio.to_thread(_live_project_titles, project_id)
+        completion_tasks = _build_completion_task_payload(
+            current_tasks, written_titles, live_titles
+        )
         if not completion_tasks:
             return []
 

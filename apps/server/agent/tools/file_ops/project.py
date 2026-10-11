@@ -253,6 +253,52 @@ class ProjectOperations:
                 f"Invalid task transition: done -> in_progress rollback is not allowed ({targets})"
             )
 
+    # 工作流按实际写出的文件记在任务上的进度（writing_graph._build_completion_task_payload）。
+    _RECORDED_PROGRESS_FIELDS = ("done_units", "progress")
+    # message_manager 渲染任务板时接在任务名后的进度（「撰写第2-5集剧本（已写：第2集；待写：第3–5集）」）。
+    _RENDERED_PROGRESS_SUFFIX_RE = re.compile(r"\s*[（(]已写：[^（）()]*[）)]\s*$")
+
+    @classmethod
+    def _carry_recorded_progress(
+        cls,
+        tasks: list[Any],
+        previous_tasks: list[dict[str, Any]],
+    ) -> None:
+        """模型重存任务板时，把旧任务上记下的进度带到同名任务上（原地修改 tasks）。
+
+        done_units / progress 不在工具 schema 里，模型只看到渲染成文字的任务板，重存时不会带上；
+        不接过来的话，前几轮写过的编号就丢了，范围任务永远凑不齐、进度里还会把已有的写成待写。
+        只认任务名完全相同（去首尾空白）的任务；标为 done 的任务不再需要进度，不带。
+        这一次自己带了 done_units 的（工作流收尾那一次）以它为准。
+        """
+        recorded: dict[str, dict[str, Any]] = {}
+        for previous in previous_tasks:
+            if not isinstance(previous, dict) or not previous.get("done_units"):
+                continue
+            key = cls._normalize_task_name(previous)
+            if key:
+                recorded[key] = {
+                    field: previous[field]
+                    for field in cls._RECORDED_PROGRESS_FIELDS
+                    if previous.get(field)
+                }
+        if not recorded:
+            return
+        for task in tasks:
+            if not isinstance(task, dict) or "done_units" in task:
+                continue
+            # 模型照抄渲染出来的任务板时会把「（已写：…）」当成任务名的一部分发回来。
+            name = task.get("task")
+            if isinstance(name, str):
+                stripped = cls._RENDERED_PROGRESS_SUFFIX_RE.sub("", name.strip())
+                if stripped and stripped != name.strip():
+                    task["task"] = stripped
+            if task.get("status") == "done":
+                continue
+            key = cls._normalize_task_name(task)
+            if key and key in recorded:
+                task.update(recorded[key])
+
     def _unverified_done_tasks(
         self,
         tasks: list[dict[str, Any]],
@@ -548,6 +594,7 @@ class ProjectOperations:
                 user_id=user_id,
                 project_id=project_id,
             ) or []
+            self._carry_recorded_progress(tasks_payload, previous_tasks)
 
             try:
                 self._validate_update_plan_tasks(tasks=tasks_payload, previous_tasks=previous_tasks)
