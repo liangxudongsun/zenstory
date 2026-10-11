@@ -310,4 +310,67 @@ async def test_reviewer_is_told_which_files_author_edit_protection_refused():
 
     assert len(reviewer_messages) == 1
     assert "outline-1" in reviewer_messages[0]
-    assert "不要再要求改" in reviewer_messages[0]
+    assert "没改成" in reviewer_messages[0]
+    # 只说发生了什么，不承诺本请求后面工具一定拒绝：作者中途 steering 同意后守卫会放行。
+    assert "工具不会修改" not in reviewer_messages[0]
+    assert "以作者的话为准" in reviewer_messages[0]
+
+
+@pytest.mark.asyncio
+async def test_refusal_notice_skips_files_written_later_in_the_request():
+    """同一文件先被拒（replace），后来改成追加写成功了：它已经改过，不能再说「没改成、别要求改」。"""
+    from agent.graph.writing_graph import run_writing_workflow_streaming
+    from agent.tools.author_edit_guard import AuthorEditRefusals
+    from agent.tools.mcp_tools import ToolContext
+
+    reviewer_messages: list[str] = []
+
+    async def fake_agent(state, agent_type, **_kwargs):
+        if agent_type == "writer":
+            ToolContext.record_author_edit_refusal("chapter-x")
+            state["repeat_read_guard"]._record_write("chapter-x", "第十章")
+            yield StreamEvent(type=StreamEventType.TEXT, data={"text": "第十章续写好了。"})
+            yield _handoff("quality_reviewer", "本轮在第十章末尾续写了一段")
+            return
+        reviewer_messages.append(str(state.get("user_message") or ""))
+        yield StreamEvent(type=StreamEventType.TEXT, data={"text": "第十章续写好了。[TASK_COMPLETE]"})
+
+    ToolContext.set_context(
+        session=None, user_id="u", project_id="p", session_id="s", author_edit_refusals=AuthorEditRefusals()
+    )
+    router = AsyncMock(return_value={"current_agent": "writer", "workflow_plan": "quick", "workflow_agents": []})
+    try:
+        with (
+            patch.dict("os.environ", {"AGENT_ENABLE_GRAPH_AUTO_REVIEW": "false"}),
+            patch("agent.graph.writing_graph.router_node", router),
+            patch("agent.graph.writing_graph.run_streaming_agent", new=fake_agent),
+            patch("agent.tools.mcp_tools.ToolContext.refresh_file_inventory", return_value={}),
+            patch("agent.graph.writing_graph._auto_finalize_task_board_on_completion", AsyncMock(return_value=[])),
+            patch("agent.graph.writing_graph._review_payload_text", AsyncMock(return_value=None)),
+            patch("agent.graph.writing_graph._review_auto_checks", AsyncMock(return_value=None)),
+        ):
+            _ = [
+                event
+                async for event in run_writing_workflow_streaming(
+                    state={"user_message": "继续写第十章", "messages": [], "system_prompt": ""},
+                    thread_id="thinking-loop-refusal-then-write",
+                    auto_review_threshold=100,
+                )
+            ]
+    finally:
+        ToolContext.clear_context()
+
+    assert len(reviewer_messages) == 1
+    assert "chapter-x" in reviewer_messages[0]  # 读写记录里是「已修改」
+    assert "没有改成的文件" not in reviewer_messages[0]
+
+
+def test_every_role_reply_protocol_accepts_the_system_word_count():
+    """审稿提示让它用 [待审查内容] 里系统标出的编辑器字数、不为字数读文件；每个角色都遵守的回复规则
+    不能还说「只报工具返回的 word_count，工具没给就不报」——两条规则冲突，审稿人又会为字数来回权衡。"""
+    from agent.prompts.base import AUTHOR_REPLY_PROTOCOL
+    from agent.prompts.subagents import QUALITY_REVIEWER_PROMPT
+
+    assert "编辑器字数" in QUALITY_REVIEWER_PROMPT
+    assert "编辑器字数" in AUTHOR_REPLY_PROTOCOL
+    assert "工具没给字数就不报字数" not in AUTHOR_REPLY_PROTOCOL

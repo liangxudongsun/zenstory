@@ -1415,18 +1415,24 @@ async def run_writing_workflow_streaming(
                     if work_summary:
                         work_log_text = f"\n\n[本请求的读写记录]: {work_summary}"
                 # 被「作者手改保护」拒绝的写入只出现在上一个 agent 的工具结果里，不跨 agent
-                # 回放：不说出来，审稿人会把「这个文件没改」当成缺陷要求返工，而工具层在本请求
-                # 里不会放行（10-11 U094）。
-                refused_ids = ToolContext.author_edit_refused_file_ids()
+                # 回放：不说出来，审稿人会把「这个文件没改」当成缺陷要求返工（10-11 U094）。
+                # 只列拒绝后本请求里始终没写成的文件（追加写、作者中途同意后都可能写成），
+                # 也只说发生了什么：守卫按每次修改和作者的话判断，不承诺后面一定拒绝。
+                written_ids = set(read_guard.written_file_ids()) if read_guard is not None else set()
+                refused_ids = [
+                    file_id
+                    for file_id in ToolContext.author_edit_refused_file_ids()
+                    if file_id not in written_ids
+                ]
                 if refused_ids:
                     refused_labels = "、".join(
                         read_guard.file_label(file_id) if read_guard is not None else f"(id={file_id})"
                         for file_id in refused_ids
                     )
                     work_log_text += (
-                        f"\n\n[本请求没有改成的文件]: {refused_labels} 是作者手动改过的，"
-                        "本请求里工具不会修改它们；不要再要求改这些文件，"
-                        "需要改时在给作者的回复里问作者。"
+                        f"\n\n[本请求没有改成的文件]: 对 {refused_labels} 的修改被作者手改保护拒绝了"
+                        "（作者手动改过它们），文件没有改成；不要因为它们没改成就要求返工，"
+                        "需要改时在给作者的回复里问作者；作者在本请求的消息里明确同意改的，以作者的话为准。"
                     )
 
                 # 刷新文件清单

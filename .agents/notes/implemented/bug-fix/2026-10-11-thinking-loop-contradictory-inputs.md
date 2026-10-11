@@ -66,12 +66,14 @@ r5（prod-v2026.10.10.3，10-10 02:57 上线）之后仍有 4 处退化思考（
 
 - 每个文件块以「[《标题》编辑器字数 N]」开头（`count_words`，与编辑器、工具的 `word_count` 同一口径）；多个文件时最前面加一行「[本请求写过的正文（编辑器字数）：《A》N、《B》M]」，截头尾时也保得住。
 - QUALITY_REVIEWER_PROMPT：报字数改为「[待审查内容] 里系统标出的编辑器字数，或工具结果里的 `word_count` / `new_word_count`」，标出了就不为了字数再读文件；「[质量检查任务]」收尾第一行写「文件名、编辑器字数」。
+- 每个角色都遵守的 `AUTHOR_REPLY_PROTOCOL`（base.py，同样进审稿人的系统提示）原来写「按工具返回的 `word_count` 报的字数……工具没给字数就不报字数」，和上一条冲突：自动送审时审稿人这次运行里没有任何工具结果带 `word_count`。改为「按编辑器口径报的字数（工具返回的 `word_count`，或交接内容里系统标出的「编辑器字数」）……两者都没有就不报字数，不估算」，两条规则说同一件事；有测试断言两处都认「编辑器字数」。
 - query_files 的 `response_mode` 描述写明：summary 截断时不带 `word_count`，要长文件字数按 id 读 full。这只是把 10-09 的既有行为写进工具说明，免得模型先发一次 summary 再发现没有字数。
 - 与 10-09 字数笔记的关系：那条笔记否决了「summary 截断时也给 word_count」（按预览外推是估算；SQL 里按 count_words 的定义算要分 PostgreSQL / SQLite 两套正则），并认为「需要准确字数时按 id 读一次 full 即可」。这里没有改 query_files，仍不外推；改的是审稿人拿字数的来源——系统按落库正文精确计算后直接给它，不再要求为一个数字整份重读（U074 那个文件 14.8 万字符）。
 
 **4. 被「作者手改保护」拒绝的文件写进交接的读写记录**
 
-- `ToolContext.author_edit_refused_file_ids()` 读本请求的 `AuthorEditRefusals`；交接给任何 agent 时，`[本请求的读写记录]` 后追加「[本请求没有改成的文件]: 《标题》(id=…) 是作者手动改过的，本请求里工具不会修改它们；不要再要求改这些文件，需要改时在给作者的回复里问作者」。标题来自读写守卫（新增公开的 `RepeatReadGuard.file_label`），不知道标题时只有 id。
+- `ToolContext.author_edit_refused_file_ids()` 读本请求的 `AuthorEditRefusals`；交接给任何 agent 时，`[本请求的读写记录]` 后追加「[本请求没有改成的文件]: 对《标题》(id=…) 的修改被作者手改保护拒绝了（作者手动改过它们），文件没有改成；不要因为它们没改成就要求返工，需要改时在给作者的回复里问作者；作者在本请求的消息里明确同意改的，以作者的话为准」。标题来自读写守卫（新增公开的 `RepeatReadGuard.file_label`），不知道标题时只有 id。
+- 只列拒绝后本请求里始终没写成的文件：减去读写守卫的 `written_file_ids()`。守卫按每一次修改和作者的消息（含中途 steering）判断——同一文件 replace 被拒后改用追加可以写成，作者中途说「可以改大纲」后也会放行——所以既不能把已经写成的文件列成「没改成」，也不能承诺「本请求里工具不会修改它们」，否则又是一条和读写记录、和作者原话冲突的输入。`AuthorEditRefusals` 本身不改：它随 routing 落库给下一轮放行，记的是「问过作者」而不是「最终没写成」。
 
 ## Alternatives considered
 
@@ -103,11 +105,13 @@ r5（prod-v2026.10.10.3，10-10 02:57 上线）之后仍有 4 处退化思考（
 
 ## Verification
 
-`cd apps/server && .venv312/bin/python -m pytest tests/test_agent/test_thinking_loop_triggers.py -q --no-cov -n 0`（6 项，改动前 6 项全部失败）：
+`cd apps/server && .venv312/bin/python -m pytest tests/test_agent/test_thinking_loop_triggers.py -q --no-cov -n 0`（8 项，改动前全部失败）：
 
 - planner → writer → 审稿人，`write_content=true`：只有 planner 的范围约束里有那句规划专用约束；scope 非空时三者都有「用户要求的交付范围」；
 - 1.1 万字符的长文件（超出 9000 字符送审预算）用真实 edit_file 追加两章：送审内容含完整的新章节、不含第 1 章开头，带「编辑器字数」和「没有附上」的说明；走真实的图自动送审，审稿人收到的同样是新章节；
 - 本请求新建两个文件：送审内容最前面是两份文件的编辑器字数清单，每块带自己的字数和全文；
-- writer 改文件被作者手改保护拒绝后交接：审稿人的任务消息里有被拒文件的 id 和「不要再要求改」。
+- writer 改文件被作者手改保护拒绝后交接：审稿人的任务消息里有被拒文件的 id 和「没改成」「以作者的话为准」，没有「工具不会修改」；
+- 同一文件先被拒、后来写成：交接里只在读写记录里出现，不列进「没有改成的文件」；
+- `AUTHOR_REPLY_PROTOCOL` 与 `QUALITY_REVIEWER_PROMPT` 都认系统标出的「编辑器字数」，不再有「工具没给字数就不报字数」。
 
 另跑 `tests/test_agent` 全目录与 `tests/test_services/test_edit_undo.py`，`ruff check` 改过的文件。
