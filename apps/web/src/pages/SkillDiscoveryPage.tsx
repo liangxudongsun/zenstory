@@ -396,8 +396,14 @@ function DiscoverySkillCard({
         </button>
       </div>
 
+      {expanded && skill.instructions_hidden && (
+        <p className="mt-3 pt-3 border-t border-[hsl(var(--border-color))] text-xs text-[hsl(var(--text-tertiary))]">
+          {t("skills:instructionsHidden")}
+        </p>
+      )}
+
       {/* Expanded Instructions */}
-      {expanded && skill.instructions && (
+      {expanded && !skill.instructions_hidden && skill.instructions && (
         <div className="mt-3 pt-3 border-t border-[hsl(var(--border-color))]">
           <div className="flex items-center gap-1.5 mb-2">
             <span className="text-xs font-medium text-[hsl(var(--text-tertiary))]">

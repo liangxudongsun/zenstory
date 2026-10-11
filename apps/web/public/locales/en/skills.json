@@ -39,6 +39,9 @@
   "editSkill": "Edit Skill",
   "expand": "Expand instructions",
   "collapse": "Collapse instructions",
+  "expandDetails": "Show details",
+  "collapseDetails": "Hide details",
+  "instructionsHidden": "Official skill instructions aren't shown. Once added, the AI uses the skill when it fits.",
   "batch": {
     "selectAll": "Select All",
     "selected_one": "1 selected",

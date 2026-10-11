@@ -186,17 +186,23 @@ export const SkillsPane: React.FC = () => {
                 </div>
               </div>
 
-              {/* Instructions */}
-              <div>
-                <h4 className="text-xs font-medium text-[hsl(var(--text-secondary))] uppercase mb-2">
-                  {t('editor:fileTree.skillInstructions')}
-                </h4>
-                <div className="markdown-content p-3 bg-[hsl(var(--bg-tertiary))] rounded text-sm text-[hsl(var(--text-primary))] max-h-48 overflow-y-auto">
-                  <LazyMarkdown>
-                    {selectedSkill.instructions}
-                  </LazyMarkdown>
+              {/* Instructions (added official skills: not returned by the API) */}
+              {selectedSkill.instructions_hidden ? (
+                <p className="text-xs text-[hsl(var(--text-tertiary))]">
+                  {t('editor:fileTree.skillInstructionsHidden')}
+                </p>
+              ) : (
+                <div>
+                  <h4 className="text-xs font-medium text-[hsl(var(--text-secondary))] uppercase mb-2">
+                    {t('editor:fileTree.skillInstructions')}
+                  </h4>
+                  <div className="markdown-content p-3 bg-[hsl(var(--bg-tertiary))] rounded text-sm text-[hsl(var(--text-primary))] max-h-48 overflow-y-auto">
+                    <LazyMarkdown>
+                      {selectedSkill.instructions}
+                    </LazyMarkdown>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
         </Modal>
       )}

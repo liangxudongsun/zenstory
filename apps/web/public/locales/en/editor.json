@@ -85,6 +85,7 @@
     },
     "skillTriggers": "Triggers",
     "skillInstructions": "Instructions",
+    "skillInstructionsHidden": "Official skill instructions aren't shown. The AI uses the skill when it fits.",
     "builtinSkill": "Built-in",
     "userSkill": "Custom",
     "useSkill": "Use this skill",
