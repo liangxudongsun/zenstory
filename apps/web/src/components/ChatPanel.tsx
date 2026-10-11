@@ -86,7 +86,7 @@ import { StreamActivityLine } from "./StreamActivityLine";
 import { createProseCounter, isWriteToolResult } from "../lib/agentRoundProgress";
 import { LeaveWhileGeneratingDialog } from "./LeaveWhileGeneratingDialog";
 import { useQuotaRefreshAfterLeave } from "../hooks/useQuotaRefreshAfterLeave";
-import { hasSubstantiveDisplayItems, parseRoundStopOutcome } from "../lib/chatRoundEnd";
+import { formatSavedFiles, hasSubstantiveDisplayItems, parseRoundStopOutcome, type RoundWrittenFile } from "../lib/chatRoundEnd";
 import type { QuotaResponse } from "../types/subscription";
 
 const parseMessageStatusCardsFromMetadata = (metadataRaw?: string | null): Message["statusCards"] | undefined => {
@@ -386,7 +386,7 @@ const findUnassignedAssistantMessage = (
  * <ChatPanel />
  */
 const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
-  const { t } = useTranslation(['chat', 'common', 'dashboard', 'home', 'editor', 'versions']);
+  const { t, i18n } = useTranslation(['chat', 'common', 'dashboard', 'home', 'editor', 'versions']);
   const chatQuotaUpgradePrompt = getUpgradePromptDefinition("chat_quota_blocked");
   const fileVersionUpgradePrompt = getUpgradePromptDefinition("file_version_quota_blocked");
 
@@ -471,7 +471,13 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
   } | null>(null);
   const [streamStartedAt, setStreamStartedAt] = useState<number | null>(null);
   // 作者点了「停止生成」后的结束说明，按项目隔离，下一轮开始或新建会话时清空。
-  const [userStop, setUserStop] = useState<{ projectId: string; wroteFiles: boolean; counted: boolean } | null>(null);
+  const [userStop, setUserStop] = useState<{
+    projectId: string;
+    wroteFiles: boolean;
+    counted: boolean;
+    /** The files the server says this round wrote (done.written_files); empty from older servers. */
+    writtenFiles: RoundWrittenFile[];
+  } | null>(null);
   /**
    * What this round has done so far, for the stop note and the leave dialog: a write
    * left text in a file / the server charged / real output exists (a write, or a reply
@@ -1004,7 +1010,13 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
       const { wroteFiles, charged } = roundProgressRef.current;
       // The server's own verdict when the done carries it; otherwise the same rule locally.
       const producedOutput = completionMeta?.producedOutput ?? roundProgressRef.current.producedOutput;
-      setUserStop({ projectId: currentProjectId, wroteFiles, counted: charged && producedOutput });
+      const writtenFiles = completionMeta?.writtenFiles ?? [];
+      setUserStop({
+        projectId: currentProjectId,
+        wroteFiles: wroteFiles || writtenFiles.length > 0,
+        counted: charged && producedOutput,
+        writtenFiles,
+      });
     }
 
     finalizePendingContextClears();
@@ -1330,7 +1342,10 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
   const userStopNote = userStop && userStop.projectId === currentProjectId && !isStreaming && !stopRefunded
     ? [
         t('chat:panel.userStopped', { defaultValue: '已停止' }),
-        userStop.wroteFiles ? t('chat:panel.userStoppedSaved', { defaultValue: '已写入的内容已保存' }) : null,
+        // Names the files like the end-of-round line after a refresh (RoundEndNote) does.
+        userStop.writtenFiles.length > 0
+          ? formatSavedFiles(t, userStop.writtenFiles, i18n?.language)
+          : userStop.wroteFiles ? t('chat:panel.userStoppedSaved', { defaultValue: '已写入的内容已保存' }) : null,
         // Counts only with real output (server rule); Pro has no daily count to mention.
         userStop.counted && showDailyCount
           ? t('chat:panel.userStoppedCounted', { defaultValue: '本条计入今日 AI 消息' })

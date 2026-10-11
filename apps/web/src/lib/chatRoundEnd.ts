@@ -1,3 +1,4 @@
+import type { TFunction } from "i18next";
 import type { StreamRenderItem } from "../hooks/useChatStreaming";
 
 /** Progress lines that only mean "working on it"; they say nothing once the round is over. */
@@ -34,7 +35,11 @@ export interface RoundWrittenFile {
   words: number | null;
 }
 
-function parseWrittenFiles(raw: unknown): RoundWrittenFile[] {
+/**
+ * Reads `written_files` ([{id, title, words?}]) as the server sends it: in
+ * `stop_outcome.written_files` after a refresh, and in the stopped round's `done` frame live.
+ */
+export function parseWrittenFiles(raw: unknown): RoundWrittenFile[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((item) => {
     if (!item || typeof item !== 'object') return [];
@@ -71,4 +76,44 @@ export function parseRoundStopOutcome(metadata: unknown): RoundStopOutcome | nul
       : [],
     writtenFiles: parseWrittenFiles(raw.written_files),
   };
+}
+
+/** At most this many written files are named; the rest are counted. */
+const NAMED_WRITTEN_FILES = 3;
+
+/**
+ * 「已保存《第2章》3,120 字、《人物》等 5 个文件」: the saved-files part of the stop note,
+ * shared by the live stop note (ChatPanel) and the end-of-round line after a refresh
+ * (RoundEndNote) so both say the same thing.
+ */
+export function formatSavedFiles(
+  t: TFunction,
+  files: RoundWrittenFile[],
+  language: string | undefined,
+): string {
+  let numberFormat: Intl.NumberFormat;
+  try {
+    numberFormat = new Intl.NumberFormat(language || undefined);
+  } catch {
+    numberFormat = new Intl.NumberFormat();
+  }
+  const named = files.slice(0, NAMED_WRITTEN_FILES).map(({ title, words }) => (
+    words
+      ? t('chat:panel.roundSavedFileWords', {
+        defaultValue: '《{{title}}》{{words}} 字',
+        title,
+        words: numberFormat.format(words),
+      })
+      : t('chat:panel.roundSavedFile', { defaultValue: '《{{title}}》', title })
+  ));
+  let list = named.join(t('chat:panel.roundSavedFilesJoiner', { defaultValue: '、' }));
+  if (files.length > named.length) {
+    list = t('chat:panel.roundSavedFilesMore', {
+      defaultValue: '{{files}}等 {{total}} 个文件',
+      files: list,
+      total: files.length,
+      rest: files.length - named.length,
+    });
+  }
+  return t('chat:panel.roundSavedFiles', { defaultValue: '已保存{{files}}', files: list });
 }

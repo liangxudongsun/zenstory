@@ -602,6 +602,8 @@ async def test_stop_after_only_narration_and_an_empty_chapter_refunds_and_remove
     refund.assert_called_once()
     assert _frame_data(rest, "done")["assistant_message_id"] == message_id
     assert _frame_data(rest, "done")["produced_output"] is False
+    # 没有写进正文的文件：done 不带 written_files（与旧服务端的帧一样）。
+    assert "written_files" not in _frame_data(rest, "done")
     assert _frame_data(rest, "quota_refunded") == {
         "refunded": True,
         "kind": "stopped",
@@ -719,6 +721,67 @@ async def test_stop_after_chapter_body_was_written_is_charged_and_keeps_files(
         "saved_output": True,
         "written_files": [{"id": filled.id, "title": "第2章 入宅", "words": 4}],
     }
+
+
+@pytest.mark.integration
+async def test_stopped_round_done_frame_names_the_written_files_like_the_stop_outcome(
+    client: AsyncClient, db_session
+):
+    """停止当场的 done 帧就带 written_files，与之后落库的 stop_outcome 同一份：作者不刷新
+    也看得到「已保存《第2章 入宅》…」。只建了空文件的第1章不列。"""
+    from models import ChatMessage
+
+    _token, project, user = await _login_with_project(client, db_session)
+    message_id, placeholder, filled, older = _seed_round(db_session, project, user)
+    body = "雨还在下。旧书店的门没有锁。"
+
+    async def frames():
+        yield _sse("session_started", {"session_id": "s1"})
+        yield _create_file_result(placeholder)
+        yield _sse(
+            "tool_result",
+            {
+                "tool_name": "create_file",
+                "status": "success",
+                "data": {"id": filled.id, "title": filled.title, "content": body, "file_type": "draft"},
+            },
+        )
+        yield _sse(
+            "tool_result",
+            {
+                "tool_name": "edit_file",
+                "status": "success",
+                "data": {"id": older.id, "title": older.title, "mutation_applied": True},
+            },
+        )
+        await asyncio.sleep(30)
+
+    with (
+        patch("api.agent.get_agent_service", return_value=_FakeService(frames, message_id)),
+        patch("api.agent.quota_service.reserve_ai_conversation", return_value=_CHARGED_PERIOD),
+        patch("api.agent.quota_service.release_ai_conversation", return_value=True),
+    ):
+        response = await _stream(db_session, user, project, None)
+        iterator = response.body_iterator
+        for _ in range(4):
+            await iterator.__anext__()
+        await agent_api.stop_stream(
+            body=agent_api.StopRequest(agent_run_id=response.headers["X-Agent-Run-ID"]),
+            current_user=user,
+            _rate_limit=0,
+        )
+        rest = "".join([frame async for frame in iterator])
+        await asyncio.gather(*agent_api._round_outcome_tasks)
+
+    done = _frame_data(rest, "done")
+    assert done["stop_reason"] == "user_stopped"
+    assert done["written_files"] == [
+        {"id": filled.id, "title": "第2章 入宅", "words": 12},
+        {"id": older.id, "title": "作者自己建的空白页"},
+    ]
+    db_session.expire_all()
+    outcome = json.loads(db_session.get(ChatMessage, message_id).message_metadata)["stop_outcome"]
+    assert outcome["written_files"] == done["written_files"]
 
 
 @pytest.mark.integration

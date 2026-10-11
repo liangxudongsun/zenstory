@@ -14,6 +14,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { produce } from "immer";
 import i18n from "../lib/i18n";
+import { parseWrittenFiles, type RoundWrittenFile } from "../lib/chatRoundEnd";
 import { useImmer } from "use-immer";
 import {
   sendSteeringRequest,
@@ -84,6 +85,11 @@ export interface StreamCompletionMeta {
    * nothing was written, so follow-ups must not assume prose exists.
    */
   producedOutput?: boolean;
+  /**
+   * Stopped rounds only: the files this round wrote text into, as the server will record them
+   * in `stop_outcome.written_files`. Absent when the server named none (or is older).
+   */
+  writtenFiles?: RoundWrittenFile[];
 }
 
 export interface UseAgentStreamOptions {
@@ -1348,6 +1354,10 @@ export function useAgentStream(
                 completionMeta.stoppedByAuthor = true;
                 if (typeof data.produced_output === "boolean") {
                   completionMeta.producedOutput = data.produced_output;
+                }
+                const writtenFiles = parseWrittenFiles(data.written_files);
+                if (writtenFiles.length > 0) {
+                  completionMeta.writtenFiles = writtenFiles;
                 }
               }
               if (

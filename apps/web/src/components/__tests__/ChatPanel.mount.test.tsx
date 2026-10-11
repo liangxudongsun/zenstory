@@ -1182,6 +1182,15 @@ describe('ChatPanel mount smoke', () => {
       expect(note).toHaveTextContent('已停止 · 已写入的内容已保存 · 本条计入今日 AI 消息')
     })
 
+    it('names the files the server says were written, right after the stop (as after a refresh)', async () => {
+      const note = await runRoundThenStop((options) => {
+        options.onSessionStarted('session-stop')
+        options.onToolResult('create_file', 'success', { data: { id: 'ch-1', title: '雨夜', content: '雨还在下。' } })
+      }, { producedOutput: true, writtenFiles: [{ title: '雨夜', words: 1039 }] })
+      expect(note).toHaveTextContent('已停止 · 已保存《雨夜》1,039 字 · 本条计入今日 AI 消息')
+      expect(screen.getAllByTestId('chat-user-stop-note')).toHaveLength(1)
+    })
+
     it('neither claims a write nor a charge when only lookups and an empty chapter happened', async () => {
       const note = await runRoundThenStop((options) => {
         options.onSessionStarted('session-stop')

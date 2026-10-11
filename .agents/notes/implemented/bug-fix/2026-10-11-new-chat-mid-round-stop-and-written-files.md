@@ -31,6 +31,7 @@ Status: implemented
 - 幂等复用（`reused_existing`）命中本来就有正文的文件：中断后的流式残稿会被截断覆盖保护拒绝落库，所以不把它列成「已保存」。「本来就有正文」与 `StreamAdapter._resolve_original_content_length` 同一判据：`original_content_length > 0`、`content` 非空，或 `content_elided` 为真。不能只看 `content`：生产里复用分支的 tool result 经 `mcp_tools._elide_reused_file_content` 把 `content` 省略成 `""`，只留 `content_elided` / `original_content_length`，前端收到的帧就是这个形状。复用到的是空白文件（原本长度 0）时，流式正文会正常落库，照常列出并计字。
 - `_finalize_stopped_round` 写终态时 `build_stop_outcome(..., written_files=...)`，`stop_outcome.written_files = [{id, title, words?}]`，按第一次写入的先后排列；没有可列的文件时不写这个键。只有 `parallel_execute` 写章、`delete_file`、`update_project` 这类帧里拿不到文件的写入，`saved_output` 照旧为真、列表为空。
 - 前端 `parseRoundStopOutcome` 读出 `writtenFiles: {title, words | null}[]`（没有标题的项丢掉，旧消息为空数组）。`RoundEndNote` 在计入且 `savedOutput` 时：有文件就写「已保存《第2章 入宅》3,120 字」，多个用「、」连接，最多点名 3 个，其余写「等 N 个文件」；字数为 0 或未知时只写书名号标题。没有文件时照旧「已写入的内容已保存」。英文界面用英文引号与 `words`、`and N more`。字数按界面语言加千分位。
+- **停止当场也列出文件（补丁，同日真实模型浏览器实测后）。** 实测发现停止后不刷新时只看到 ChatPanel 的通用说明「已停止 · 已写入的内容已保存 · 本条计入今日 AI 消息」，文件列表要刷新后才由 `RoundEndNote` 显示。现在停止路径的 `done` 帧多带 `written_files`（与之后落库的 `stop_outcome.written_files` 同一个 `RoundWrittenFiles.files()`，停止时源生成器已经不再出帧，两份一致；列表为空时不带这个键）。`useAgentStream` 用同一个 `parseWrittenFiles` 读进 `completionMeta.writtenFiles`，`ChatPanel` 的停止说明（`chat-user-stop-note`）有文件时改用与 `RoundEndNote` 共用的 `formatSavedFiles`，写「已停止 · 已保存《雨夜》1,039 字 · 本条计入今日 AI 消息」；仍只有这一条说明，不另加终态行。兼容：旧前端忽略多出的字段；旧服务端不带字段时照旧显示「已写入的内容已保存」。断线（`client_disconnected`）不覆盖：连接已经断了，服务端没有帧可发；前端要显示只能在断线后再拉一次历史，而终态是后台任务写入、何时落库没有保证，断线时往往也连不上服务端。停止请求超时后前端自己断开（`STOP_GRACE_MS`）的一轮同理，仍是通用说明，刷新后才列文件。测试：`test_stopped_round_done_frame_names_the_written_files_like_the_stop_outcome`（done 与 stop_outcome 的列表相同，退还的停止轮 done 不带这个键）、`useAgentStream.test.ts`（done 的 written_files 进 `completionMeta`，旧服务端不带时没有这个字段）、`ChatPanel.mount.test.tsx`（停止当场只有一条说明，写明《雨夜》1,039 字）。
 
 ## Alternatives considered
 
@@ -38,13 +39,13 @@ Status: implemented
 - **确认后只发 `/agent/stop` 就立刻 `reset()` 新建。** 最强理由：不必新加「连接关闭」信号，新对话出现得更快。没采用：`reset()` 会掐掉 `done` 之后的 `quota_refunded`，前端收不到移除的空白文件（文件树里留着已删除的章节）和退还说明；服务端还在收尾时就建新会话也容易撞上会话占用。等连接关闭通常只多几百毫秒。
 - **让 `reset()` 自己在生成中改走服务端停止。** 最强理由：所有调用 `reset()` 的地方一次覆盖。没采用：`reset()` 是同步清状态，切项目、卸载时也用它，那些场景不能等；把它变成异步会牵动整个聊天面板的时序。
 - **终态里的字数在结算后从数据库读文件正文再算。** 最强理由：反映最终落库的内容，标题也是最新的。没采用：断线后的残稿补存是后台任务，和终态写入谁先完成没有保证，读库可能读到补存前的空文件；帧里的正文就是这一轮写下的内容，确定、可测。
-- **停止当场（连接还开着）就在停止说明里列文件。** 最强理由：作者不用刷新就能看到。没采用：停止当场消息气泡里已经有每个文件的写入卡片；真正看不到的是断线、刷新后的一轮，终态行就是给这种情况的。
+- **停止当场（连接还开着）就在停止说明里列文件。** 最强理由：作者不用刷新就能看到。没采用：停止当场消息气泡里已经有每个文件的写入卡片；真正看不到的是断线、刷新后的一轮，终态行就是给这种情况的。（实测后改为采用：写入卡片不说字数、不一定都在视野里，作者停止后看到的仍是笼统一句，见 Decision 里的补丁。）
 
 ## Consequences
 
 - 收益：生成中点「新对话」不再悄悄掐断这一轮；作者确认后这一轮记为作者停止，按现有规则退还或计入，空白占位文件照常移除并刷新文件树。刷新或回到项目后，中断 / 停止的一轮写明写进了哪几个文件、各多少字，作者知道第 2 章其实已经写好了。
 - 代价：确认后「新对话」要等这一轮收尾（通常几百毫秒，最多 5 秒），期间输入框显示「正在停止…」。停止前 run id 还没拿到（发送后极短时间内）时 `stop()` 只能断开，这一轮仍按断线结算，与停止按钮相同。
-- 代价：`stop_outcome` 多了 `written_files`（每个文件一个 id、标题、字数），一轮写很多文件时消息元数据变大，但只有停止 / 断线的一轮才写。服务端每帧多一次事件名判断，三种帧多一次 JSON 解析。并行写章、删除、改项目信息的一轮列表为空，仍只显示「已写入的内容已保存」。流式写进本来就有正文的复用文件不列出，即使它在中断前已经完整写完并保存（宁可少说，不说错）。终态行仍只在刷新、重进项目后出现；停止当场的说明不变。
+- 代价：`stop_outcome` 多了 `written_files`（每个文件一个 id、标题、字数），一轮写很多文件时消息元数据变大，但只有停止 / 断线的一轮才写。服务端每帧多一次事件名判断，三种帧多一次 JSON 解析。并行写章、删除、改项目信息的一轮列表为空，仍只显示「已写入的内容已保存」。流式写进本来就有正文的复用文件不列出，即使它在中断前已经完整写完并保存（宁可少说，不说错）。断线的一轮仍只在刷新、重进项目后列出文件；作者停止的一轮停止当场就列出（见上面的补丁）。
 - 范围外：断线后让这一轮在后台跑完、回来时重新接上（I01 建议 2）不在本批；离开确认与「新对话」确认理论上可能同时打开（生成中先点「新对话」再按后退）。
 
 ## Verification

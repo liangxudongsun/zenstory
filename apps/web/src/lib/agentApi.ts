@@ -136,7 +136,10 @@ export interface RemovedPlaceholderFile {
   title: string;
 }
 
-/** done 帧。作者停止的一轮额外带 stop_reason / produced_output（是否已有实质产出）。 */
+/**
+ * done 帧。作者停止的一轮额外带 stop_reason / produced_output（是否已有实质产出），
+ * 写进了正文的文件不为空时还带 written_files（与刷新后 stop_outcome.written_files 同一份）。
+ */
 export interface StreamDoneData {
   apply_action?: string;
   refs?: number[];
@@ -145,6 +148,7 @@ export interface StreamDoneData {
   file_mutated?: boolean;
   stop_reason?: string;
   produced_output?: boolean;
+  written_files?: { id?: string; title?: string; words?: number }[];
 }
 
 

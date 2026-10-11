@@ -815,6 +815,59 @@ describe('useAgentStream', () => {
       }))
     })
 
+    it('hands the stopped round\'s written files from done to onComplete', async () => {
+      vi.mocked(agentApi.stopAgentRun).mockResolvedValue(true)
+      const onComplete = vi.fn()
+      const hook = renderHook(() => useAgentStream('test-project-id', { onComplete }))
+      const controller = createMockStreamController()
+      act(() => {
+        hook.result.current.startStream({ message: 'test' })
+      })
+      act(() => {
+        controller.getCallbacks()?.onRunStarted?.('run-1')
+      })
+      await act(async () => {
+        hook.result.current.stop()
+      })
+      act(() => {
+        controller.getCallbacks()?.onDone?.({
+          stop_reason: 'user_stopped',
+          produced_output: true,
+          written_files: [
+            { id: 'ch-1', title: '雨夜', words: 1039 },
+            { id: 'ch-2', title: '人物' },
+            { id: 'ch-3', title: '' },
+          ],
+        })
+      })
+      expect(onComplete).toHaveBeenCalledWith(expect.any(Array), null, expect.objectContaining({
+        stoppedByAuthor: true,
+        writtenFiles: [{ title: '雨夜', words: 1039 }, { title: '人物', words: null }],
+      }))
+    })
+
+    it('leaves writtenFiles out when an older server sends a stopped done without them', async () => {
+      vi.mocked(agentApi.stopAgentRun).mockResolvedValue(true)
+      const onComplete = vi.fn()
+      const hook = renderHook(() => useAgentStream('test-project-id', { onComplete }))
+      const controller = createMockStreamController()
+      act(() => {
+        hook.result.current.startStream({ message: 'test' })
+      })
+      act(() => {
+        controller.getCallbacks()?.onRunStarted?.('run-1')
+      })
+      await act(async () => {
+        hook.result.current.stop()
+      })
+      act(() => {
+        controller.getCallbacks()?.onDone?.({ stop_reason: 'user_stopped', produced_output: true })
+      })
+      const meta = onComplete.mock.calls.at(-1)?.[2]
+      expect(meta).toMatchObject({ stoppedByAuthor: true })
+      expect(meta).not.toHaveProperty('writtenFiles')
+    })
+
     it('drops the connection when the stop request fails', async () => {
       vi.mocked(agentApi.stopAgentRun).mockResolvedValue(false)
       const { result, controller } = startWithRun()

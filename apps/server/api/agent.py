@@ -696,6 +696,9 @@ async def stream_request(
                     session_id=tracker.session_id,
                     stop_reason=USER_STOPPED_REASON,
                     produced_output=tracker.produced_output,
+                    # 与之后落库的 stop_outcome.written_files 同一份：停止当场的说明
+                    # 就能写明保存了哪些文件，不必等刷新。
+                    written_files=written_files.files(),
                 ).to_sse()
                 tracker.observe(done_frame)
                 yield done_frame
