@@ -51,7 +51,8 @@ from agent.tools.file_ops.serialization import (
     serialize_file,
 )
 from agent.tools.permissions import NotFoundError
-from config.project_notes import ProjectNotesMerge, merge_project_notes
+from config.project_notes import ProjectNotesMerge, merge_project_notes, split_project_notes
+from config.project_status import PROJECT_STATUS_MAX_LENGTHS
 from utils.logger import get_logger, log_with_context
 from utils.title_sequence import extract_chapter_like_sequence_number, parse_chinese_number
 
@@ -2371,8 +2372,9 @@ def _author_quotes_arg(raw: Any) -> list[str]:
 def _merge_notes_by_source(project_id: str, normalized_args: dict[str, Any]) -> ProjectNotesMerge:
     """把 update_project 的 notes / proposals 合进现有备注，按来源分区（见 config/project_notes）。
 
-    「作者确认」只收作者原话撑得住的条目：author_quotes 里得有一句逐字出现在作者本轮的
-    消息里。拿不到作者原话（不是应用内对话）时不核对，和以前一样照单记下。
+    「作者确认」只收作者原话撑得住的条目，逐条核对：那一条得是 author_quotes 里某句
+    逐字出现在作者本轮消息里的原话本身（或其中连续的一段）。拿不到作者原话（不是应用内
+    对话）时不核对，和以前一样照单记下。
     """
     from models import Project
 
@@ -2404,6 +2406,41 @@ def _merge_notes_by_source(project_id: str, normalized_args: dict[str, Any]) -> 
     return merged
 
 
+def _notes_over_budget_error(merged: ProjectNotesMerge) -> dict[str, Any] | None:
+    """notes 和 AI 提议块存在同一个备注字段里，共用一个长度上限。
+
+    合并后超出时在写入任何字段之前返回，说清两块各占多少，让模型精简后整次重发；
+    不偷偷丢掉旧提议（那是作者看得到的内容），也不只写一部分字段。
+    """
+    limit = PROJECT_STATUS_MAX_LENGTHS["notes"]
+    total = len(merged.text.strip())
+    if total <= limit:
+        return None
+    sections = split_project_notes(merged.text)
+    notes_chars = sum(len(line) for line in [*sections.unlabeled, *sections.confirmed])
+    proposals_chars = sum(len(line) for line in sections.proposals)
+    downgraded_part = (
+        f"（其中 {len(merged.downgraded)} 条是这次没核对到作者原话、记成提议的）"
+        if merged.downgraded
+        else ""
+    )
+    return {
+        "status": "error",
+        "error_type": "notes_over_budget",
+        "error": (
+            f"备注没有保存：notes 和 AI 提议块存在同一个备注字段里，合计上限 {limit} 字；"
+            f"这次合并后约定部分约 {notes_chars} 字、AI 提议块约 {proposals_chars} 字"
+            f"{downgraded_part}，加上分区标题共 {total} 字。"
+            "这次调用的其他字段（title、summary、tasks 等）也都没有写入。"
+            "下一步：传 proposals 删掉过时或作者已否定的提议（proposals=\"\" 清空整块），"
+            "或在作者同意的前提下精简 notes，然后整次重新调用 update_project。"
+        ),
+        "notes_chars": notes_chars,
+        "proposals_chars": proposals_chars,
+        "limit": limit,
+    }
+
+
 def _update_project_sync(args: dict[str, Any]) -> dict[str, Any]:
     """Synchronous update_project implementation."""
     tool_name = "update_project"
@@ -2423,6 +2460,9 @@ def _update_project_sync(args: dict[str, Any]) -> dict[str, Any]:
         downgraded_notes: list[str] = []
         if normalized_args.get("notes") is not None or normalized_args.get("proposals") is not None:
             merged_notes = _merge_notes_by_source(project_id, normalized_args)
+            over_budget = _notes_over_budget_error(merged_notes)
+            if over_budget is not None:
+                return _make_mcp_payload(over_budget, tool_name=tool_name)
             normalized_args["notes"] = merged_notes.text
             downgraded_notes = merged_notes.downgraded
 
@@ -2544,9 +2584,10 @@ def _update_project_sync(args: dict[str, Any]) -> dict[str, Any]:
         if downgraded_notes:
             result["notes_recorded_as_proposals"] = downgraded_notes
             result["notes_note"] = (
-                "这些条目在作者本轮的话里找不到原话依据，已记在备注的「AI 提议·待作者确认」里，"
-                "不算作者定下的设定：" + "；".join(downgraded_notes)
-                + "。作者明确同意后，再带上作者的原话（author_quotes）记进 notes。"
+                "这些条目不是作者本轮的原话（逐条核对：一条得是 author_quotes 里某句作者原话本身或其中连续的一段），"
+                "已记在备注的「AI 提议·待作者确认」里，不算作者定下的设定：" + "；".join(downgraded_notes)
+                + "。如果作者确实这样说过，用作者的原话写这一条、把原话放进 author_quotes 再记一次；"
+                "是你的推断就留在提议里。"
             )
 
         return _make_result({"status": "success", "data": result}, tool_name=tool_name)

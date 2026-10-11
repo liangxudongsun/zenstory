@@ -1949,3 +1949,44 @@ async def test_update_project_promotes_proposal_only_when_author_agrees(db_sessi
         assert CONFIRMED_HEADER in stored and PROPOSALS_HEADER not in stored
     finally:
         ToolContext.clear_context()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_update_project_notes_over_shared_budget_fail_before_any_write(db_session):
+    """notes 与 AI 提议块共用备注字段的长度上限：超出时给出两块各占多少，整次调用不写入任何字段。"""
+    from agent.tools.mcp_tools import ToolContext
+    from config.project_notes import CONFIRMED_HEADER, PROPOSALS_HEADER
+
+    user, project = _make_user_and_project(db_session, "notesbudget")
+    kept_rules = "约" * 3200
+    existing = f"{CONFIRMED_HEADER}\n{kept_rules}\n{PROPOSALS_HEADER}\n" + "提" * 1000
+    project.notes = existing
+    project.summary = "旧摘要"
+    db_session.add(project)
+    db_session.commit()
+
+    _set_author_round(db_session, user, project, "记住，主角不会游泳。")
+    try:
+        payload = _parse_payload(
+            await update_project(
+                {
+                    "summary": "新摘要",
+                    # notes 本身在 schema 的上限内；加上库里的 AI 提议块才超
+                    "notes": f"{kept_rules}\n主角不会游泳",
+                    "author_quotes": ["主角不会游泳"],
+                }
+            )
+        )
+        assert payload["status"] == "error"
+        assert payload["error_type"] == "notes_over_budget"
+        assert payload["proposals_chars"] == 1000
+        assert "1000" in payload["error"] and "proposals" in payload["error"]
+        db_session.expire_all()
+        from models import Project
+
+        stored = db_session.get(Project, project.id)
+        assert stored.notes == existing
+        assert stored.summary == "旧摘要"
+    finally:
+        ToolContext.clear_context()

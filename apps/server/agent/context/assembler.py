@@ -18,7 +18,7 @@ from sqlmodel import Session, select
 
 # Local
 from config.agent_runtime import AGENT_CONTEXT_TOKEN_BUDGET
-from config.project_notes import split_project_notes
+from config.project_notes import render_project_notes
 from utils.logger import get_logger, log_with_context
 
 from ..constants import CONTENT_FILE_TYPES, INVENTORY_FILE_TYPES
@@ -87,29 +87,10 @@ def _retrieval_semantic_timeout_s() -> float:
 def _render_project_notes(notes: str) -> list[str]:
     """备注按来源分开渲染：作者确认 / 未标来源 / AI 提议（见 config/project_notes）。
 
-    AI 提议单独成块并写明不是设定，后续轮次不会把它当成作者定下的事实。
+    AI 提议单独成块并写明不是设定，后续轮次不会把它当成作者定下的事实。标题行是
+    split_project_notes 认得的形式：模型把这几块照抄回 update_project 的 notes 时分区不变。
     """
-    sections = split_project_notes(notes)
-    lines: list[str] = []
-    if sections.confirmed:
-        lines.append("【备注·作者确认】（作者在对话里说过、记录时核对过原话的约定）")
-        lines.extend(sections.confirmed)
-        lines.append("")
-    if sections.unlabeled:
-        lines.append(
-            "【备注】（未标来源：作者在 AI 记忆里写的，或以前记下、没区分来源的条目；"
-            "和作者本轮的话或稿件冲突时以作者和稿件为准，不要说成「作者已确认」）"
-        )
-        lines.extend(sections.unlabeled)
-        lines.append("")
-    if sections.proposals:
-        lines.append(
-            "【AI 提议·作者还没确认】（之前 AI 提出或推断的内容，不是设定：不要当定论写进正文、"
-            "文件或回复，也不要说成作者定的；作者明确同意后才算数）"
-        )
-        lines.extend(sections.proposals)
-        lines.append("")
-    return lines
+    return render_project_notes(notes)
 
 
 class ContextAssembler:
