@@ -27,14 +27,19 @@ _OPENING_MARKS = frozenset("“‘「『（(【《〈〔")
 _COLON_CHARS = frozenset("：:")
 _LEADING_BLANK_LINES = re.compile(r"\A(?:[ \t　]*\r?\n)+")
 _NEWLINE_RUN = re.compile(r"(?:\r?\n)+")
-_WORD_CHAR = re.compile(r"[0-9A-Za-z㐀-䶿一-鿿豈-﫿]")
+_WORD_CHAR = re.compile(r"[0-9A-Za-z\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 # 章节/分集标题行：「第31章 …」「第五集」「Chapter 3」、markdown 标题。标题的缩进跟本文已有的标题走，
 # 不套正文段首缩进；「第三部电影…」这种正文不算（单位字后面必须是行尾、空白或标题分隔符）。
+# 只匹配去掉行首缩进之后的部分（见 _is_heading_line）：正则开头不带空白量词，长串 Tab 不会回溯。
 _HEADING_LINE = re.compile(
-    r"[ \t　]*(?:#{1,6}[ \t]"
+    r"(?:#{1,6}[ \t]"
     r"|第[0-9０-９零〇一二两三四五六七八九十百千万]+[章节回集卷幕部篇](?=$|[ \t　:：·.、—-])"
-    r"|(?i:chapter|episode)[ \t]+[0-9]+)"
+    r"|(?i:chapter|episode)[ \t]+[0-9])"
 )
+
+
+def _is_heading_line(line: str) -> bool:
+    return bool(_HEADING_LINE.match(line.lstrip(INLINE_SPACE)))
 
 NOTE_SENTENCE_SNAP = "插入点原本落在句子中间，已移到这句话的边界"
 NOTE_PARAGRAPH = "已按本文的段落分隔与缩进补齐新段落的前后分隔"
@@ -67,7 +72,7 @@ def follow_span_indentation(content: str, start: int, end: int, old: str, new: s
     def paragraph_indents(lines: list[str], first_prefix: str) -> set[str]:
         found: set[str] = set()
         for index, line in enumerate(lines):
-            if (index == 0 and not first_is_paragraph) or not line.strip() or _HEADING_LINE.match(line):
+            if (index == 0 and not first_is_paragraph) or not line.strip() or _is_heading_line(line):
                 continue
             indent = _leading_indent(line)
             found.add(first_prefix + indent if index == 0 else indent)
@@ -82,7 +87,7 @@ def follow_span_indentation(content: str, start: int, end: int, old: str, new: s
         return new
     lines = new.split("\n")
     for index, line in enumerate(lines):
-        if (index == 0 and not first_is_paragraph) or not line.strip() or _HEADING_LINE.match(line):
+        if (index == 0 and not first_is_paragraph) or not line.strip() or _is_heading_line(line):
             continue
         indent = _leading_indent(line)
         if indent != source:
@@ -245,7 +250,7 @@ def _dominant_separator(content: str, text: str) -> str:
 def _heading_indent(content: str) -> str:
     """本文已有标题行最常用的缩进；没有标题（或标题都顶格）时为空。"""
     indents = Counter(
-        _line_indent(line, 0) for line in content.split("\n") if _HEADING_LINE.match(line)
+        _line_indent(line, 0) for line in content.split("\n") if _is_heading_line(line)
     )
     return indents.most_common(1)[0][0] if indents else ""
 
@@ -258,7 +263,7 @@ def _apply_indent(block: str, indent: str, heading_indent: str = "") -> str:
     for n, line in enumerate(lines):
         if not line or line[0] in INLINE_SPACE:
             continue
-        if _HEADING_LINE.match(line):
+        if _is_heading_line(line):
             lines[n] = heading_indent + line
         elif indent and (_WORD_CHAR.match(line[0]) or _is_opening(line, 0)):
             lines[n] = indent + line
