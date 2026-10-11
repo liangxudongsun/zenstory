@@ -75,6 +75,7 @@ from .tools.author_edit_guard import (
     MAX_CONFIRM_FILE_IDS,
     AuthorEditRefusals,
     confirmed_file_ids_from_history,
+    previous_offer_from_history,
     referenced_file_ids_from_metadata,
 )
 from .tools.mcp_tools import ToolContext, _should_offload_tool_execution
@@ -1192,6 +1193,8 @@ class AgentService:
                 referenced_file_ids=referenced_file_ids_from_metadata(metadata),
                 author_confirmed_file_ids=confirmed_file_ids_from_history(history_messages),
                 author_edit_refusals=author_edit_refusals,
+                # 上一轮 AI 的提议：作者答应 / 选中改某个文件的那一项时放行它。
+                author_previous_offer=previous_offer_from_history(history_messages),
             )
 
             # Build WritingState for workflow execution
