@@ -482,6 +482,8 @@ async def test_reviewer_todo_and_evidence_reach_the_next_agent():
             yield _text("问题如下。")
             yield _handoff("writer", "按问题清单修改", todo=["把第3段的“慢慢地”删掉", "第7段补一句动机"])
             return
+        for event in _write_done("w-edit"):
+            yield event
         yield _text("已修改。")
 
     await _run_graph(

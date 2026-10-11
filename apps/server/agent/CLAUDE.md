@@ -178,6 +178,23 @@ Agent 可以通过两种方式交接：
 - 空文件纠偏轮由建了空文件的 agent 自己补写（不再硬编码 writer）；被纠偏打断的那一轮若以提问
   收尾，「等用户回答」会带过纠偏轮，纠偏完成后照样停下。
 - 自动质检门只认「至少一次写工具成功」：writer 的 create_file/edit_file 全部失败时不送审。
+- 写完 `</file>` 就结束了 run（openai-agents 把不带工具调用的回复当作最终输出）：有写权限的
+  agent 这次 run 里 create_file 成功、最后一次工具调用之后的文字以写完的 `<file>` 正文结束
+  （`graph/completion_evidence.ends_on_file_block`），且没有显式交接、澄清、轮数耗尽、错误时，
+  同一个 agent 接着跑一轮（交接说明以 `FILE_STREAM_CONTINUATION_MARKER` 开头，带已保存的文件、
+  作者范围、任务板上没完成的任务）：还有没写的接着写，写完了给作者总结。放在计划交接 / 自动质检
+  之前，正文与写工具信号接续给续写轮；受 `max_iterations` 约束，每一轮都要真的新建并写完文件才会再续。
+- 回复说这一轮「已还原 / 已保存 / 改好了 / 已录入」（`completion_evidence.find_unbacked_change_claim`；
+  「已 + 动词」只在分句开头、主语是我 / 这一轮或紧跟「了」时才算，现状描述、问句、「记住了」不算），
+  本请求却没有任何写工具（create/edit/delete_file、parallel_execute、update_project）成功：有写权限的
+  agent 再跑一轮（每请求一次），要么真的改，要么向作者更正；不能补（只读 / 先问清楚 / 最后一轮 /
+  已补过）时附一句 `UNBACKED_CLAIM_NOTICE`。审稿人不核对。
+- 收尾补发的 `update_project(tasks)`（`_auto_finalize_task_board_on_completion`）只按本请求实际写出、
+  仍存在且有正文的文件收尾 in_progress 任务：编号范围（「第2-5集」，`tools/task_progress.py`）全部有
+  对应文件才 done，只写了一部分时保持 in_progress 并记 `done_units` / `progress`（任务板提示里显示；
+  模型重存任务板时 `execute_update_plan` 把同名任务的记录接过去，收尾时剔除已删掉文件的编号）；
+  带 `artifact` 的要写出这个文件；本请求什么都没写不补。模型自己把范围任务标 done 而项目里缺文件时，
+  `execute_update_plan` 在结果里返回 `unverified_done` 提醒。
 
 ## 关键组件详解
 
