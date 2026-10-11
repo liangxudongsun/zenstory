@@ -79,7 +79,7 @@ EDIT_FILE_TOOL: dict[str, Any] = {
                         },
                         "old": {
                             "type": "string",
-                            "description": "要替换/删除的原文（用于replace/delete操作）"
+                            "description": "要替换/删除的原文（用于replace/delete操作）。跨段时要照抄原文的换行和段首缩进，否则会被拒绝（不会把两段并成一段）"
                         },
                         "new": {
                             "type": "string",
@@ -91,7 +91,7 @@ EDIT_FILE_TOOL: dict[str, Any] = {
                         },
                         "text": {
                             "type": "string",
-                            "description": "要写入的文本（insert_*/append/prepend 必填，不能为空）"
+                            "description": "要写入的文本（insert_*/append/prepend 必填，不能为空）。在段尾/段首插入整段时，工具按本文已有的段落分隔与缩进补齐前后的换行；一整句话不会插在句子中间"
                         },
                         "occurrence": {
                             "type": "integer",
