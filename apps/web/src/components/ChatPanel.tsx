@@ -484,6 +484,14 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
   const stopRequestedProjectRef = useRef<string | null>(null);
   /** Reentrancy guard: two sends in the same tick (closure isStreaming still stale) start one round. */
   const sendLockRef = useRef(false);
+  /**
+   * 「新对话」 is waiting for the stopped round to wrap up. After `done` isStreaming is already
+   * false while the stream is still open, so sending stays blocked on this too: a message sent
+   * then would start in the old session and be cut off by the new chat's reset().
+   * The ref guards same-tick calls; the state drives the input.
+   */
+  const newChatAfterStopRef = useRef(false);
+  const [newChatPending, setNewChatPending] = useState(false);
   const pendingMaterialClearRef = useRef(false);
   const pendingQuoteClearRef = useRef(false);
   const currentAgentSessionIdRef = useRef<string | null>(null);
@@ -1561,7 +1569,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     request: Omit<AgentRequest, "project_id">,
     options: { userBubble: boolean },
   ): boolean => {
-    if (sendLockRef.current || isStreaming) return false;
+    if (sendLockRef.current || isStreaming || newChatAfterStopRef.current) return false;
     // Held until the next task: by then React has re-rendered with isStreaming = true,
     // which guards every later click.
     sendLockRef.current = true;
@@ -1619,7 +1627,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     selectedSkillIds?: string[],
     extraMetadata?: Record<string, unknown>,
   ) => {
-    if (!message.trim() || isStreaming || sendLockRef.current) return;
+    if (!message.trim() || isStreaming || sendLockRef.current || newChatAfterStopRef.current) return;
 
     // Used up for today: keep the words as the draft and explain, instead of sending.
     if (aiSendBlocked) {
@@ -1949,8 +1957,6 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
   // round through the server and start the new chat once its stream has closed, so the round
   // is an author stop under the usual refund rule.
   const [newChatConfirmOpen, setNewChatConfirmOpen] = useState(false);
-  /** A new chat is waiting for the stopped round to wrap up: further presses do nothing. */
-  const newChatAfterStopRef = useRef(false);
   const handleNewSessionRef = useRef(handleNewSession);
   useEffect(() => {
     handleNewSessionRef.current = handleNewSession;
@@ -1958,12 +1964,15 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
   const startNewChatAfterRound = async (stopFirst: boolean) => {
     const projectId = currentProjectId;
     if (!projectId || newChatAfterStopRef.current) return;
+    // Further presses do nothing, and nothing can be sent until the new chat has started.
     newChatAfterStopRef.current = true;
+    setNewChatPending(true);
     try {
       if (stopFirst) await stopRound();
       await whenStreamClosed();
     } finally {
       newChatAfterStopRef.current = false;
+      setNewChatPending(false);
     }
     if (currentProjectIdRef.current !== projectId) return;
     await handleNewSessionRef.current();
@@ -2472,17 +2481,18 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
             onSend={handleSendMessage}
             // Allow drafting while AI is streaming/thinking, but prevent sending until it finishes.
             disabled={isLoadingHistory}
-            sendDisabled={isStreaming || isThinking || isLoadingHistory}
+            sendDisabled={isStreaming || isThinking || isLoadingHistory || newChatPending}
             // Quota used up: drafting stays possible; send / Enter explains instead of sending.
             onBlockedSend={aiSendBlocked ? () => setShowQuotaUpgradeModal(true) : undefined}
-            onCancel={isStreaming ? handleCancel : undefined}
-            isStopping={isStopping}
+            // Waiting for the round to wrap up before a new chat: still 「正在停止…」.
+            onCancel={isStreaming || newChatPending ? handleCancel : undefined}
+            isStopping={isStopping || newChatPending}
             // Steering: while streaming with an active session, the user can send
             // a follow-up instruction that the agent picks up at its next step.
             onSteer={handleSteer}
             canSteer={isStreaming && !!sessionId}
             placeholder={
-              isStreaming || isThinking
+              isStreaming || isThinking || newChatPending
                 ? t("chat:input.placeholderWhileProcessing")
                 : aiSendBlocked
                   ? t("chat:input.placeholderQuotaExhausted")

@@ -241,6 +241,7 @@ type MockMessageInputProps = {
   onBlockedSend?: () => void
   placeholder?: string
   onCancel?: () => void
+  isStopping?: boolean
 }
 
 const mockMessageList = vi.fn((_props: unknown) => <div data-testid="mock-message-list" />)
@@ -1474,6 +1475,36 @@ describe('ChatPanel mount smoke', () => {
 
       await act(async () => { closeStream() })
       await waitFor(() => expect(order).toEqual(['stop', 'new-session', 'reset']))
+    })
+
+    it('keeps sending blocked after done until the new chat has started', async () => {
+      // Between `done` and the stream closing (refund, placeholder clean-up) isStreaming is
+      // already false. A message sent then would start in the old session and be cut off by
+      // the new chat's reset() with no confirmation.
+      let closeStream: () => void = () => {}
+      mockWhenStreamClosed.mockImplementation(() => new Promise<void>((resolve) => { closeStream = resolve }))
+      mockAgentStreamState.isStreaming = true
+      const { rerender } = render(<ChatPanel />)
+      await waitFor(() => expect(screen.getByTestId('mock-message-list')).toBeInTheDocument())
+
+      fireEvent.click(newChatButton())
+      fireEvent.click(await screen.findByTestId('new-chat-dialog-confirm'))
+      await waitFor(() => expect(mockWhenStreamClosed).toHaveBeenCalled())
+
+      // `done` arrived: the hook reports the round as over while its stream is still open.
+      mockAgentStreamState.isStreaming = false
+      rerender(<QueryClientProvider client={testQueryClient}><ChatPanel /></QueryClientProvider>)
+      await waitFor(() => expect(lastMessageInputProps().sendDisabled).toBe(true))
+      expect(lastMessageInputProps().isStopping).toBe(true)
+      expect(lastMessageInputProps().onCancel).toBeTypeOf('function')
+      await act(async () => { await lastMessageInputProps().onSend('再写一段', []) })
+      expect(mockStartStream).not.toHaveBeenCalled()
+      expect(mockDraft.clearDraft).not.toHaveBeenCalled()
+
+      await act(async () => { closeStream() })
+      await waitFor(() => expect(createNewSession).toHaveBeenCalledTimes(1))
+      await waitFor(() => expect(lastMessageInputProps().sendDisabled).toBe(false))
+      expect(lastMessageInputProps().isStopping).toBe(false)
     })
 
     it('keeps the round going when the author chooses to wait', async () => {
