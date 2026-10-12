@@ -480,7 +480,8 @@ def test_file_title_index_boundary_preserves_body(order_engine, effects, writer,
         assert file.title == "😀" * 255 and file.content == body
     before = _snapshot(order_engine, ids["project"])
     with Session(order_engine) as session:
-        with pytest.raises(ValueError):
+        # create: request-model ValidationError; update: the handler rejects a rename past the limit (422).
+        with pytest.raises((ValueError, APIException)):
             _invoke(session, ids, writer, operation, {"title": "😀" * 256, "content": "must not overwrite"}, None)
         session.rollback()
     assert _snapshot(order_engine, ids["project"]) == before
