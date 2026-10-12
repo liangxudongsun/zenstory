@@ -289,7 +289,8 @@ class FileCreate(BaseModel):
 
 class FileUpdate(BaseModel):
     """Request body for updating a file."""
-    title: str | None = Field(default=None, max_length=MAX_FILE_TITLE_LENGTH)
+    # 上限只在改名时检查（见 update_file）：历史长标题的文件只改正文仍要能保存。
+    title: str | None = None
     content: str | None = None
     word_count: int | None = Field(
         default=None,
@@ -772,6 +773,15 @@ def create_file(
     return file
 
 
+def _reject_renamed_title_too_long(new_title: str | None, current_title: str) -> None:
+    if new_title is not None and new_title != current_title and len(new_title) > MAX_FILE_TITLE_LENGTH:
+        raise APIException(
+            error_code=ErrorCode.VALIDATION_ERROR,
+            status_code=422,
+            detail=f"文件标题最多 {MAX_FILE_TITLE_LENGTH} 个字符",
+        )
+
+
 @router.put("/files/{file_id}", response_model=FileResponse)
 def update_file(
     file_id: str,
@@ -823,6 +833,7 @@ def update_file(
         # 陈旧写入检测：必须在拿到锁、读到最新行之后做，否则校验的是过期快照。
         _assert_not_stale_write(file, file_data.base_updated_at)
 
+        _reject_renamed_title_too_long(file_data.title, file.title)
         prospective_title = file_data.title if file_data.title is not None else file.title
         prospective_content = file_data.content if file_data.content is not None else file.content
         pre_save_content = file.content

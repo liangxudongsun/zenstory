@@ -16,6 +16,7 @@ from core.error_codes import ErrorCode
 from core.error_handler import APIException
 from database import get_session
 from models import User
+from models.file_model import MAX_FILE_TITLE_LENGTH
 from services.features.file_version_service import get_file_version_service
 from services.file_tree_rules import lock_project_for_files
 from utils.logger import get_logger
@@ -129,6 +130,12 @@ def import_material(
 
     # Use provided file_name or suggested
     file_name = request.file_name or preview.suggested_file_name
+    if len(file_name) > MAX_FILE_TITLE_LENGTH:
+        raise APIException(
+            error_code=ErrorCode.VALIDATION_ERROR,
+            status_code=422,
+            detail=f"文件标题最多 {MAX_FILE_TITLE_LENGTH} 个字符",
+        )
 
     # Find or create target folder (use flush instead of commit to keep in same transaction)
     folder_id = request.target_folder_id

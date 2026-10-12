@@ -24,3 +24,7 @@
 移除嵌入费用、索引线程和 Chroma 持久卷依赖。数据库检索继续工作；现有向量重建与模型语义工具不再提供。仅移除代码不足以实现 API 无损发布，素材/截图历史引用迁移和云端重叠/退出设置仍需独立验收。
 
 关联旧决策：`implemented/bug-fix/2026-10-05-vector-index-launch-hardening.md` 与 `implemented/architecture/2026-10-07-private-upload-object-storage.md`。
+
+## 后续修正（本批复核）
+
+`FileSearchService.search` 曾把 `top_k` 直接交给 `_lexical_search`。SQL 先按 `updated_at` 取候选，打分池因此缩到原来的三分之一（上下文 54 → 18 行），标题强匹配的旧文件（如角色卡）会被只提到名字的新章节挤掉。现与已删除的 `hybrid_search` 词法分支一致：先对 `min(top_k×3, 120)` 个候选打分，再返回前 `top_k`。已加回归测试。

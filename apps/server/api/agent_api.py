@@ -92,7 +92,8 @@ class FileCreate(BaseModel):
 class FileUpdate(BaseModel):
     """Request body for updating a file."""
 
-    title: str | None = Field(default=None, max_length=MAX_FILE_TITLE_LENGTH, description="New title")
+    # The limit applies only to renames (checked in update_file), so legacy long titles still save content.
+    title: str | None = Field(default=None, description="New title")
     content: str | None = Field(default=None, description="New content")
     order: int | None = Field(default=None, ge=0, le=MAX_FILE_ORDER, description="New sort order among siblings")
     base_updated_at: datetime | None = Field(
@@ -861,6 +862,16 @@ def update_file(
                     },
                 )
 
+        if (
+            file_data.title is not None
+            and file_data.title != file.title
+            and len(file_data.title) > MAX_FILE_TITLE_LENGTH
+        ):
+            raise APIException(
+                error_code=ErrorCode.VALIDATION_ERROR,
+                status_code=422,
+                detail=f"File title must be at most {MAX_FILE_TITLE_LENGTH} characters",
+            )
         prospective_title = file_data.title if file_data.title is not None else file.title
         prospective_content = file_data.content if file_data.content is not None else file.content
         content_changed = file_data.content is not None and file_data.content != file.content

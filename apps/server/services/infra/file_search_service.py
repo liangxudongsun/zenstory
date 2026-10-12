@@ -156,14 +156,18 @@ class FileSearchService:
         if not _SEARCH_SLOTS.acquire(blocking=False):
             raise FileSearchUnavailableError("file search concurrency limit reached")
         try:
-            kwargs = {"project_id": project_id, "query": query, "top_k": max(1, min(int(top_k), 50)),
+            top_k = max(1, min(int(top_k), 50))
+            # Score a wider pool than we return, as the removed hybrid_search did: the SQL step
+            # orders candidates by updated_at, so an old file with a strong title match must
+            # still reach the scorer.
+            kwargs = {"project_id": project_id, "query": query, "top_k": min(top_k * 3, 120),
                       "entity_types": entity_types, "include_content": include_content}
             if session is not None:
-                return self._lexical_search(session, **kwargs)
+                return self._lexical_search(session, **kwargs)[:top_k]
             from database import create_session
 
             with create_session() as owned_session:
-                return self._lexical_search(owned_session, **kwargs)
+                return self._lexical_search(owned_session, **kwargs)[:top_k]
         finally:
             _SEARCH_SLOTS.release()
 
