@@ -189,8 +189,13 @@ frontend.
 
 ## Effect on active users
 
-The verified API volume is mounted at `/app/uploads` and still contains
-material originals and feedback screenshots. Preserve it and all original bytes.
+The production API volume (`server-volume`, checked 2026-10-12) is still mounted at
+`/app/chroma_data`. Feedback screenshots are written there through
+`FEEDBACK_UPLOAD_DIR=/app/chroma_data/feedback`, and the volume also holds material
+originals. Staging's `staging-api-volume` is mounted at `/app/uploads`. Volume
+attachments live in the Railway service settings: removing the old `chroma-data`
+entry from `railway.toml` does not detach anything (the name never matched).
+Preserve both volumes, their mount paths and all original bytes.
 Railway cannot overlap deployments sharing a volume, so readiness does not prove
 uninterrupted API availability. The user withdrew the lossless-release scope in
 this PR and requested a faster switch with the existing deployment process.

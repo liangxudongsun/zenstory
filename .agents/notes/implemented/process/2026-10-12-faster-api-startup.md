@@ -6,7 +6,7 @@
 
 ## Decision
 
-随完整索引栈删除依赖与启动维护入口，start_api 直接 exec Uvicorn。保留已有 worker 数量、readiness 与 drain 窗口。部署说明改为实际 /app/uploads 卷，保留素材原文件与截图，不 detach、压缩或删除原卷。只提交当前 PR，不新增发布生产者、不部署生产。
+随完整索引栈删除依赖与启动维护入口，start_api 直接 exec Uvicorn。保留已有 worker 数量、readiness 与 drain 窗口。部署说明写明实际挂载：生产 `server-volume` 仍在 /app/chroma_data（反馈截图经 FEEDBACK_UPLOAD_DIR 写在其下，另有素材原文件），staging 在 /app/uploads；保留素材原文件与截图，不 detach、压缩或删除原卷，也不改挂载路径。只提交当前 PR，不新增发布生产者、不部署生产。
 
 ## Alternatives considered
 
