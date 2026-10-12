@@ -15,6 +15,7 @@ from typing import Any
 from core.error_codes import ErrorCode
 from models.file_model import FILE_TYPE_FOLDER
 from utils.logger import get_logger, log_with_context
+from utils.text_metrics import count_words
 
 from .constants import coerce_bool
 from .core.events import (
@@ -152,6 +153,7 @@ class StreamAdapter:
         # Fatal stream error flag (e.g. file content persistence failure)
         self._fatal_stream_error = False
         self._file_mutated = False
+        self._abort_capture: tuple[str, int, asyncio.Task[bool]] | None = None
         # 图发来 CHAT_HOLD begin 之后的对话文字（StreamProcessor 判定为对话的部分，
         # 正文不扣）：等图决定丢掉（discard）还是在下一个边界事件前放出。
         self._chat_hold_active = False
@@ -168,6 +170,7 @@ class StreamAdapter:
     def reset(self) -> None:
         """Reset adapter state for new conversation turn."""
         self._stream_processor.reset()
+        self._abort_capture = None
         self._pending_file_write = None
         self._content_started = False
         self._current_tool_calls.clear()
@@ -931,9 +934,25 @@ class StreamAdapter:
             content_length=len(content),
         )
         task = asyncio.create_task(self._save_file_content(file_id, content, record_mutation=False))
+        self._abort_capture = (file_id, count_words(content), task)
         _ABORT_SAVE_TASKS.add(task)
         task.add_done_callback(_ABORT_SAVE_TASKS.discard)
         return task
+
+    async def settle_aborted_capture(self) -> dict[str, int | None]:
+        """等待本轮残稿补存，返回包含未发出尾部缓冲的实际保存字数。
+
+        service 可能在 adapter 生成器关闭之前进入取消收尾；此时在这里补全捕获。
+        保存任务仍沿用原有超时与独立 session，不把历史落库当成正文已落库。
+        """
+        if self._stream_processor.is_active:
+            self._persist_active_capture_in_background()
+        capture = self._abort_capture
+        if capture is None:
+            return {}
+        file_id, words, task = capture
+        saved = await asyncio.shield(task)
+        return {file_id: words if saved else None}
 
     async def _flush_active_capture(self) -> AsyncIterator[SSEEvent]:
         """收尾仍在进行中的流式捕获，并发出对应的 SSE 事件。

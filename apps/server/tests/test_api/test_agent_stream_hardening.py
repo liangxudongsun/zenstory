@@ -58,9 +58,10 @@ class _FakeService:
     """Yields the given frames; like the real service, hands back the assistant message id
     once the (cancelled) round's history is saved."""
 
-    def __init__(self, frames_factory, message_id: str | None = _FAKE_ASSISTANT_MESSAGE_ID):
+    def __init__(self, frames_factory, message_id: str | None = _FAKE_ASSISTANT_MESSAGE_ID, saved_file_word_counts=None):
         self._frames_factory = frames_factory
         self._message_id = message_id
+        self._saved_file_word_counts = saved_file_word_counts
 
     async def process_stream(self, *, run_outcome=None, **_kwargs):
         try:
@@ -68,6 +69,8 @@ class _FakeService:
                 yield frame
         finally:
             if run_outcome is not None:
+                if self._saved_file_word_counts is not None:
+                    run_outcome.saved_file_word_counts = self._saved_file_word_counts
                 run_outcome.resolve_message_id(self._message_id)
 
 
@@ -1047,3 +1050,45 @@ async def test_stop_refund_survives_the_request_being_cancelled_while_it_is_queu
         "saved_output": False,
         "removed_files": ["第1章 最后一页"],
     }
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("receipt_ready", [True, False])
+async def test_stop_done_uses_confirmed_save_count_or_omits_pending_count(client, db_session, receipt_ready):
+    from models import ChatMessage, File
+    from utils.text_metrics import count_words
+
+    _token, project, user = await _login_with_project(client, db_session)
+    message_id, placeholder, filled, _older = _seed_round(db_session, project, user)
+    body = "雨还在下。旧书店的门没有锁。铜钥匙还握在她手里。"
+    filled.content = body
+    db_session.add(filled)
+    db_session.commit()
+
+    async def frames():
+        yield _sse("session_started", {"session_id": "s1"})
+        yield _create_file_result(placeholder)
+        yield _sse("file_created", {"file_id": filled.id, "title": filled.title})
+        yield _sse("file_content", {"file_id": filled.id, "chunk": body[:-12]})
+        await asyncio.sleep(30)
+
+    with (
+        patch("api.agent.get_agent_service", return_value=_FakeService(frames, message_id if receipt_ready else None, {filled.id: count_words(body)} if receipt_ready else {})),
+        patch("api.agent.quota_service.reserve_ai_conversation", return_value=_CHARGED_PERIOD),
+    ):
+        response = await _stream(db_session, user, project, None)
+        iterator = response.body_iterator
+        for _ in range(4):
+            await iterator.__anext__()
+        await agent_api.stop_stream(body=agent_api.StopRequest(agent_run_id=response.headers["X-Agent-Run-ID"]), current_user=user, _rate_limit=0)
+        rest = "".join([frame async for frame in iterator])
+        await asyncio.gather(*agent_api._round_outcome_tasks)
+    done = _frame_data(rest, "done")
+    expected = [{"id": filled.id, "title": filled.title, "words": count_words(db_session.get(File, filled.id).content)}]
+    if not receipt_ready:
+        expected[0].pop("words")
+    assert done["written_files"] == expected
+    if receipt_ready:
+        db_session.expire_all()
+        outcome = json.loads(db_session.get(ChatMessage, message_id).message_metadata)["stop_outcome"]
+        assert outcome["written_files"] == expected

@@ -638,7 +638,7 @@ async def stream_request(
                     charged=charged,
                     saved_output=tracker.write_succeeded,
                     removed_files=removed,
-                    written_files=written_files.files(),
+                    written_files=written_files.files(final_word_counts=run_outcome.saved_file_word_counts),
                 ),
             )
 
@@ -697,7 +697,10 @@ async def stream_request(
                     produced_output=tracker.produced_output,
                     # 与之后落库的 stop_outcome.written_files 同一份：停止当场的说明
                     # 就能写明保存了哪些文件，不必等刷新。
-                    written_files=written_files.files(),
+                    written_files=written_files.files(
+                        final_word_counts=run_outcome.saved_file_word_counts,
+                        include_words=bool(assistant_message_id),
+                    ),
                 ).to_sse()
                 tracker.observe(done_frame)
                 yield done_frame

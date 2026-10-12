@@ -1528,6 +1528,13 @@ class AgentService:
                             run_outcome.resolve_message_id(None)
 
                 async def _drain_then_save_partial_history_inner() -> None:
+                    # 残稿补存会把没有作为 SSE 发出的尾部缓冲一并保存。先等本轮
+                    # 正文保存回执，再交回消息 id，让 done 与历史使用同一份字数。
+                    adapter = usage_source.get("adapter")
+                    if run_outcome is not None and adapter is not None:
+                        run_outcome.saved_file_word_counts.update(
+                            await adapter.settle_aborted_capture()
+                        )
                     # 取消可能恰好落在 save_messages 期间：它被 shield 保护会
                     # 继续跑完，所以补偿保存前必须等它的真实结果。已落库时
                     # 不能整轮重写（user/steering/assistant 会写两遍），但仍要

@@ -47,6 +47,9 @@ class RunOutcome:
     # 作者停止时编辑器里还有没存下的字的文件（前端停止前的保存失败或超时，随 /stop 送来）：
     # 这一轮被退还时不当作空白占位文件移除，见 :meth:`removable`。
     keep_file_ids: set[str] = field(default_factory=set)
+    # 取消时补存的正文包含控制标记尾部缓冲，可能比已发出的 file_content 更长。
+    # None 表示该文件补存失败；消息 id 交回前由 service 填入保存回执。
+    saved_file_word_counts: dict[str, int | None] = field(default_factory=dict)
     _message_id: asyncio.Future[str | None] | None = field(default=None, repr=False)
 
     def removable(self, candidates: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -129,13 +132,26 @@ class RoundWrittenFiles:
         else:
             self._observe_tool_result(payload)
 
-    def files(self) -> list[dict[str, Any]]:
+    def files(
+        self,
+        *,
+        final_word_counts: dict[str, int | None] | None = None,
+        include_words: bool = True,
+    ) -> list[dict[str, Any]]:
         """[{id, title, words?}]：字数只在本轮写下的就是整篇正文时给出。"""
         listed: list[dict[str, Any]] = []
-        for file_id, item in self._files.items():
+        final_word_counts = final_word_counts or {}
+        file_ids = dict.fromkeys([
+            *self._files,
+            *(fid for fid in final_word_counts if fid in self._titles and fid not in self._kept_bodies),
+        ])
+        for file_id in file_ids:
+            if file_id in final_word_counts and final_word_counts[file_id] is None:
+                continue
+            item = self._files.get(file_id, _WrittenFile(title=self._titles.get(file_id, "")))
             entry: dict[str, Any] = {"id": file_id, "title": item.title or self._titles.get(file_id, "")}
-            if not item.edited:
-                entry["words"] = count_words(item.body)
+            if include_words and not item.edited:
+                entry["words"] = final_word_counts.get(file_id, count_words(item.body))
             listed.append(entry)
         return listed
 
