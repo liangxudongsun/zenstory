@@ -15,6 +15,8 @@ pydantic-settings>=2.0.0
 # openai-agents 0.17.6 requires openai>=2.36.0,<3; 2.43.x is the verified-working range.
 openai>=2.36.0,<2.44
 openai-agents>=0.17.6,<0.18
+# Agent token budgets already use this tokenizer; no longer supplied by LlamaIndex.
+tiktoken==0.14.0
 
 
 # Prefect for workflow orchestration. Keep this aligned with prefect.yaml and the
