@@ -40,6 +40,8 @@ class BodyWrite:
     full_body: bool = False
     # create_file：正文在之后的 <file> 块里，记下当时 writer 文字的长度，run 结束时再取。
     text_offset: int | None = None
+    # edit_file：工具返回的改后全文字数（new_word_count）；没返回时为 None。
+    file_words: int | None = None
 
 
 def _tool_payload(result: Any) -> dict[str, Any] | None:
@@ -81,6 +83,10 @@ def _edit_words(edits: Any) -> int:
                 total += count_words(value)
                 break
     return total
+
+
+def _int_or_none(value: Any) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def _is_body_type(file_type: Any) -> bool:
@@ -135,6 +141,7 @@ class BodyWriteTracker:
                 title=str(data.get("title") or ""),
                 file_type=str(data.get("file_type")),
                 words=_edit_words(tool_input.get("edits")),
+                file_words=_int_or_none(data.get("new_word_count")),
             )
         elif name == "parallel_execute":
             recorded = self._observe_parallel(tool_input, data)
@@ -156,6 +163,7 @@ class BodyWriteTracker:
             result_data = result.get("data") if isinstance(result, dict) else None
             result_data = result_data if isinstance(result_data, dict) else {}
             task_type = task.get("type")
+            file_words: int | None = None
             if task_type == "write_chapter":
                 file_type = result_data.get("file_type") or "draft"
                 words = count_words(params.get("content") if isinstance(params.get("content"), str) else "")
@@ -164,6 +172,7 @@ class BodyWriteTracker:
                 file_type = result_data.get("file_type")
                 words = _edit_words(params.get("edits"))
                 full_body = False
+                file_words = _int_or_none(result_data.get("new_word_count"))
             else:
                 continue
             if not _is_body_type(file_type):
@@ -174,6 +183,7 @@ class BodyWriteTracker:
                 file_type=str(file_type),
                 words=words,
                 full_body=full_body,
+                file_words=file_words,
             )
             self.writes.append(last)
         return last
@@ -201,4 +211,27 @@ def measured_body_words(writes: list[BodyWrite]) -> int:
     return sum(write.words for write in writes if write.text_offset is None)
 
 
-__all__ = ["BodyWrite", "BodyWriteTracker", "body_words_written", "measured_body_words"]
+def latest_file_word_counts(writes: list[BodyWrite]) -> list[tuple[str, int]] | None:
+    """每个正文文件在最后一次写入后的全文字数，按首次写入的顺序。
+
+    改动在建文件之后时取 edit_file 返回的 new_word_count；某次改动没返回字数时，这个文件不列，
+    不拿建文件时的旧字数顶替。
+    """
+    latest: dict[str, tuple[str, int | None]] = {}
+    for write in writes:
+        key = write.file_id or write.title
+        if not key:
+            continue
+        title = write.title or latest.get(key, ("", None))[0]
+        latest[key] = (title, write.words if write.full_body else write.file_words)
+    counts = [(title, words) for title, words in latest.values() if words is not None]
+    return counts or None
+
+
+__all__ = [
+    "BodyWrite",
+    "BodyWriteTracker",
+    "body_words_written",
+    "latest_file_word_counts",
+    "measured_body_words",
+]

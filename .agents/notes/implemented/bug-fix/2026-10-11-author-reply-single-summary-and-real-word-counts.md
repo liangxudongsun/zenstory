@@ -108,3 +108,5 @@ Status: implemented
 - 未做真实模型调用，未在 staging 验证；直播时扣留与放出的时序只由适配器级测试覆盖。
 - live run 2 补充：工作集字数标签、`<file>` 后换行、剧本「集」各有回归用例（`test_session_loader.py`、`test_stream_processor.py`、`test_round3_converge.py`），改动前失败；`test_stream_processor.py` / `test_stream_adapter.py` 里三条带着这个前导换行的旧期望改成不带。提示词的改动没有自动化验证，要等下一次真实模型复跑。
 
+- 2026-10-12 复测：「[要告诉作者]」被写成整段总结后，转告的角色又原样贴一遍，回复出现两份总结（K、N）；「旧稿可以在历史版本里找回」也用到了本轮新建的章节上（K、E）。提示词改为：这一段只写总结里不会有的话；旧稿提示只用于改写作者发这条消息之前就有的文件（复测时返修 writer 把同一请求里先前写的章节当成「已有」，所以不用「本轮」这个说法）；转告时总结里说过的不再重复。
+- 2026-10-12 复测（N）：机器负载高时送审前的落库字数读取超时，退回的是建文件时的字数，审稿人看不到之后的扩写，于是按旧数要求补写。现在退回值取本 run 每个正文文件最后一次写入后的全文字数（edit_file 的 `new_word_count`）；某次改动没带回字数的文件不列，不用旧数顶替。回归用例 `test_review_count_fallback_uses_counts_after_later_edits`。

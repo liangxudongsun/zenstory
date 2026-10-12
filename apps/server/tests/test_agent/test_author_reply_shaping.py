@@ -627,3 +627,43 @@ def test_body_write_tracker_counts_only_successful_body_writes():
 
     assert [(w.file_id, w.words, w.full_body) for w in writes] == [("draft-3", 15, True), ("c4", 30, True)]
     assert body_words_written(writes) == 45
+
+
+def test_review_count_fallback_uses_counts_after_later_edits():
+    """本地实测（N）：落库读取超时后，审稿人拿到的是建文件时的字数，看不到之后扩写的部分。"""
+    import json
+
+    from agent.core.workflow_events import StreamEvent, StreamEventType
+    from agent.graph.body_writes import BodyWriteTracker, latest_file_word_counts
+    from tests.test_agent.body_write_events import create_file_events
+
+    def edit(call_id: str, file_id: str, title: str, new_word_count: int | None) -> list[StreamEvent]:
+        data = {"id": file_id, "title": title, "file_type": "draft"}
+        if new_word_count is not None:
+            data["new_word_count"] = new_word_count
+        return [
+            StreamEvent(type=StreamEventType.TOOL_USE, data={
+                "id": call_id, "name": "edit_file", "status": "complete",
+                "input": {"id": file_id, "edits": [{"op": "insert_after", "anchor": "x", "text": "补一段"}]},
+            }),
+            StreamEvent(type=StreamEventType.TOOL_RESULT, data={
+                "tool_use_id": call_id, "name": "edit_file",
+                "result": {"content": [{"type": "text", "text": json.dumps(
+                    {"status": "success", "data": data}, ensure_ascii=False)}]},
+            }),
+        ]
+
+    tracker = BodyWriteTracker()
+    text = ""
+    for event in create_file_events("ch1", "第一章 退潮"):
+        tracker.observe(event, text_length=len(text))
+    text += "<file>" + "潮" * 1093 + "</file>"
+    for event in create_file_events("ch2", "第二章 旧锚"):
+        tracker.observe(event, text_length=len(text))
+    text += "<file>" + "锚" * 976 + "</file>"
+    for event in [*edit("e1", "ch1", "第一章 退潮", 1189), *edit("e2", "ch2", "第二章 旧锚", None)]:
+        tracker.observe(event, text_length=len(text))
+    writes = tracker.finish(text)
+
+    # 第二章那次扩写没带回字数：不列，也不拿建文件时的 976 顶替。
+    assert latest_file_word_counts(writes) == [("第一章 退潮", 1189)]

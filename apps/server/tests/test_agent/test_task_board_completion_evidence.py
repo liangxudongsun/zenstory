@@ -93,6 +93,32 @@ def test_plain_task_is_done_when_something_was_written_and_pending_untouched():
     ]
 
 
+def test_pending_episode_tasks_close_when_their_files_were_written():
+    """本地实测：一轮写完第1-3集，模型只把第1集标 in_progress，第2、3集留 pending。"""
+    tasks = [
+        {"task": "写第1集剧本", "status": "in_progress"},
+        {"task": "写第2集剧本《身世线索》", "status": "pending"},
+        {"task": "写第3集剧本《再遇》", "status": "pending"},
+        {"task": "写第4集剧本", "status": "pending"},
+        {"task": "通读润色", "status": "pending"},
+    ]
+
+    payload = _build_completion_task_payload(tasks, ["第1集 被开除", "第2集 身世线索", "第3集 再遇"])
+
+    assert [t["status"] for t in payload] == ["done", "done", "done", "pending", "pending"]
+
+
+def test_pending_range_task_partly_written_moves_to_in_progress():
+    payload = _build_completion_task_payload([_range_task(status="pending")], ["第2集 开端", "第3集 转折"])
+
+    assert payload == [{
+        "task": "撰寫第2-5集劇本",
+        "status": "in_progress",
+        "done_units": [2, 3],
+        "progress": f"已写：{format_units({2, 3}, '集')}；待写：{format_units({4, 5}, '集')}",
+    }]
+
+
 # ------------------------------------------------------------ 收尾调用
 
 

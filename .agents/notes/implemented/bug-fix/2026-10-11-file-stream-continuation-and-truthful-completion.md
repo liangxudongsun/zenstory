@@ -74,3 +74,7 @@ Status: implemented
 - 任务名被模型改写（换了字、换了范围）时，前几轮的进度接不上，任务停在 in_progress，需要模型或作者自己更新。
 - 已知未覆盖（交给后续）：没有 create_file 目标就输出的 `<file>` 块进入对话（U074，stream_processor 归 p2）；返修交回 writer 后只说一句「我先读取…」就没有工具调用地结束（U076 06:35）；删除旧文件、写 current_phase「已重设完成」排在实际写入之前（U076-89e9815c）；回复说「交接给写作者」却没调用 handoff（U056）；current_phase 自由文本声明（U095）。
 - 本地测试全部 mock 模型，没有真实模型对照；线上效果要用诊断账号观察「run 停在 `</file>`」后的续写轮是否接着写、是否给出总结。
+
+### 补充（2026-10-12 复测，场景 A）
+
+一轮写完第1-3集，模型只把第1集标成 in_progress，第2、3集一直是 pending；收尾只动 in_progress，任务板停在「done 1 / pending 2」，可三个文件都在。现在 pending 任务也按确切证据收尾：编号范围被本请求写出的文件全部对上就标 done，只对上一部分就改 in_progress 并记 done_units；产出物对上同样标 done。没有编号也没有产出物的 pending 任务照旧不动。回归用例 `test_pending_episode_tasks_close_when_their_files_were_written`、`test_pending_range_task_partly_written_moves_to_in_progress`。

@@ -1102,3 +1102,48 @@ def test_sectioned_option_headings_still_refuse_a_decline():
     assert not author_accepts_offer(
         "先不改了", offer, title=title, file_type="draft", sequence=_title_sequence(title), context_target=lambda: True
     )
+
+
+# Live run (round 2) scenario C2: numbered options as bold headings, each with its own
+# 效果 / 保留 / 风险 bullets, and a prose tail. 「1」 was refused because no item parsed.
+_BOLD_NUMBERED_OFFER_REPLY = """先说清楚慢在哪：开头三段（炉子寅时烧上→鸡没叫第二遍）全在写环境和重复动作，读者。
+
+三个改法，方向不同，一次选一个就行：
+
+**1. 悬念前置：从「打废的剑」开场**
+把第一段换成李青正把一把打废的剑坯扔进墙角废铁堆——那把废剑还烫着，砸在别的废件。
+- 效果：把全章最深的钩子提到第一屏，读者带着疑问读环境描写，就不觉得慢了。
+- 保留：炉、砧、火色、镇上鸡叫这些场景照旧，只是挪到第二三段。
+- 风险：「废铁堆」这条线在后文只被阿岩提了一次，开场挑明后，中间最好让读者看见废剑一眼（不用解释），否则会显得只是话头
+
+**2. 关系前置：把「明儿一早就走」提到开头**
+第一段改成李青一边推风箱，一边听着屋里阿岩收拾行李的动静（捆绳子的声音、扁担磕地。
+- 效果：这把剑一上来就是「给要走的人打的」，情感有落点，后面所有锤声都在替这句话出力。
+- 保留：告别对白、盘缠、别露白、北边那条线全不动，等于把现在中段的对白上移。
+- 风险：阿岩的出场会从「天光里站进来」变成更早介入，离别感提前，章末陌生人登门的收束要相应压一点，别让两处情绪互相盖过
+
+**3. 动作中段切入：从「火候要过了」这一瞬落笔**
+不写开炉，第一句就是剑坯在火里烧过了头，红里泛白、边缘开始发亮发软，李青伸手去夹。
+- 效果：不靠加料，靠动作本身提速，第一段就有代价和紧张。
+- 保留：整章结构、字数几乎不动，只换开场顺序。
+- 风险：这个「要过火」的小险必须真给出后果（那半息真让他失了手，或他勉强救回来却留下瑕疵），否则就是空惊一场，反而露怯
+
+关于「想起去世的父亲」：这句我按你写下的保留，但它在开头抛出、后文没有落点，读起。
+
+想让我按哪一个改，或者把 2 和 3 合成一版（阿岩提前 + 过火开场）也可以，说一声再动文件。"""
+
+
+@pytest.mark.parametrize("answer", ["1", "选2", "第三个"])
+def test_bold_numbered_headings_are_the_offer_items(answer):
+    offer = previous_offer_items(_BOLD_NUMBERED_OFFER_REPLY)
+    assert [item.index for item in offer if item.index is not None] == [1, 2, 3]
+    assert "悬念前置" in offer[0].text
+    title = "第一章 淬火"
+    assert author_accepts_offer(
+        answer,
+        offer,
+        title=title,
+        file_type="draft",
+        sequence=_title_sequence(title),
+        context_target=lambda: True,
+    )

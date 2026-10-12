@@ -50,6 +50,7 @@ from agent.graph.body_writes import (
     BodyWrite,
     BodyWriteTracker,
     body_words_written,
+    latest_file_word_counts,
     measured_body_words,
 )
 from agent.graph.completion_evidence import ends_on_file_block
@@ -1183,7 +1184,9 @@ def _build_completion_task_payload(
       「重写第2-5集」开始前这几集都在，按已有文件算就会只重写一集就标 done。
     - 任务写了产出物（artifact）：本请求写出了这个文件才标 done，否则不动。
     - 其余任务：本请求确实写出了文件才标 done。
-    - 本请求什么都没写：一律不动。pending 任务不动。
+    - pending 任务只认确切证据：编号范围或产出物被本请求写出的文件对上时同样收尾（模型常常一次
+      写完几集却只把第一集标成 in_progress）；没有编号也没有产出物的 pending 任务不动。
+    - 本请求什么都没写：一律不动。
     """
     if not written_titles:
         return None
@@ -1196,12 +1199,13 @@ def _build_completion_task_payload(
             continue
 
         normalized_task = dict(task)
-        if normalized_task.get("status") != "in_progress":
+        status = normalized_task.get("status")
+        spec = task_unit_spec(task_text(normalized_task)) if status in ("in_progress", "pending") else None
+        artifact = str(normalized_task.get("artifact") or "").strip()
+        if status != "in_progress" and not (status == "pending" and (spec is not None or artifact)):
             updated_tasks.append(normalized_task)
             continue
 
-        spec = task_unit_spec(task_text(normalized_task))
-        artifact = str(normalized_task.get("artifact") or "").strip()
         if spec is not None:
             recorded = {
                 number
@@ -1220,6 +1224,7 @@ def _build_completion_task_payload(
                 has_updates = True
             elif covered != recorded:
                 if covered:
+                    normalized_task["status"] = "in_progress"
                     normalized_task["done_units"] = sorted(covered)
                     normalized_task["progress"] = (
                         f"已写：{format_units(covered, spec.unit)}；"
@@ -1285,8 +1290,8 @@ async def _auto_finalize_task_board_on_completion(
     """
     在 workflow 完成时按实际产物补一次 update_project(tasks=[...])。
 
-    只有本请求确实写出对应文件的 in_progress 任务改为 done（规则见
-    _build_completion_task_payload）；pending 任务不动，什么都没写时不补。
+    只有本请求确实写出对应文件的任务改为 done（规则见 _build_completion_task_payload；
+    pending 任务只认编号或产出物对上的文件），什么都没写时不补。
     """
     session_id = ToolContext.get_session_id()
     if not session_id:
@@ -1308,7 +1313,7 @@ async def _auto_finalize_task_board_on_completion(
             project_id=project_id,
         ) or []
         if not any(
-            isinstance(task, dict) and task.get("status") == "in_progress" for task in current_tasks
+            isinstance(task, dict) and task.get("status") in ("in_progress", "pending") for task in current_tasks
         ):
             return []
         written_titles = await asyncio.to_thread(_existing_written_titles, written_ids)
@@ -2738,9 +2743,8 @@ async def run_writing_workflow_streaming(
                 )
                 body_counts = review_reads["body_word_counts"]
                 if not body_counts:
-                    body_counts = [
-                        (write.title, write.words) for write in writer_body_writes if write.full_body
-                    ] or None
+                    # 落库读取超时：按本 run 写入记下的最新全文字数（建文件后又扩写过的取改后字数）。
+                    body_counts = latest_file_word_counts(writer_body_writes)
                 handoff_context += _format_body_word_counts(body_counts)
                 handoff_context += _format_length_requirements(review_reads["length_requirements"])
                 if chat_hold_started:

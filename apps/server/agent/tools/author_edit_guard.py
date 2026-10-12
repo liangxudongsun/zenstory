@@ -842,6 +842,8 @@ def _question_items(line: str) -> list[OfferItem]:
 _LABELED_OPTION_RE = re.compile(
     r"^(?:改法|方案|选项|思路|办法|路线|版本|方向|做法)\s*([一二三四五六七八九十]|\d+|[A-Da-d])(?=[\s|｜:：、.．)）（(，,—-]|$)"
 )
+# 加粗或标题格式的编号小节（「**1. 悬念前置…**」「### 2、…」），下面再跟说明和要点。
+_NUMBERED_HEADING_RE = re.compile(r"^(?:#{1,6}[ \t]*|\*\*[ \t]*)(\d+|[一二三四五六七八九十])[ \t]*[.．、:：)）]")
 
 
 def _labeled_option_items(reply_text: str) -> list[OfferItem]:
@@ -850,10 +852,13 @@ def _labeled_option_items(reply_text: str) -> list[OfferItem]:
     close = text.lower().rfind("</file>")
     if close != -1:
         text = text[close + len("</file>"):]
-    lines = [line.strip() for line in _MARKDOWN_RE.sub("", text).splitlines() if line.strip()]
+    raw_lines = [raw.strip() for raw in text.splitlines() if raw.strip()]
     sections: list[tuple[int, list[str]]] = []
-    for line in lines:
-        match = _LABELED_OPTION_RE.match(line)
+    for raw in raw_lines:
+        line = _MARKDOWN_RE.sub("", raw).strip()
+        if not line:
+            continue
+        match = _LABELED_OPTION_RE.match(line) or _NUMBERED_HEADING_RE.match(raw)
         if match:
             token = match.group(1)
             index = int(token) if token.isdigit() else _LETTER_INDEX.get(token.lower()) or _parse_number(token)
