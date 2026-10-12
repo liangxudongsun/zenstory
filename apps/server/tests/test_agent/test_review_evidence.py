@@ -13,6 +13,7 @@ from agent.graph.review_evidence import (
     find_numeric_fact_pairs,
     find_repetition_evidence,
 )
+from tests.test_agent.body_write_events import edit_file_events
 
 # 15 个汉字（去掉标点后）。
 REPEAT_15 = "窗外的雨下了一整夜，敲着铁皮屋顶"
@@ -168,20 +169,8 @@ def _text(text: str) -> StreamEvent:
 
 
 def _write_done(call_id: str) -> list[StreamEvent]:
-    return [
-        StreamEvent(
-            type=StreamEventType.TOOL_USE,
-            data={"id": call_id, "name": "edit_file", "status": "complete"},
-        ),
-        StreamEvent(
-            type=StreamEventType.TOOL_RESULT,
-            data={
-                "tool_use_id": call_id,
-                "name": "edit_file",
-                "result": {"content": [{"type": "text", "text": '{"status": "success"}'}]},
-            },
-        ),
-    ]
+    # 一次写进正文（draft）的成功 edit_file：自动质检门只看正文类文件的写入字数。
+    return edit_file_events(call_id, "林晚推开门，雨还在下。" * 30)
 
 
 @pytest.fixture

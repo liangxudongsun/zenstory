@@ -126,7 +126,9 @@ Agent 可以通过两种方式交接：
 
 1. **显式 handoff**: Agent 调用 `handoff_to_agent` 工具
 2. **工作流自动交接**: 按照 router 规划的 workflow_agents 顺序执行
-3. **自动质检门**: writer 写出超过阈值的正文后自动交给 quality_reviewer
+3. **自动质检门**: writer 本轮写进正文类文件（draft / script）的字数达到阈值后自动交给 quality_reviewer
+   （`graph/body_writes.py`：create_file 之后的 `<file>` 正文、edit_file / parallel 子任务写进去的文字，
+   按 `count_words` 计；改大纲、设定、角色等不算，writer 的聊天文字也不算）
 
 用户范围优先于交接（writing_graph.py）：
 
@@ -155,8 +157,24 @@ Agent 可以通过两种方式交接：
   （单个文件或递归删文件夹里的）要作者在点名的那一处说删。
   规则见 `tools/author_edit_guard.py`；工作集也会标注这类文件。前端工具卡片把
   `author_edit_protected` / `clarify_first` 显示成「保留了你改过的内容」/「先问清楚再改」，不显示「失败」。
-- 每个 agent run 的 TEXT 经 `core/author_facing_text.AgentTextShaper` 整理：和前一个角色的文字之间
-  补空行；作者写中文时，紧接着工具调用的英文过程句（「Now create the … file.」）不发给作者。
+- 每个 agent run 的 TEXT 经 `core/author_facing_text.AgentTextShaper` 整理：和前一个角色的文字之间、
+  同一个 agent 隔着工具调用的两段文字之间补空行；作者写中文时，紧接着工具调用的英文过程句
+  （「Now create the … file.」）不发给作者。
+- 作者只看到一份总结：writer（非快速模式、非返修、未到审查上限，且开着自动质检门或计划里下一个
+  是 quality_reviewer）写完正文类文件、可能送审时（create_file 正文还没写出来；edit_file /
+  write_chapter 累计字数到了送审阈值；或计划送审），图发 `StreamEventType.CHAT_HOLD(begin)`，
+  StreamAdapter 把之后的对话文字（正文不扣）先扣住；本轮真的交给 quality_reviewer 时图在 HANDOFF
+  前发 `CHAT_HOLD(discard)` 丢掉它，由审稿人（或返修后的 writer）写唯一一份总结，writer 收尾时问
+  作者的问题以 `[内容创作者要问作者的问题]` 原样交给它们；不送审时扣着的文字在下一个 agent / 交接 /
+  收尾 / 出错事件前、或流结束时原样放出（run 中途的 STEERING_RECEIVED 不放出、不结束扣留）。
+  CHAT_HOLD 只在图和适配器之间，不发给前端。
+- 送审交接附 `[本轮正文字数]`（本请求写过的 draft / script 落库后的 `count_words`，
+  也写进交接包 evidence）和 `[作者的篇幅要求]`（项目简介 / 写作风格 / 备注、本会话作者说过的话、
+  本轮原话里带「数字 + 字」的篇幅分句，`review_evidence.find_length_requirements`），审稿人按它们判篇幅。
+  两次读取在同一个工作线程里按顺序做，共用一份 0.5 秒预算（超时时用已读到的）；之后的逐字复读 /
+  数字事实检查另有自己的 0.5 秒。
+- StreamProcessor 在 IDLE（没有进行中的捕获）时丢掉独占一行的 `<file>` / `</file>`（不在 ``` 围栏里），
+  行内提到、反引号包着的照常保留。
 - 只读请求（router `read_only=true`）不交接给有写权限的 agent，显式 handoff 也拦下，并给一张
   `WORKFLOW_STOPPED(reason="read_only_handoff_blocked")` 提示卡片；交接给 quality_reviewer 这类
   只读 agent 照常。前端收到任何 workflow_stopped 都会结束流式状态，所以拦下时只记录、不 break，
@@ -166,7 +184,7 @@ Agent 可以通过两种方式交接：
   graph 同时置 `state["read_only"]`，`tools_adapter` 对
   `registry.FILE_WRITE_TOOL_NAMES`（create/edit/delete_file、parallel_execute）的调用一律拒绝执行、
   返回 `error_type="read_only_request"` 的可恢复错误（工具仍在清单里，描述标明本轮不可用），
-  拒绝经熔断器记账；`parallel_execute` 整次拒绝，即使这一批只有 query_files / hybrid_search
+  拒绝经熔断器记账；`parallel_execute` 整次拒绝，即使这一批只有 query_files
   子任务；`update_project`（项目信息/任务计划，不是文件）不在其中，只读请求下照常执行。
   只读请求万一留下空文件，直接回滚、不安排补写。
 - runner 的 `RunConfig` 设 `tool_not_found_behavior="return_error_to_model"`：模型调用工具集里
@@ -174,10 +192,41 @@ Agent 可以通过两种方式交接：
   记账（同名连续 3 次的熔断原因为 `repeated_unavailable_tool_call`），而不是 SDK 抛
   `ModelBehaviorError` 以致命 ERROR 结束。
 - 路由的范围判断转成 `state["scope_directive"]`，由 `nodes.run_streaming_agent` 追加到本轮每个
-  agent 的系统提示末尾；计划交接的 handoff_packet.todo 也带上用户的 `scope`。
+  agent 的系统提示末尾；graph 在每次跑 agent 前按当前 agent 重新生成，「作者已要正文、规划完直接
+  交接 writer」那句只给规划类角色（planner / hook_designer）。计划交接的 handoff_packet.todo 也带上用户的 `scope`。
+- 送审内容（`[待审查内容]`）取本请求写过的正文落库后的样子，每个文件带系统按编辑器口径算的字数；
+  本请求之前就有正文、整份放不进送审预算的长文件只附本请求改动的那一段（写入前正文由
+  `ToolContext.remember_pre_write_content` 在 AI 第一次写入前记下）。
 - 空文件纠偏轮由建了空文件的 agent 自己补写（不再硬编码 writer）；被纠偏打断的那一轮若以提问
   收尾，「等用户回答」会带过纠偏轮，纠偏完成后照样停下。
-- 自动质检门只认「至少一次写工具成功」：writer 的 create_file/edit_file 全部失败时不送审。
+- 自动质检门只认成功的写入：writer 的 create_file/edit_file 全部失败时不送审。
+- 写完 `</file>` 就结束了 run（openai-agents 把不带工具调用的回复当作最终输出）：有写权限的
+  agent 这次 run 里 create_file 成功、最后一次工具调用之后的文字以写完的 `<file>` 正文结束
+  （`graph/completion_evidence.ends_on_file_block`），且没有显式交接、澄清、轮数耗尽、错误时，
+  同一个 agent 接着跑一轮（交接说明以 `FILE_STREAM_CONTINUATION_MARKER` 开头，带已保存的文件、
+  作者范围、任务板上没完成的任务）：还有没写的接着写，写完了给作者总结。放在计划交接 / 自动质检
+  之前，正文与正文写入记录（`writer_body_writes`）接续给续写轮；受 `max_iterations` 约束，每一轮都要
+  真的新建并写完文件才会再续。
+- 回复里「已保存 / 已还原 / 已修改」是否属实不做文字检测，靠提示词约束（`prompts/base.py` 统一执行
+  协议：只有本轮对应的工具调用成功后才这样说，没改就直说没改）。
+- 收尾补发的 `update_project(tasks)`（`_auto_finalize_task_board_on_completion`）只按本请求实际写出、
+  仍存在且有正文的文件收尾 in_progress 任务：编号范围（「第2-5集」，`tools/task_progress.py`）全部有
+  对应文件才 done，只写了一部分时保持 in_progress 并记 `done_units` / `progress`（任务板提示里显示；
+  模型重存任务板时 `execute_update_plan` 把同名任务的记录接过去，收尾时剔除已删掉文件的编号）；
+  带 `artifact` 的要写出这个文件；本请求什么都没写不补。模型自己把范围任务标 done 而项目里缺文件时，
+  `execute_update_plan` 在结果里返回 `unverified_done` 提醒。
+- 空文件守卫（一次只流式写一个文件）挡住的 create_file，若要建的正是挡路的那个空文件（同标题、
+  同父目录、同类型，且没有建库途中的占坑），返回那个文件（`content=""`、`next_step` 提示直接写
+  `<file>` 正文），不再报 `pending_empty_file_unwritten`；挡路的是别的文件时照旧拒绝
+  （`mcp_tools._repeat_of_pending_empty_file`）。
+- 项目备注（AI 记忆 notes）按来源分三块存成纯文本：未标来源 / 【作者确认】/ 【AI 提议·待作者确认】
+  （`config/project_notes.py`）。`update_project` 的 notes 新条目逐条核对：那一条本身得是 `author_quotes`
+  里某句逐字出现在作者本轮消息里的原话（或其中连续的一段），才进「作者确认」，否则记成 AI 提议
+  （结果里 `notes_recorded_as_proposals`）；一句原话不给别的条目作保。`proposals` 整体替换 AI 提议块，
+  和 notes 共用 4000 字（超出返回 `notes_over_budget`，不写任何字段）。上下文里三块分开渲染
+  （`render_project_notes`），标题行能被解析回原分区，AI 提议写明不是设定。
+- 回复语言跟随作者最近一条消息（`message_manager.detect_author_language`），系统提示末尾写明本轮
+  语言，所有角色（含审稿人）共用；界面语言只在消息看不出语言时兜底。
 
 ## 关键组件详解
 
@@ -313,12 +362,11 @@ runner 回放历史时丢弃工具结果，所以新一轮靠两样东西知道�
 | `edit_file` | 精确编辑 (replace/insert/append/delete) |
 | `delete_file` | 删除文件 |
 | `query_files` | 查询和搜索文件 |
-| `hybrid_search` | 关键词+向量混合检索（语义检索可能未启用；定位文件以 `query_files(query=…)` 为准） |
 | `update_project` | 更新项目状态 |
 | `handoff_to_agent` | 交接给另一个 agent |
 | `request_clarification` | 请求用户澄清并暂停工作流 |
 | `parallel_execute` | 并行执行多个只读/工具任务 |
-| `load_skill` | 按名称或 id 加载已启用技能的方法与资源清单（技能 L2，记录用量；受每请求技能内容 token 预算限制，超出截断） |
+| `load_skill` | 按名称或 id 加载已启用技能的方法与资源清单（技能 L2，记录用量；受每请求技能内容 token 预算限制，超出截断；每请求最多读 3 个不同技能，与 read_skill_resource 共用计数） |
 | `read_skill_resource` | 读取技能附带的一个参考文件，或 `path="SKILL.md"` 读正文；支持 `offset` 分段续读（技能 L3） |
 
 ### 文件流式写入协议

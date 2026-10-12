@@ -16,6 +16,7 @@ const GENERIC_GUARD_MIN_AGE_MS = 10_000;
 const DYNAMIC_IMPORT_ERROR_PATTERNS = [
   "Failed to fetch dynamically imported module",
   "Importing a module script failed",
+  "error loading dynamically imported module",
   "ChunkLoadError",
 ];
 let pendingChunkReload: Promise<never> | null = null;

@@ -123,6 +123,31 @@ describe('Skill selection flow', () => {
     expect(row).toHaveFocus()
   })
 
+  it('shows a note instead of instructions for an added official skill, full text for own skills', async () => {
+    const user = userEvent.setup({ delay: null })
+    vi.mocked(skillsApi.list).mockResolvedValue({
+      skills: [
+        skills[0],
+        { ...makeSkill('a1', '官方节奏'), source: 'added', instructions: '', instructions_hidden: true, description: '控制节奏' },
+      ],
+      total: 2,
+    })
+    renderFlow()
+
+    await user.click(await screen.findByText('官方节奏'))
+    const officialDialog = screen.getByRole('dialog', { name: /官方节奏/ })
+    expect(within(officialDialog).getByText('控制节奏')).toBeInTheDocument()
+    expect(within(officialDialog).getByText('editor:fileTree.skillInstructionsHidden')).toBeInTheDocument()
+    expect(within(officialDialog).queryByText('editor:fileTree.skillInstructions')).not.toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    await user.click(screen.getByText('节奏控制'))
+    const ownDialog = screen.getByRole('dialog', { name: /节奏控制/ })
+    expect(within(ownDialog).getByText('instructions of 节奏控制')).toBeInTheDocument()
+    expect(within(ownDialog).queryByText('editor:fileTree.skillInstructionsHidden')).not.toBeInTheDocument()
+  })
+
   it('sends selected_skill_ids with the message and clears the chips', async () => {
     const user = userEvent.setup({ delay: null })
     const { onSend } = renderFlow()

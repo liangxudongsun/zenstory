@@ -1,3 +1,4 @@
+import { isFileTitleTooLong } from "../../lib/fileTitle";
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useProject } from "../../contexts/ProjectContext";
@@ -325,6 +326,11 @@ export const FileTreePane: React.FC = () => {
   const handleCreate = async (parentId: string) => {
     if (!currentProjectId || !newItemName.trim()) {
       cancelCreate();
+      return;
+    }
+
+    if (isFileTitleTooLong(newItemName.trim())) {
+      toast.error(t('editor:fileTree.titleTooLong'));
       return;
     }
 

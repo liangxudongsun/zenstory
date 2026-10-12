@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import urllib.parse
+from typing import Literal
 
 import httpx
 from fastapi import APIRouter, Depends, Query, Request, status
@@ -39,6 +40,7 @@ from services.features.referral_service import create_referral as create_referra
 from services.subscription.subscription_service import subscription_service
 from utils.email_identity import email_identity_matches, normalize_email_identity
 from utils.logger import get_logger, log_with_context
+from utils.request_context import get_log_context
 
 logger = get_logger(__name__)
 
@@ -121,14 +123,24 @@ def _redirect_to_frontend_register(
     return response
 
 
+OAuthFailureStage = Literal["missing_state", "invalid_state", "state_mismatch", "configuration", "token_exchange", "user_info", "identity"]
+
+
 def _redirect_to_frontend_auth_callback(
     *,
     error_code: str,
     redirect: str | None = None,
+    failure_stage: OAuthFailureStage | None = None,
 ) -> RedirectResponse:
     """Redirect OAuth callback failures to the frontend error UI."""
     frontend_url = os.getenv("FRONTEND_URL", "https://zenstory.ai")
     params: dict[str, str] = {"error_code": error_code}
+    if failure_stage:
+        params["error_stage"] = failure_stage
+        request_id = get_log_context().get("request_id")
+        if request_id:
+            params["request_id"] = request_id
+        log_with_context(logger, logging.WARNING, "Google OAuth callback rejected", oauth_stage=failure_stage, error_code=str(error_code))
     if redirect and _is_allowed_redirect_url(redirect):
         params["redirect"] = redirect
 
@@ -353,27 +365,34 @@ async def google_oauth_callback(
         "Google OAuth callback received",
     )
 
+    failure_stage: OAuthFailureStage = "missing_state"
     if not state:
         return _redirect_to_frontend_auth_callback(
+                   failure_stage=failure_stage,
             error_code=ErrorCode.AUTH_TOKEN_INVALID,
         )
 
+    failure_stage = "invalid_state"
     state_payload = _decode_oauth_state(state)
     if state_payload is None:
         return _redirect_to_frontend_auth_callback(
+                   failure_stage=failure_stage,
             error_code=ErrorCode.AUTH_TOKEN_INVALID,
         )
 
     redirect_from_state = state_payload.get("redirect")
 
+    failure_stage = "state_mismatch"
     state_nonce = state_payload.get("nonce")
     cookie_nonce = request.cookies.get(OAUTH_STATE_COOKIE_NAME) if request else None
     if not state_nonce or not cookie_nonce or state_nonce != cookie_nonce:
         return _redirect_to_frontend_auth_callback(
+                   failure_stage=failure_stage,
             error_code=ErrorCode.AUTH_TOKEN_INVALID,
             redirect=redirect_from_state,
         )
 
+    failure_stage = "configuration"
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
         log_with_context(
             logger,
@@ -381,10 +400,12 @@ async def google_oauth_callback(
             "Google OAuth callback failed: not configured",
         )
         return _redirect_to_frontend_auth_callback(
+                   failure_stage=failure_stage,
             error_code=ErrorCode.INTERNAL_SERVER_ERROR,
             redirect=redirect_from_state,
         )
 
+    failure_stage = "token_exchange"
     # Exchange code for access token
     async with httpx.AsyncClient() as client:
         try:
@@ -400,6 +421,7 @@ async def google_oauth_callback(
             )
         except httpx.HTTPError:
             return _redirect_to_frontend_auth_callback(
+                       failure_stage=failure_stage,
                 error_code=ErrorCode.AUTH_TOKEN_INVALID,
                 redirect=redirect_from_state,
             )
@@ -412,6 +434,7 @@ async def google_oauth_callback(
                 status_code=token_response.status_code,
             )
             return _redirect_to_frontend_auth_callback(
+                       failure_stage=failure_stage,
                 error_code=ErrorCode.AUTH_TOKEN_INVALID,
                 redirect=redirect_from_state,
             )
@@ -420,11 +443,13 @@ async def google_oauth_callback(
             token_data = token_response.json()
         except ValueError:
             return _redirect_to_frontend_auth_callback(
+                       failure_stage=failure_stage,
                 error_code=ErrorCode.AUTH_TOKEN_INVALID,
                 redirect=redirect_from_state,
             )
         if not isinstance(token_data, dict):
             return _redirect_to_frontend_auth_callback(
+                       failure_stage=failure_stage,
                 error_code=ErrorCode.AUTH_TOKEN_INVALID,
                 redirect=redirect_from_state,
             )
@@ -437,10 +462,12 @@ async def google_oauth_callback(
                 "Google OAuth token response missing access token",
             )
             return _redirect_to_frontend_auth_callback(
+                       failure_stage=failure_stage,
                 error_code=ErrorCode.AUTH_TOKEN_INVALID,
                 redirect=redirect_from_state,
             )
 
+        failure_stage = "user_info"
         # Fetch user info from Google
         try:
             user_response = await client.get(
@@ -449,6 +476,7 @@ async def google_oauth_callback(
             )
         except httpx.HTTPError:
             return _redirect_to_frontend_auth_callback(
+                       failure_stage=failure_stage,
                 error_code=ErrorCode.AUTH_TOKEN_INVALID,
                 redirect=redirect_from_state,
             )
@@ -461,6 +489,7 @@ async def google_oauth_callback(
                 status_code=user_response.status_code,
             )
             return _redirect_to_frontend_auth_callback(
+                       failure_stage=failure_stage,
                 error_code=ErrorCode.AUTH_TOKEN_INVALID,
                 redirect=redirect_from_state,
             )
@@ -469,11 +498,13 @@ async def google_oauth_callback(
             google_user = user_response.json()
         except ValueError:
             return _redirect_to_frontend_auth_callback(
+                       failure_stage=failure_stage,
                 error_code=ErrorCode.AUTH_TOKEN_INVALID,
                 redirect=redirect_from_state,
             )
         if not isinstance(google_user, dict):
             return _redirect_to_frontend_auth_callback(
+                       failure_stage=failure_stage,
                 error_code=ErrorCode.AUTH_TOKEN_INVALID,
                 redirect=redirect_from_state,
             )
@@ -488,6 +519,7 @@ async def google_oauth_callback(
                 "Google OAuth user info missing email",
             )
             return _redirect_to_frontend_auth_callback(
+                       failure_stage=failure_stage,
                 error_code=ErrorCode.AUTH_TOKEN_INVALID,
                 redirect=redirect_from_state,
             )
@@ -498,6 +530,7 @@ async def google_oauth_callback(
         select(User).where(email_identity_matches(User.email, google_email))
     ).first()
 
+    failure_stage = "identity"
     raw_state_invite = state_payload.get(OAUTH_STATE_INVITE_CODE_KEY)
     normalized_invite_code = _sanitize_invite_code(raw_state_invite)
 
@@ -512,6 +545,7 @@ async def google_oauth_callback(
                 email=google_email,
             )
             return _redirect_to_frontend_auth_callback(
+                       failure_stage=failure_stage,
                 error_code=ErrorCode.AUTH_INACTIVE_USER,
                 redirect=redirect_from_state,
             )

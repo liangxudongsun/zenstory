@@ -16,9 +16,7 @@ from services.features.file_version_service import get_file_version_service
 @pytest.fixture
 async def creation_context(client, db_session, monkeypatch):
     # Indexing is outside the creation transaction and must not call providers.
-    import services.llama_index as indexing
 
-    monkeypatch.setattr(indexing, "schedule_index_upsert", lambda **kwargs: None)
     user = User(
         username="creation-baseline",
         email="creation-baseline@example.test",

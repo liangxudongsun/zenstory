@@ -98,7 +98,7 @@ assembler the built-in ZenStory AI uses. It can include:
 - The focus file (`--file`), its parent outline, the previous chapter and a few
   recently edited sibling chapters.
 - Up to 10 character and 10 lore files from the project.
-- Retrieved passages from hybrid search when `--query` is given (`snippet` items).
+- Retrieved passages from keyword search when `--query` is given (`snippet` items).
 
 Items are deduplicated, ranked by priority and query relevance, and trimmed to a token
 budget. Each item has `type` (`outline`, `character`, `lore`, `snippet`, `quote`, ...),
@@ -111,12 +111,11 @@ previews: fetch full text with `zenstory files get <source_file_id>` when detail
 
 ## Search
 
-`zenstory search` runs hybrid retrieval (semantic vectors fused with lexical matching)
-over the project's indexed files. Each hit has `score`, optional `fused_score`, `sources`
-(`semantic`, `lexical`), a `snippet` and `line_start` (line in the file where the snippet
-starts). Files are (re)indexed in the background after create/update and removed after
-delete, so very recent writes may lag. HTTP 503 means the search index is unavailable;
-fall back to `files list` + `files get`.
+`zenstory search` reads the project's current database files using keyword matching.
+Each hit has `score`, `fused_score` (the same keyword score), `sources` (`lexical`),
+a `snippet` and `line_start`. Committed edits and deletions are visible immediately;
+there is no background index or embedding provider. HTTP 503 means database search
+is busy or unavailable; fall back to `files list` + `files get`.
 
 ## API keys and scopes
 

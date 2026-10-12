@@ -94,7 +94,6 @@ services:
       - "${SERVER_BIND_ADDRESS:-127.0.0.1}:${SERVER_PORT:-8000}:8080"
     volumes:
       - zenstory_uploads:/app/uploads
-      - zenstory_chroma:/app/chroma_data
 
   web:
     build:
@@ -120,4 +119,3 @@ volumes:
   zenstory_postgres_data:
   zenstory_redis_data:
   zenstory_uploads:
-  zenstory_chroma:

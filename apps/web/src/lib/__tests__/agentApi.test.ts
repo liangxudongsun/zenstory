@@ -323,6 +323,40 @@ describe('agentApi', () => {
       },
     )
 
+    it('reports the connection closed only after the last frame after done', async () => {
+      const order: string[] = []
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        body: createMockStream([
+          'event: done\ndata: {"stop_reason":"user_stopped","produced_output":false}\n\n',
+          'event: quota_refunded\ndata: {"refunded":true,"kind":"stopped"}\n\n',
+        ]),
+      }))
+
+      streamAgentRequest({ project_id: 'test-project', message: 'test' }, {
+        onDone: () => order.push('done'),
+        onQuotaRefunded: () => order.push('refunded'),
+        onClosed: () => order.push('closed'),
+      })
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      expect(order).toEqual(['done', 'refunded', 'closed'])
+    })
+
+    it('reports the connection closed when the request is aborted', async () => {
+      const onClosed = vi.fn()
+      vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })))
+      })))
+
+      const controller = streamAgentRequest({ project_id: 'test-project', message: 'test' }, { onClosed })
+      controller.abort()
+      await new Promise(resolve => setTimeout(resolve, 20))
+
+      expect(onClosed).toHaveBeenCalledTimes(1)
+    })
+
     it('hands the run id from X-Agent-Run-ID to onRunStarted so the run can be stopped', async () => {
       const onRunStarted = vi.fn()
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({

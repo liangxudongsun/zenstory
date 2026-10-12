@@ -104,7 +104,6 @@ def test_tool_recovery_advances_fresh_token_and_restores_canonical_parent(
     user, project, folder = _seed(db_session, kind, offset=offset, nested=nested)
     old = folder.updated_at
     monkeypatch.setattr(crud_module, "utcnow", lambda: NOW)
-    monkeypatch.setattr(FileCRUD, "_schedule_index_upsert", lambda *_a, **_kw: None)
     # Screenplay's legacy draft parent must still fall back to canonical script.
     requested_parent = f"{project.id}-draft-folder" if kind == "script" else folder.id
 
@@ -164,7 +163,7 @@ async def test_strict_upload_baseline_failure_rolls_back_existing_folder_recover
         else:
             files_api.upload_drafts(
                 project_id, [upload], parent_id=None, current_user=user, session=db_session,
-                background_tasks=BackgroundTasks(),
+
             )
     failure.assert_called_once()
     db_session.rollback()  # Request dependency cleanup owns the outer transaction.

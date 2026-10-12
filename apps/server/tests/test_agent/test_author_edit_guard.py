@@ -17,14 +17,21 @@ from agent.tools.author_edit_guard import (
     CONFIRM_FILE_IDS_ROUTING_KEY,
     AuthorEditRefusals,
     AuthorScope,
+    _title_sequence,
+    author_accepts_offer,
     confirmed_file_ids_from_history,
+    ends_with_conditional_offer,
     latest_text_is_authors,
     mentioned_sequences,
+    previous_offer_context_from_history,
+    previous_offer_from_history,
+    previous_offer_items,
     referenced_file_ids_from_metadata,
     rename_source_terms,
     request_deletes_file,
     request_deletes_folder,
     request_targets_file,
+    resolve_offer_context_file,
 )
 from agent.tools.file_ops import FileCRUD
 from api import files as files_api
@@ -329,11 +336,9 @@ def owner_project(db_session, monkeypatch):
     project = Project(name="还剩三分钟", owner_id=user.id)
     db_session.add_all([user, project])
     db_session.commit()
-    monkeypatch.setattr(FileCRUD, "_schedule_index_upsert", lambda *_a, **_kw: None)
     monkeypatch.setattr(activation_event_service, "record_ai_write_accepted", lambda *_a, **_kw: None)
     monkeypatch.setattr(activation_event_service, "record_once", lambda *_a, **_kw: None)
     monkeypatch.setattr(FileVersionService, "check_user_version_quota", lambda *_a, **_kw: (True, 0, 10))
-    monkeypatch.setattr("services.llama_index.schedule_index_upsert", lambda **_kw: None)
     monkeypatch.setattr("services.infra.dashboard_cache.dashboard_cache.bump_project_version", lambda *_a, **_kw: None)
     return user, project
 
@@ -356,7 +361,7 @@ def _author_saves(session, user, file, content):
     files_api.update_file(
         file.id,
         files_api.FileUpdate(content=content),
-        BackgroundTasks(),
+
         current_user=user,
         session=session,
     )
@@ -423,7 +428,7 @@ async def test_comparison_save_keeps_the_rename_protected_only_as_an_author_edit
     files_api.update_file(
         chapter.id,
         files_api.FileUpdate(content=AUTHOR_CH3, change_type=change_type, change_source="user"),
-        BackgroundTasks(),
+
         current_user=user,
         session=db_session,
     )
@@ -676,3 +681,469 @@ async def test_recursive_folder_delete_keeps_author_edited_chapters(db_session, 
     assert allowed["status"] == "success"
     db_session.expire_all()
     assert db_session.get(File, chapter.id).is_deleted is True
+
+
+# --------------------------------------------- 回答上一轮 AI 对这个文件的提议（I14）
+#
+# 线上：AI 自己提出「按这个改，我直接写进第四节」，作者回「好的，继续」「两件都做」
+# 「按新来历修改」仍被拦，AI 只能让作者照抄一句口令。上一轮 AI 的提议原文在历史里，
+# 守卫据此判断作者答应 / 选中的那一项是不是改这个文件。以下文本都是构造的。
+
+_OFFER_CH4 = (
+    "《第四节 码头夜谈》写好了，我再通读核对一遍。第四节是你手动改过的，我没有直接动它。\n\n"
+    "我准备的改法：把「货早就出不去了」那一句换成两处能对上的硬伤，第六节翻盘时正好用上。\n\n"
+    "- 按这个改（冷库停电＋大客户转单），我直接写进第四节。\n"
+    "- 换一种：改成海关扣货、合伙人跑路，方向类似。\n"
+    "- 第四节先不动，等写到第六节再回头补。"
+)
+_OFFER_OUTLINE_OR_CH2 = (
+    "第一章、第三章的口径都改好了。\n\n"
+    "《总纲与前十章细纲》是你手动改过的，我没有动。里面还有三处是旧说法。\n"
+    "要改这个文件得你点头，你说一声我就动。\n\n"
+    "请挑一个：\n"
+    "1. 大纲那三处按新身份改掉（核心冲突、第五卷、第九章细纲）\n"
+    "2. 先把第二章和第一章重复的那段压掉\n"
+    "3. 两件都做"
+)
+_OFFER_OUTLINE_LABELS = (
+    "大纲是你手动改过的文件，我没有动它。大纲里还有三处旧说法，要不要一起改？\n\n"
+    "请挑一个：\n"
+    "1. 大纲那三处按新身份改掉，正文那三处也一起理顺\n"
+    "2. 只改大纲那三处，正文先留着\n"
+    "3. 都先不动，我接着往下写"
+)
+_OFFER_OTHER_CHAPTER = "第3章是你手动改过的，我没动它：那里摊主叫老秦，第2章写的是老周，要把第2章也改成老秦吗？"
+_OFFER_ONE_LINE = "核心大纲第七行和新结局对不上。要不要我把大纲那一行同步改成新落点？你说改我就改，不改就留着。"
+_OFFER_DECLINE_FIRST = "第四节是你手动改过的。\n\n- 第四节先不动，以后再说\n- 按这个改第四节，把那句换成冷库停电"
+_OFFER_NEXT_STEPS = "第3章写好了。\n\n接下来你可以：\n1. 把第3章开头改紧凑一点\n2. 继续写第4章"
+# AI 交代这一轮做了什么（「第四节是你手动改过的，我没动它」）不是提议改第四节。
+_REPORT_BULLETS_THEN_QUESTION = (
+    "第五节写好了。\n\n"
+    "- **第四节**：是你手动改过的，我没动它\n"
+    "- **第五节**：按细纲写完了，结尾留了钩子\n\n"
+    "要不要继续写第六节？"
+)
+_REPORT_INLINE_QUESTION = "第五节写好了。第四节是你手动改过的，要我继续吗？"
+_REPORT_RUN_WITH_OFFER = (
+    "这轮做了：\n- 第四节：你手动改过，我没动\n- 第五节写完了\n需要的话我可以接着写第六节。"
+)
+# 改第四节和「继续写第五节」并列时，「继续」选的是接着写。
+_OFFER_EDIT_OR_CONTINUE = "要不要我把第四节结尾改紧凑一点？还是继续写第五节？"
+_OFFER_ONE_QUESTION_CH4 = "要不要我把第四节结尾改紧凑一点？"
+
+_CH4 = {"file_id": "ch4", "title": "第四节 码头夜谈", "file_type": "draft"}
+_CH6 = {"file_id": "ch6", "title": "第六节 翻盘", "file_type": "draft"}
+_OUTLINE = {"file_id": "o1", "title": "总纲与前十章细纲", "file_type": "outline"}
+_CH2 = {"file_id": "c2", "title": "第二章 雪夜", "file_type": "draft"}
+_CH9 = {"file_id": "c9", "title": "第九章 勋章", "file_type": "draft"}
+_CH3 = {"file_id": "ch3", "title": "第3章 三十年", "file_type": "draft"}
+_CH2_NUM = {"file_id": "ch2", "title": "第2章 夜市", "file_type": "draft"}
+
+
+class TestReplyToThePreviousOffer:
+    @pytest.mark.parametrize(
+        ("offer", "reply", "file", "unlocked"),
+        [
+            # AI 提议改第四节、作者答应：第一项（推荐项）就是改第四节。
+            (_OFFER_CH4, "好的，继续", _CH4, True),
+            (_OFFER_CH4, "可以", _CH4, True),
+            (_OFFER_CH4, "按这个改", _CH4, True),
+            (_OFFER_CH4, "1", _CH4, True),
+            (_OFFER_CH4, "选第一个", _CH4, True),
+            # 选了「先不动」、说了不改、或者答应之外又提了别的事：不放开。
+            (_OFFER_CH4, "3", _CH4, False),
+            (_OFFER_CH4, "第四节先不动", _CH4, False),
+            (_OFFER_CH4, "好，继续写第五节", _CH4, False),
+            # 提议改的是第四节：第六节（只在提议里被提到）不跟着放开。
+            (_OFFER_CH4, "好的，继续", _CH6, False),
+            # 选项：1 改大纲，2 改第二章，3 两件都做。
+            (_OFFER_OUTLINE_OR_CH2, "两件都做", _OUTLINE, True),
+            (_OFFER_OUTLINE_OR_CH2, "两件都做", _CH2, True),
+            (_OFFER_OUTLINE_OR_CH2, "3", _OUTLINE, True),
+            (_OFFER_OUTLINE_OR_CH2, "1", _OUTLINE, True),
+            (_OFFER_OUTLINE_OR_CH2, "1", _CH2, False),
+            (_OFFER_OUTLINE_OR_CH2, "2", _OUTLINE, False),
+            # 只答「好」：按第一项（改大纲），不放开第二章。
+            (_OFFER_OUTLINE_OR_CH2, "好", _OUTLINE, True),
+            (_OFFER_OUTLINE_OR_CH2, "好", _CH2, False),
+            # 「第九章细纲」是大纲里的一段，不是第九章正文。
+            (_OFFER_OUTLINE_OR_CH2, "1", _CH9, False),
+            # 作者复述了某一项的说法（「按新身份」只出现在第 1 项里）。
+            (_OFFER_OUTLINE_LABELS, "按新身份修改，改完再把1-10章里冲突的地方重写", _OUTLINE, True),
+            (_OFFER_OUTLINE_LABELS, "都先不动", _OUTLINE, False),
+            # AI 问的是「要把第2章也改成老秦吗？」：「好 / 可以」答应的是第2章，不放开第3章。
+            (_OFFER_OTHER_CHAPTER, "好", _CH3, False),
+            (_OFFER_OTHER_CHAPTER, "可以", _CH3, False),
+            (_OFFER_OTHER_CHAPTER, "可以", _CH2_NUM, True),
+            # 一句话的提议，结尾是「你说改我就改」。
+            (_OFFER_ONE_LINE, "改", _OUTLINE, True),
+            (_OFFER_ONE_LINE, "不改", _OUTLINE, False),
+            # 第一项是「先不动」时，「好」答应的是不动。
+            (_OFFER_DECLINE_FIRST, "好", _CH4, False),
+            # 作者复述了改法、却点名的是别的章：不是在选这一项。
+            (_OFFER_NEXT_STEPS, "第5章的开头改紧凑一点", _CH3, False),
+            (_OFFER_NEXT_STEPS, "1", _CH3, True),
+            # AI 交代的是做了什么、问的是别的事：「好 / 1」不放开它说「没动」的第四节。
+            (_REPORT_BULLETS_THEN_QUESTION, "好", _CH4, False),
+            (_REPORT_BULLETS_THEN_QUESTION, "1", _CH4, False),
+            (_REPORT_INLINE_QUESTION, "好", _CH4, False),
+            (_REPORT_RUN_WITH_OFFER, "1", _CH4, False),
+            (_REPORT_RUN_WITH_OFFER, "好", _CH4, False),
+            # 「继续」选的是并列的「继续写第五节」，不是改第四节。
+            (_OFFER_EDIT_OR_CONTINUE, "继续", _CH4, False),
+            (_OFFER_EDIT_OR_CONTINUE, "好的，继续", _CH4, False),
+            (_OFFER_EDIT_OR_CONTINUE, "好", _CH4, True),
+            (_OFFER_EDIT_OR_CONTINUE, "改吧", _CH4, True),
+            # 客套话不是答应；「继续」单独说也不算答应改（可能只是让 AI 往下写）。
+            (_OFFER_ONE_QUESTION_CH4, "辛苦了", _CH4, False),
+            (_OFFER_ONE_QUESTION_CH4, "谢谢", _CH4, False),
+            (_OFFER_ONE_QUESTION_CH4, "麻烦了", _CH4, False),
+            (_OFFER_ONE_QUESTION_CH4, "吧", _CH4, False),
+            (_OFFER_ONE_QUESTION_CH4, "继续", _CH4, False),
+            (_OFFER_ONE_QUESTION_CH4, "好的，谢谢", _CH4, True),
+            (_OFFER_ONE_QUESTION_CH4, "可以吧", _CH4, True),
+        ],
+    )
+    def test_assent_or_pick_unlocks_only_the_file_the_ai_offered_to_change(self, offer, reply, file, unlocked):
+        scope = AuthorScope(messages=(reply,), previous_offer=previous_offer_items(offer))
+        assert request_targets_file(scope, **file) is unlocked
+
+    def test_assent_without_a_previous_offer_does_not_unlock(self):
+        for reply in ("好的，继续", "好", "两件都做", "1"):
+            assert request_targets_file(_scope(reply), **_CH4) is False
+        # 上一轮只交代做了什么、没提议改它。
+        report = previous_offer_items("《第四节 码头夜谈》写好了，1066 字，没发现需要返工的地方。")
+        assert request_targets_file(AuthorScope(messages=("好",), previous_offer=report), **_CH4) is False
+
+    def test_offer_is_read_from_the_last_assistant_reply_only(self):
+        history = [
+            {"role": "user", "content": "诱饵那颗雷再实一点"},
+            {"role": "assistant", "content": _OFFER_CH4 + "\n\n[此前的工具操作]\n- 编辑《第四节 码头夜谈》被拒"},
+            {"role": "user", "content": "好的，继续"},
+        ]
+        offer = previous_offer_from_history(history)
+        assert request_targets_file(AuthorScope(messages=("好的，继续",), previous_offer=offer), **_CH4) is True
+        later = [*history, {"role": "assistant", "content": "第五节写好了。"}]
+        assert previous_offer_from_history(later) == ()
+
+    def test_conditional_offer_counts_as_asking(self):
+        assert ends_with_conditional_offer(_OFFER_ONE_LINE) is True
+        assert ends_with_conditional_offer("要改的话你说一声，我就动。") is True
+        assert ends_with_conditional_offer("第4章写好了。") is False
+
+
+# ------------------------------- 提议没点名文件：看上一轮在谈的是哪个文件（live run 2 场景 C）
+#
+# 作者问「第一章开头节奏有点慢，有什么建议？先说建议，别直接改」，AI 给了几条建议，选项是
+# 「1. 按上面几条整体调开头，我出改稿给你看」，没点名文件。改动前作者回「1」被拒，回「好的」
+# 只因第 2 项碰巧引用了标题词才放行。以下文本按线上的形状另写。
+
+_ASK_CH2 = "第二章中段有点拖，你有什么具体建议？先说建议，别直接动手。"
+_SUGGEST_UNNAMED = (
+    "拖的地方在渡口那三段：等船、回忆、再等船，读者手里没有要追的问题。\n\n"
+    "1. 把等船压成一段，只留雾和铃声\n"
+    "2. 回忆挪到上船以后\n\n"
+    "另外雾是傍晚起的，后文又写成清早。要不要统一，你说一声。\n\n"
+    "你想怎么走：\n"
+    "1. 按上面几条整体调中段，我出改稿给你看\n"
+    "2. 只做第一条（压缩等船），回忆先不动\n"
+    "3. 先告诉我一件事：船夫和第一章的老人是同一个人吗？定了我再给方案"
+)
+# 收尾是「三个可选的地方」，每一项都没点名文件；文件只在开头点到。
+_LEFTOVERS_UNNAMED = (
+    "《第二章 夜渡》中段按那几条调过了，等船压成了一段。\n\n"
+    "三个可选的地方，你定了我再动：\n"
+    "1. 雾起的时辰前后还不一样，要不要统一成一种说法\n"
+    "2. 结尾两句都用了「铃声」，可以把后一句改成「水声」\n"
+    "3. 段首缩进有的有、有的没有，要不要统一一遍"
+)
+_CH2_NIGHT = {"file_id": "n2", "title": "第二章 夜渡", "file_type": "draft"}
+_CH3_NIGHT = {"file_id": "n3", "title": "第三章 上岸", "file_type": "draft"}
+
+
+def _unnamed_offer_scope(reply: str, history: list[dict]) -> AuthorScope:
+    return AuthorScope(
+        messages=(reply,),
+        previous_offer=previous_offer_from_history(history),
+        previous_offer_context=previous_offer_context_from_history(history),
+    )
+
+
+def _context_target(history: list[dict], files: list[dict], protected: set[str]) -> str | None:
+    return resolve_offer_context_file(
+        previous_offer_context_from_history(history),
+        [(item["file_id"], item["title"], item["file_type"]) for item in files],
+        lambda file_id: file_id in protected,
+    )
+
+
+class TestUnnamedOfferResolvesFromContext:
+    _HISTORY = [
+        {"role": "user", "content": _ASK_CH2},
+        {"role": "assistant", "content": _SUGGEST_UNNAMED},
+    ]
+
+    @pytest.mark.parametrize(
+        ("reply", "unlocked"),
+        [
+            ("好的，按你说的改", True),
+            ("好的", True),
+            ("1", True),
+            ("选1", True),
+            ("第一个", True),
+            ("A", True),
+            ("2", True),
+            # 第 3 项只是问问题，不是改。
+            ("3", False),
+            ("先不改", False),
+        ],
+    )
+    def test_assent_or_pick_maps_to_the_file_the_previous_turn_discussed(self, reply, unlocked):
+        target = _context_target(self._HISTORY, [_CH2_NIGHT, _CH3_NIGHT], {"n2", "n3"})
+        assert target == "n2"
+        scope = _unnamed_offer_scope(reply, self._HISTORY)
+        assert request_targets_file(scope, **_CH2_NIGHT, offer_context_file=lambda: target) is unlocked
+        # 别的文件不跟着放开。
+        assert request_targets_file(scope, **_CH3_NIGHT, offer_context_file=lambda: target) is False
+
+    def test_without_the_context_an_unnamed_offer_does_not_unlock(self):
+        scope = _unnamed_offer_scope("1", self._HISTORY)
+        assert request_targets_file(scope, **_CH2_NIGHT) is False
+
+    def test_leftover_options_resolve_from_the_file_named_earlier_in_the_reply(self):
+        history = [
+            {"role": "user", "content": "好的，按你说的改"},
+            {"role": "assistant", "content": _LEFTOVERS_UNNAMED},
+        ]
+        target = _context_target(history, [_CH2_NIGHT, _CH3_NIGHT], {"n2"})
+        assert target == "n2"
+        for reply in ("好", "3", "第三个"):
+            scope = _unnamed_offer_scope(reply, history)
+            assert request_targets_file(scope, **_CH2_NIGHT, offer_context_file=lambda: target) is True
+
+    def test_no_previous_offer_means_no_unlock(self):
+        history = [
+            {"role": "user", "content": _ASK_CH2},
+            {"role": "assistant", "content": "第二章中段拖在渡口那三段，等船和回忆叠在一起了。"},
+        ]
+        target = _context_target(history, [_CH2_NIGHT], {"n2"})
+        for reply in ("好的，按你说的改", "1"):
+            scope = _unnamed_offer_scope(reply, history)
+            assert request_targets_file(scope, **_CH2_NIGHT, offer_context_file=lambda: target) is False
+
+    def test_an_offer_naming_another_file_does_not_unlock_this_one(self):
+        history = [
+            {"role": "user", "content": _ASK_CH2},
+            {"role": "assistant", "content": "第二章中段拖。\n\n1. 把第三章开头压一压，第二章先不动\n2. 继续写第四章"},
+        ]
+        target = _context_target(history, [_CH2_NIGHT, _CH3_NIGHT], {"n2"})
+        for reply in ("1", "好"):
+            scope = _unnamed_offer_scope(reply, history)
+            assert request_targets_file(scope, **_CH2_NIGHT, offer_context_file=lambda: target) is False
+
+    def test_two_protected_files_in_the_context_are_ambiguous(self):
+        history = [
+            {"role": "user", "content": "第二章和第三章都有点拖，有什么建议？"},
+            {"role": "assistant", "content": _SUGGEST_UNNAMED},
+        ]
+        assert _context_target(history, [_CH2_NIGHT, _CH3_NIGHT], {"n2", "n3"}) is None
+        # 只有一个是作者手改过的：改的就是它（另一个本来就能改）。
+        assert _context_target(history, [_CH2_NIGHT, _CH3_NIGHT], {"n2"}) == "n2"
+        # 「其他章」也不猜。
+        others = [{"role": "user", "content": _ASK_CH2}, {"role": "assistant", "content": "其他章也有同样的问题。要不要统一一下？"}]
+        assert _context_target(others, [_CH2_NIGHT], {"n2"}) is None
+
+    def test_a_file_the_ai_said_it_left_alone_is_not_the_one_being_discussed(self):
+        # 守卫拒绝后 AI 用的固定说法：作者手改过的第3章只是被交代「没动」，问的是统一称呼。
+        history = [
+            {"role": "user", "content": "继续写"},
+            {"role": "assistant", "content": "第3章是你手动改过的，我没动它：那里摊主叫老秦，第2章写的是老周。要不要统一一下称呼？"},
+        ]
+        assert _context_target(history, [_CH3, _CH2_NUM], {"ch3"}) is None
+        # 作者拿它当标准的那一章也不算在谈要改它。
+        standard = [
+            {"role": "user", "content": "以第3章为准，看看人名哪里对不上"},
+            {"role": "assistant", "content": "有两处称呼对不上。要不要统一一下？"},
+        ]
+        assert _context_target(standard, [_CH3], {"ch3"}) is None
+
+    def test_context_skips_streamed_file_bodies_and_synthesized_sections(self):
+        history = [
+            {"role": "user", "content": "写第三章"},
+            {"role": "assistant", "content": (
+                "<file>第二章里那场雾……</file>\n第三章写好了。要不要把开头再压一压？"
+                "\n\n[此前的工具操作]\n- 编辑《第二章 夜渡》"
+            )},
+        ]
+        context = previous_offer_context_from_history(history)
+        assert all("第二章" not in text for text in context)
+        assert _context_target(history, [_CH2_NIGHT, _CH3_NIGHT], {"n2", "n3"}) == "n3"
+
+
+async def test_option_number_for_an_unnamed_offer_edits_the_discussed_file(db_session, owner_project):
+    """上一轮选项没点名文件、作者回「1」：改的是上一轮在谈的那个作者手改过的章节。"""
+    user, project = owner_project
+    chapter = _ai_chapter(db_session, project, title="第二章 夜渡", content="雾是傍晚起的。")
+    _author_saves(db_session, user, chapter, "雾是傍晚起的。他等船。")
+    other = _ai_chapter(db_session, project, title="第三章 上岸", content="上岸了。")
+    history = [
+        {"role": "user", "content": _ASK_CH2},
+        {"role": "assistant", "content": _SUGGEST_UNNAMED},
+    ]
+    context = {
+        "author_previous_offer": previous_offer_from_history(history),
+        "author_previous_offer_context": previous_offer_context_from_history(history),
+    }
+    edit = {"id": chapter.id, "edits": [{"op": "replace", "old": "他等船。", "new": "雾里有铃声。"}]}
+
+    payload = await _run(mcp_tools.edit_file, db_session, user, project, edit, message="1", **context)
+    assert payload["status"] == "success"
+
+    # 第三章也被作者手改过：上一轮在谈的是哪一章说不清（作者问的是第二章，AI 回复又点了
+    # 第三章），不猜，照旧拒。
+    db_session.expire_all()
+    _author_saves(db_session, user, db_session.get(File, chapter.id), "雾里有铃声。他还在等。")
+    _author_saves(db_session, user, db_session.get(File, other.id), "上岸了，天还没亮。")
+    ambiguous = [
+        {"role": "user", "content": _ASK_CH2},
+        {"role": "assistant", "content": _SUGGEST_UNNAMED.replace("拖的地方", "第三章开头也拖，拖的地方")},
+    ]
+    refused = await _run(
+        mcp_tools.edit_file, db_session, user, project,
+        {"id": chapter.id, "edits": [{"op": "replace", "old": "他还在等。", "new": "他不等了。"}]},
+        message="1",
+        author_previous_offer=previous_offer_from_history(ambiguous),
+        author_previous_offer_context=previous_offer_context_from_history(ambiguous),
+    )
+    assert refused["error_type"] == AUTHOR_EDIT_PROTECTED_ERROR
+
+
+async def test_agreeing_to_the_ais_own_proposal_edits_the_author_edited_file(db_session, owner_project):
+    """AI 上一轮提议改作者手改过的第四节、作者回「好的，继续」：这一轮改得了。"""
+    user, project = owner_project
+    chapter = _ai_chapter(db_session, project, title="第四节 码头夜谈", content="货早就出不去了。")
+    _author_saves(db_session, user, chapter, "他说，货早就出不去了。")
+    history = [
+        {"role": "user", "content": "诱饵那颗雷再实一点"},
+        {"role": "assistant", "content": _OFFER_CH4, "routing": {CONFIRM_FILE_IDS_ROUTING_KEY: [chapter.id]}},
+    ]
+    edit = {"id": chapter.id, "edits": [
+        {"op": "replace", "old": "货早就出不去了。", "new": "冷库停电三天，最大的客户也转了单。"},
+    ]}
+
+    payload = await _run(
+        mcp_tools.edit_file, db_session, user, project, edit,
+        message="好的，继续",
+        author_confirmed_file_ids=confirmed_file_ids_from_history(history),
+        author_previous_offer=previous_offer_from_history(history),
+    )
+
+    assert payload["status"] == "success"
+    db_session.expire_all()
+    assert "冷库停电" in db_session.get(File, chapter.id).content
+
+    # 作者又手改了一次；这回 AI 问的是别的章，作者回「好」：第四节照样不动。
+    db_session.expire_all()
+    _author_saves(db_session, user, db_session.get(File, chapter.id), "冷库停电三天，大客户也走了。")
+    other = [
+        {"role": "user", "content": "继续"},
+        {"role": "assistant", "content": "第四节是你手动改过的，我没动它。要把第三节也改成冷库停电吗？"},
+    ]
+    refused = await _run(
+        mcp_tools.edit_file, db_session, user, project,
+        {"id": chapter.id, "edits": [{"op": "replace", "old": "冷库停电三天", "new": "冷库停电五天"}]},
+        message="好",
+        author_previous_offer=previous_offer_from_history(other),
+    )
+    assert refused["error_type"] == AUTHOR_EDIT_PROTECTED_ERROR
+
+
+# Live run 5 scenario C2: the AI listed three sectioned 改法 headings, the last one with
+# its own 好处 / 代价 bullets. 「1」 picked the bullet 「好处…」 instead of 改法一.
+_SECTIONED_OFFER_REPLY = """看了开头，慢在背景说明太集中。下面三个改法按改动大小排，都只动开头。
+
+**改法一｜最小改动：压缩背景，提前钩子**
+
+把第二、三段并成四五句，删掉作坊介绍那一段，在第一次停锤处插一句暗示这单活不寻常。
+
+**改法二｜悬念前置：从接活那天开场**
+
+把来客那一段提到最前，压成三五句，再接回打铁。
+
+**改法三｜倒叙：从敲门声开场**
+
+用结尾那声敲门作第一段。
+
+- 好处：问题和陌生人一起立起来，节奏最快
+- 代价：结尾得换个新的落点
+
+想按哪个改，告诉我编号就行。"""
+
+
+@pytest.mark.parametrize("answer", ["1", "选2", "方案三", "好的，按你说的改"])
+def test_sectioned_option_headings_are_the_offer_items(answer):
+    offer = previous_offer_items(_SECTIONED_OFFER_REPLY)
+    assert [item.index for item in offer if item.index is not None] == [1, 2, 3]
+    assert offer[0].text.startswith("改法一")
+    title = "第一章 铁匠"
+    assert author_accepts_offer(
+        answer,
+        offer,
+        title=title,
+        file_type="draft",
+        sequence=_title_sequence(title),
+        context_target=lambda: True,
+    )
+
+
+def test_sectioned_option_headings_still_refuse_a_decline():
+    offer = previous_offer_items(_SECTIONED_OFFER_REPLY)
+    title = "第一章 铁匠"
+    assert not author_accepts_offer(
+        "先不改了", offer, title=title, file_type="draft", sequence=_title_sequence(title), context_target=lambda: True
+    )
+
+
+# Live run (round 2) scenario C2: numbered options as bold headings, each with its own
+# 效果 / 保留 / 风险 bullets, and a prose tail. 「1」 was refused because no item parsed.
+_BOLD_NUMBERED_OFFER_REPLY = """先说清楚慢在哪：开头三段（炉子寅时烧上→鸡没叫第二遍）全在写环境和重复动作，读者。
+
+三个改法，方向不同，一次选一个就行：
+
+**1. 悬念前置：从「打废的剑」开场**
+把第一段换成李青正把一把打废的剑坯扔进墙角废铁堆——那把废剑还烫着，砸在别的废件。
+- 效果：把全章最深的钩子提到第一屏，读者带着疑问读环境描写，就不觉得慢了。
+- 保留：炉、砧、火色、镇上鸡叫这些场景照旧，只是挪到第二三段。
+- 风险：「废铁堆」这条线在后文只被阿岩提了一次，开场挑明后，中间最好让读者看见废剑一眼（不用解释），否则会显得只是话头
+
+**2. 关系前置：把「明儿一早就走」提到开头**
+第一段改成李青一边推风箱，一边听着屋里阿岩收拾行李的动静（捆绳子的声音、扁担磕地。
+- 效果：这把剑一上来就是「给要走的人打的」，情感有落点，后面所有锤声都在替这句话出力。
+- 保留：告别对白、盘缠、别露白、北边那条线全不动，等于把现在中段的对白上移。
+- 风险：阿岩的出场会从「天光里站进来」变成更早介入，离别感提前，章末陌生人登门的收束要相应压一点，别让两处情绪互相盖过
+
+**3. 动作中段切入：从「火候要过了」这一瞬落笔**
+不写开炉，第一句就是剑坯在火里烧过了头，红里泛白、边缘开始发亮发软，李青伸手去夹。
+- 效果：不靠加料，靠动作本身提速，第一段就有代价和紧张。
+- 保留：整章结构、字数几乎不动，只换开场顺序。
+- 风险：这个「要过火」的小险必须真给出后果（那半息真让他失了手，或他勉强救回来却留下瑕疵），否则就是空惊一场，反而露怯
+
+关于「想起去世的父亲」：这句我按你写下的保留，但它在开头抛出、后文没有落点，读起。
+
+想让我按哪一个改，或者把 2 和 3 合成一版（阿岩提前 + 过火开场）也可以，说一声再动文件。"""
+
+
+@pytest.mark.parametrize("answer", ["1", "选2", "第三个"])
+def test_bold_numbered_headings_are_the_offer_items(answer):
+    offer = previous_offer_items(_BOLD_NUMBERED_OFFER_REPLY)
+    assert [item.index for item in offer if item.index is not None] == [1, 2, 3]
+    assert "悬念前置" in offer[0].text
+    title = "第一章 淬火"
+    assert author_accepts_offer(
+        answer,
+        offer,
+        title=title,
+        file_type="draft",
+        sequence=_title_sequence(title),
+        context_target=lambda: True,
+    )

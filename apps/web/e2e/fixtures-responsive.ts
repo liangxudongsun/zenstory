@@ -8,7 +8,7 @@ const catalog = { version: 'responsive', tiers: [{ id: 'free', name: 'free', dis
 const messages = [{ id: 'message-1', role: 'assistant', content: '', created_at: '2026-10-04T08:21:00Z', metadata: null, tool_calls: JSON.stringify(Array.from({ length: 9 }, (_, i) => ({ id: 'tool-' + i, name: i % 2 ? 'query_files' : 'create_file', arguments: { title: '第54章 消失的第五个人' }, status: 'success', result: i % 2 ? [{ id: 'draft-1', title: '第54章 消失的第五个人', file_type: 'draft' }] : { id: 'draft-1', title: '第54章 消失的第五个人', file_type: 'draft' } }))) }];
 const material = { id: 'responsive-material', user_id: responsiveUser.id, title: '素材标题：很长的人物选择与情节发展', original_filename: 'source.txt', file_size: 12000, status: 'completed', total_chapters: 25, chapters_count: 25, characters_count: 1, story_lines_count: 0, golden_fingers_count: 0, has_world_view: false, created_at: '2025-01-01T00:00:00Z', updated_at: '2026-10-04T00:00:00Z' };
 const skill = { id: 'responsive-skill', name: '长标题技能：人物行动与剧情的因果关系', description: '用具体行动检查角色选择，不覆盖原有设定。', triggers: ['人物'], instructions: '# 角色行动\n保持作者意图，检查行动和后果。', source: 'user', is_active: true, created_at: '2025-01-01T00:00:00Z', updated_at: '2026-10-04T00:00:00Z' };
-const publicSkill = { ...skill, id: 'responsive-public-skill', source: 'official', category: 'Writing', tags: ['角色'], author_id: null, status: 'approved', add_count: 42 };
+const publicSkill = { ...skill, id: 'responsive-public-skill', instructions: '', instructions_hidden: true, source: 'official', category: 'Writing', tags: ['角色'], author_id: null, status: 'approved', add_count: 42 };
 const stats = {
     total_word_count: 12000,
     words_today: 1200,

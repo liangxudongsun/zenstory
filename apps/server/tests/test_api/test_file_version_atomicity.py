@@ -27,7 +27,7 @@ def test_expired_subscription_precheck_keeps_content_and_snapshot_atomic(db_sess
     count_versions = Mock(side_effect=RuntimeError("version quota query unavailable"))
     monkeypatch.setattr(service, "get_version_count", count_versions)
     with pytest.raises(RuntimeError, match="version quota query unavailable"):
-        files.update_file(file.id, files.FileUpdate(content="Changed before snapshot"), BackgroundTasks(), current_user=user, session=db_session)
+        files.update_file(file.id, files.FileUpdate(content="Changed before snapshot"),  current_user=user, session=db_session)
 
     # Match request-session cleanup after an unexpected precheck failure.
     db_session.rollback()

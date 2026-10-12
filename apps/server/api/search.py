@@ -1,6 +1,6 @@
-"""Vector search API endpoints for Agent API.
+"""File search API endpoints for Agent API.
 
-Provides hybrid retrieval (semantic + lexical fusion) for external AI agents using X-Agent-API-Key authentication.
+Provides database keyword retrieval for external AI agents using X-Agent-API-Key authentication.
 """
 
 import asyncio
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/api/v1/agent", tags=["Agent API - Search"])
 
 
 class SearchRequest(BaseModel):
-    """Request body for hybrid search."""
+    """Request body for keyword search."""
 
     query: str = Field(..., description="Search query")
     top_k: int = Field(default=10, ge=1, le=50, description="Maximum results")
@@ -51,7 +51,7 @@ class SearchResult(BaseModel):
 
 
 class SearchResponse(BaseModel):
-    """Response body for hybrid search."""
+    """Response body for keyword search."""
 
     query: str
     results: list[SearchResult]
@@ -69,7 +69,7 @@ async def search(
     context: AgentAuthContext = Depends(require_project_access("read")),
 ):
     """
-    Hybrid search within a project.
+    Keyword search within a project.
 
     Requires scope: read
     Requires project access
@@ -84,11 +84,11 @@ async def search(
     top_k = max(1, min(body.top_k, 50))
 
     try:
-        from services.llama_index import get_llama_index_service
+        from services.infra.file_search_service import FileSearchService
 
         def run_search():
-            svc = get_llama_index_service()
-            return svc.hybrid_search(
+            svc = FileSearchService()
+            return svc.search(
                 project_id=project_id,
                 query=body.query,
                 top_k=top_k,
@@ -99,9 +99,9 @@ async def search(
         results = await asyncio.to_thread(run_search)
     except Exception as e:
         raise APIException(
-            error_code=ErrorCode.VECTOR_SEARCH_UNAVAILABLE,
+            error_code=ErrorCode.SERVICE_UNAVAILABLE,
             status_code=503,
-            detail="Vector search service unavailable",
+            detail="File search service unavailable",
         ) from e
 
     # Convert results to response format

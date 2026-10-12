@@ -15,10 +15,11 @@ from typing import Any, cast
 from sqlmodel import Session, desc, select
 
 from agent.tools.permissions import check_project_ownership
+from agent.tools.task_progress import format_units, task_text, task_unit_spec, title_units
 from config.datetime_utils import utcnow
 from config.project_status import normalize_project_status_payload
 from config.project_templates import PROJECT_TEMPLATES_BY_LANG
-from models import AgentArtifactLedger, Project
+from models import AgentArtifactLedger, File, Project
 from utils.logger import get_logger, log_with_context
 
 logger = get_logger(__name__)
@@ -251,6 +252,101 @@ class ProjectOperations:
             raise ValueError(
                 f"Invalid task transition: done -> in_progress rollback is not allowed ({targets})"
             )
+
+    # 工作流按实际写出的文件记在任务上的进度（writing_graph._build_completion_task_payload）。
+    _RECORDED_PROGRESS_FIELDS = ("done_units", "progress")
+    # message_manager 渲染任务板时接在任务名后的进度（「撰写第2-5集剧本（已写：第2集；待写：第3–5集）」）。
+    _RENDERED_PROGRESS_SUFFIX_RE = re.compile(r"\s*[（(]已写：[^（）()]*[）)]\s*$")
+
+    @classmethod
+    def _carry_recorded_progress(
+        cls,
+        tasks: list[Any],
+        previous_tasks: list[dict[str, Any]],
+    ) -> None:
+        """模型重存任务板时，把旧任务上记下的进度带到同名任务上（原地修改 tasks）。
+
+        done_units / progress 不在工具 schema 里，模型只看到渲染成文字的任务板，重存时不会带上；
+        不接过来的话，前几轮写过的编号就丢了，范围任务永远凑不齐、进度里还会把已有的写成待写。
+        只认任务名完全相同（去首尾空白）的任务；标为 done 的任务不再需要进度，不带。
+        这一次自己带了 done_units 的（工作流收尾那一次）以它为准。
+        """
+        recorded: dict[str, dict[str, Any]] = {}
+        for previous in previous_tasks:
+            if not isinstance(previous, dict) or not previous.get("done_units"):
+                continue
+            key = cls._normalize_task_name(previous)
+            if key:
+                recorded[key] = {
+                    field: previous[field]
+                    for field in cls._RECORDED_PROGRESS_FIELDS
+                    if previous.get(field)
+                }
+        if not recorded:
+            return
+        for task in tasks:
+            if not isinstance(task, dict) or "done_units" in task:
+                continue
+            # 模型照抄渲染出来的任务板时会把「（已写：…）」当成任务名的一部分发回来。
+            name = task.get("task")
+            if isinstance(name, str):
+                stripped = cls._RENDERED_PROGRESS_SUFFIX_RE.sub("", name.strip())
+                if stripped and stripped != name.strip():
+                    task["task"] = stripped
+            if task.get("status") == "done":
+                continue
+            key = cls._normalize_task_name(task)
+            if key and key in recorded:
+                task.update(recorded[key])
+
+    def _unverified_done_tasks(
+        self,
+        tasks: list[dict[str, Any]],
+        previous_tasks: list[dict[str, Any]],
+        project_id: str | None,
+    ) -> list[dict[str, str]]:
+        """这次新标为 done、写了编号范围、项目里却找不到其中一部分文件的任务。
+
+        只提醒、不拒绝：标题不带编号的文件对不上号，拒绝会让模型永远标不了 done；
+        done 也不能再改回 in_progress（见 _validate_update_plan_tasks），所以提醒里只要求
+        如实告诉作者。查不到文件时不提醒。
+        """
+        if not project_id:
+            return []
+        previously_done = {
+            key
+            for previous in previous_tasks
+            if isinstance(previous, dict) and previous.get("status") == "done"
+            and (key := self._normalize_task_name(previous))
+        }
+        candidates = []
+        for task in tasks:
+            if task.get("status") != "done" or self._normalize_task_name(task) in previously_done:
+                continue
+            spec = task_unit_spec(task_text(task))
+            if spec is not None:
+                candidates.append((task, spec))
+        if not candidates:
+            return []
+        try:
+            rows = self.session.exec(
+                select(File.title, File.content).where(
+                    File.project_id == project_id,
+                    File.is_deleted.is_(False),  # type: ignore[attr-defined]
+                )
+            ).all()
+            titles = [str(title or "") for title, content in rows if str(content or "").strip()]
+        except Exception as exc:
+            logger.debug(f"Task done check skipped: {exc}")
+            return []
+        unverified: list[dict[str, str]] = []
+        for task, spec in candidates:
+            missing = set(spec.numbers) - title_units(titles, spec.unit)
+            if missing:
+                unverified.append(
+                    {"task": str(task.get("task") or ""), "missing": format_units(missing, spec.unit)}
+                )
+        return unverified
 
     def update_project_status(
         self,
@@ -498,6 +594,7 @@ class ProjectOperations:
                 user_id=user_id,
                 project_id=project_id,
             ) or []
+            self._carry_recorded_progress(tasks_payload, previous_tasks)
 
             try:
                 self._validate_update_plan_tasks(tasks=tasks_payload, previous_tasks=previous_tasks)
@@ -572,7 +669,7 @@ class ProjectOperations:
                 done=done,
             )
 
-            return {
+            result: dict[str, Any] = {
                 "status": "success",
                 "message": "任务计划板已更新",
                 "task_summary": {
@@ -583,6 +680,25 @@ class ProjectOperations:
                 },
                 "tasks": validated_tasks,
             }
+            # 模型把范围任务标成 done，项目里却缺其中的文件（「第2-5集」只有第2集）：
+            # 写进结果提醒模型，回复里要如实说哪些还没写。
+            unverified = self._unverified_done_tasks(validated_tasks, previous_tasks, project_id)
+            if unverified:
+                result["unverified_done"] = unverified
+                details = "；".join(f"「{item['task']}」缺{item['missing']}" for item in unverified)
+                result["message"] = (
+                    "任务计划板已更新。注意：以下任务标为 done，但项目里没有找到对应的文件："
+                    f"{details}。如果这些还没写，回复里如实告诉作者哪些还没写，不要说已全部完成。"
+                )
+                log_with_context(
+                    logger,
+                    30,  # WARNING
+                    "Task marked done without matching files",
+                    session_id=session_id,
+                    project_id=project_id,
+                    unverified=len(unverified),
+                )
+            return result
 
         except Exception as e:
             log_with_context(

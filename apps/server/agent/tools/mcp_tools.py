@@ -25,12 +25,14 @@ from agent.tools.author_edit_guard import (
     AUTHOR_EDIT_PROTECTED_ERROR,
     AuthorEditRefusals,
     AuthorScope,
+    OfferItem,
     latest_text_is_authors,
     protected_refusal_message,
     protected_user_message,
     request_deletes_file,
     request_deletes_folder,
     request_targets_file,
+    resolve_offer_context_file,
 )
 from agent.tools.file_ops import FileToolExecutor
 from agent.tools.file_ops.edit import (
@@ -48,8 +50,11 @@ from agent.tools.file_ops.serialization import (
     QUERY_FILES_DEFAULT_LIMIT,
     QUERY_FILES_FULL_MODE_DEFAULT_LIMIT,
     QUERY_FILES_RESPONSE_MODE_FULL,
+    serialize_file,
 )
 from agent.tools.permissions import NotFoundError
+from config.project_notes import ProjectNotesMerge, merge_project_notes, split_project_notes
+from config.project_status import PROJECT_STATUS_MAX_LENGTHS
 from utils.logger import get_logger, log_with_context
 from utils.title_sequence import extract_chapter_like_sequence_number, parse_chinese_number
 
@@ -87,7 +92,6 @@ def _should_offload_tool_execution() -> bool:
       并以**阻塞方式**获取按 file_id 分条带的 ``threading.Lock``；而该锁的另一个
       持有者 ``stream_adapter._save_file_content`` 本来就跑在
       ``asyncio.to_thread`` 的工作线程里。
-    - ``_hybrid_search_sync`` 走向量检索，同样是 CPU 密集。
 
     历史实现返回 ``is_postgres``，于是在项目默认的 SQLite 部署下，上面这些工作
     全部同步跑在事件循环线程上：实测单次 edit_file 可让事件循环停顿 21.93 秒，
@@ -95,18 +99,6 @@ def _should_offload_tool_execution() -> bool:
     "在事件循环线程上等另一个线程释放"的死等。因此这里恒为 True。
     """
     return True
-
-
-HYBRID_SEARCH_DISABLED_ERROR_TYPE = "tool_disabled"
-HYBRID_SEARCH_DISABLED_MESSAGE = "检索功能未启用，请改用 query_files(query=...)，不要再调用 hybrid_search"
-
-
-def _is_hybrid_search_tool_enabled() -> bool:
-    """Temporary kill switch for agent-side hybrid search calls."""
-    raw = os.getenv("AGENT_TOOL_HYBRID_SEARCH_ENABLED")
-    if raw is None:
-        return True
-    return raw.strip().lower() not in {"0", "false", "no", "off"}
 
 
 def _run_sync_tool_with_owned_session_cleanup(
@@ -326,6 +318,24 @@ class _PendingEmptyFileState:
             self._reservations[ticket] = title
             return True, None
 
+    def sole_unwritten_entry(self) -> dict[str, str] | None:
+        """没有建库途中的占坑、且恰好只有一个尚未写出正文的条目时返回它，否则 None。
+
+        create_file 被挡住时用来判断"模型是不是在重复创建正挡路的那个文件"。
+        """
+        with self._lock:
+            if self._reservations:
+                return None
+            unwritten = [
+                (file_id, title_)
+                for file_id, title_ in self._entries.items()
+                if file_id not in self._streamed
+            ]
+            if len(unwritten) != 1:
+                return None
+            file_id, title_ = unwritten[0]
+            return {"file_id": file_id, "title": title_}
+
     def bind(self, ticket: str, file_id: str, title: str) -> None:
         """占坑成功且文件已落库：把票据换成真实 file_id。"""
         with self._lock:
@@ -364,6 +374,31 @@ class _SkillUsageClaims:
             return True
 
 
+class _PreWriteContents:
+    """本次请求里每个文件第一次被 AI 写入之前的正文（跨子任务/线程共享，原因同上）。
+
+    送审时用它找出「本请求改了哪一段」：在 14 万字的单文件里追加 5 章，送审内容不能是
+    文件开头的旧章节（10-10 U074）。只记第一次：同一请求里后面的写入覆盖的是本请求
+    自己写的字。本请求新建的文件记为空串（整份都是新写的）。
+    """
+
+    __slots__ = ("_contents", "_lock")
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._contents: dict[str, str] = {}
+
+    def remember(self, file_id: str, content: str) -> None:
+        if not file_id:
+            return
+        with self._lock:
+            self._contents.setdefault(file_id, content or "")
+
+    def get(self, file_id: str) -> str | None:
+        with self._lock:
+            return self._contents.get(file_id)
+
+
 class ToolContext:
     """
     Holds session and user_id for tool execution.
@@ -389,6 +424,8 @@ class ToolContext:
         referenced_file_ids: Iterable[str] | None = None,
         author_confirmed_file_ids: Iterable[str] | None = None,
         author_edit_refusals: AuthorEditRefusals | None = None,
+        author_previous_offer: Iterable[OfferItem] | None = None,
+        author_previous_offer_context: Iterable[str] | None = None,
     ) -> None:
         """Set the execution context for tools (request-scoped).
 
@@ -402,7 +439,11 @@ class ToolContext:
             author_confirmed_file_ids: 上一轮因为作者手改过而问过作者要不要改的文件，
                 本轮放行（作者这一轮就是在回答）。
             author_edit_refusals: 本轮因为作者手改过而没改成的文件（service 持有，
-                落库到 routing，下一轮放行）。以上四项见 agent/tools/author_edit_guard.py。
+                落库到 routing，下一轮放行）。
+            author_previous_offer: 上一轮 AI 收尾时给作者的提议（选项 / 问句），作者答应或选中
+                改某个文件的那一项时放行它。
+            author_previous_offer_context: 上一轮 AI 回复和作者上一条话的原文；提议没点名
+                文件时，据此找上一轮在谈的那个文件。以上几项见 agent/tools/author_edit_guard.py。
             recorded_skill_ids: 本次请求里已记录过用量的技能（显式选择的技能），
                 load_skill 不再为它们重复记用量。
             skill_tokens_used: 显式选择的技能注入 system prompt 时已占用的技能内容 token，
@@ -427,6 +468,13 @@ class ToolContext:
                 str(item) for item in (author_confirmed_file_ids or []) if item
             ),
             "author_edit_refusals": author_edit_refusals,
+            "author_previous_offer": tuple(
+                item for item in (author_previous_offer or ()) if isinstance(item, OfferItem)
+            ),
+            "author_previous_offer_context": tuple(
+                item for item in (author_previous_offer_context or ()) if isinstance(item, str) and item
+            ),
+            "pre_write_contents": _PreWriteContents(),
         })
         _owned_session_var.set(None)
         _pending_empty_file_var.set(None)
@@ -544,11 +592,15 @@ class ToolContext:
         focus = context.get("focus_file_id")
         referenced = context.get("referenced_file_ids")
         confirmed = context.get("author_confirmed_file_ids")
+        offer = context.get("author_previous_offer")
+        offer_context = context.get("author_previous_offer_context")
         return AuthorScope(
             messages=tuple(cls.get_author_messages()),
             referenced_file_ids=referenced if isinstance(referenced, frozenset) else frozenset(),
             confirmed_file_ids=confirmed if isinstance(confirmed, frozenset) else frozenset(),
             focus_file_id=focus if isinstance(focus, str) and focus else None,
+            previous_offer=offer if isinstance(offer, tuple) else (),
+            previous_offer_context=offer_context if isinstance(offer_context, tuple) else (),
         )
 
     @classmethod
@@ -557,6 +609,29 @@ class ToolContext:
         holder = cls._get_context().get("author_edit_refusals")
         if isinstance(holder, AuthorEditRefusals):
             holder.add(file_id)
+
+    @classmethod
+    def author_edit_refused_file_ids(cls) -> list[str]:
+        """本请求里因为作者手改过而没改成的文件 id（按先后）；没有上下文时为空。"""
+        holder = cls._get_context().get("author_edit_refusals")
+        if isinstance(holder, AuthorEditRefusals):
+            return holder.file_ids()
+        return []
+
+    @classmethod
+    def remember_pre_write_content(cls, file_id: str, content: str | None) -> None:
+        """记下文件在本请求第一次被 AI 写入之前的正文；没有请求上下文时什么也不做。"""
+        holder = cls._get_context().get("pre_write_contents")
+        if isinstance(holder, _PreWriteContents):
+            holder.remember(str(file_id or ""), content or "")
+
+    @classmethod
+    def pre_write_content(cls, file_id: str) -> str | None:
+        """文件在本请求第一次被 AI 写入之前的正文；本请求没写过它（或没有上下文）时为 None。"""
+        holder = cls._get_context().get("pre_write_contents")
+        if isinstance(holder, _PreWriteContents):
+            return holder.get(str(file_id or ""))
+        return None
 
     @classmethod
     def get_current_agent(cls) -> str | None:
@@ -1586,6 +1661,82 @@ def _pending_empty_file_rejection(blocking_title: str | None, title: str) -> dic
     return _make_mcp_payload(payload, tool_name="create_file")
 
 
+def _repeat_of_pending_empty_file(args: dict[str, Any], project_id: str) -> dict[str, Any] | None:
+    """create_file 被挡住时，判断它是不是在重复创建正挡路的那个空文件；是就把那个文件交回去。
+
+    模型常见的做法是：上一次回复 create_file(X) 成功，下一次回复本该以 <file> 开头写
+    X 的正文，却又调用一次 create_file(X)。这次调用要的就是已经建好的那个空文件，
+    按「一次只能流式写一个文件」拒绝它只会多烧一轮、给作者留一张失败卡。
+
+    只在以下条件同时成立时认作重复：没有建库途中的占坑、恰好只有一个尚未写出正文的
+    条目、标题相同，且库里那一行仍在本项目、未删除、正文为空、父目录与类型都对得上。
+    不新增条目、不新建文件；返回的 content 为空且不带 reused_existing，
+    StreamAdapter 会照常为同一个 file_id 重新等待 <file> 正文。
+    """
+    from models import File
+
+    state = ToolContext._get_pending_empty_file_state()
+    if state is None:
+        return None
+    entry = state.sole_unwritten_entry()
+    if entry is None:
+        return None
+
+    title = str(args.get("title") or "").strip()
+    if not title or str(entry.get("title") or "").strip() != title:
+        return None
+
+    file_id = str(entry.get("file_id") or "")
+    if not file_id:
+        return None
+    try:
+        row = ToolContext.get_session().exec(
+            select(File).where(File.id == file_id).execution_options(populate_existing=True)
+        ).first()
+    except Exception as e:
+        logger.debug(f"Pending empty-file repeat probe failed: {e}")
+        return None
+    if (
+        row is None
+        or row.is_deleted
+        or row.project_id != project_id
+        or str(row.content or "").strip()
+        or str(row.title or "").strip() != title
+    ):
+        return None
+
+    requested_parent = args.get("parent_id") or None
+    if requested_parent != (row.parent_id or None):
+        return None
+    requested_type = str(args.get("file_type") or "draft").strip().lower()
+    row_type = str(row.file_type or "").strip().lower()
+    # crud 会把剧本目录下分集的 draft/document 规范成 script，重复调用照原参数传来时也算同一个文件
+    if requested_type != row_type and not (
+        row_type == "script" and requested_type in {"draft", "document"}
+    ):
+        return None
+
+    log_with_context(
+        logger,
+        20,  # INFO
+        "agent.create_file.same_title_repeat",
+        project_id=project_id,
+        file_id=file_id,
+        title=title,
+        file_type=row_type,
+    )
+    data = serialize_file(row)
+    data["content"] = ""
+    data["next_step"] = (
+        f"「{title}」已经建好，正文还是空的。不要再调用 create_file，"
+        "接下来直接以 <file> 开头写它的正文，写完用 </file> 结束。"
+    )
+    return _make_result(
+        {"status": "success", "mutation_applied": False, "data": data},
+        tool_name="create_file",
+    )
+
+
 async def create_file(args: dict[str, Any]) -> dict[str, Any]:
     """创建新文件。"""
     if _should_offload_tool_execution():
@@ -1628,6 +1779,11 @@ def _create_file_sync(args: dict[str, Any]) -> dict[str, Any]:
                 reservation, title
             )
         if not acquired:
+            # 挡路的正是本次要建的这个空文件（同标题、同父目录、同类型）：交回它，
+            # 让模型直接写正文；挡路的是别的文件时照旧拒绝。
+            repeat = _repeat_of_pending_empty_file(args, project_id)
+            if repeat is not None:
+                return repeat
             return _pending_empty_file_rejection(blocking_title, title)
 
     try:
@@ -1723,6 +1879,37 @@ def _folder_descendant_files(session: Session, folder: Any, project_id: str | No
     return descendants[:_AUTHOR_GUARD_MAX_FOLDER_FILES]
 
 
+def _offer_context_file_id(session: Session, scope: AuthorScope, project_id: str) -> str | None:
+    """上一轮提议没点名文件时，上一轮在谈的那个作者手改过的文件（见 resolve_offer_context_file）。
+
+    守卫整体出错时放行写入；这一步只用来放开文件，出错时返回 None（不放开）。
+    """
+    if not scope.previous_offer_context:
+        return None
+    from models import File
+
+    def is_protected(candidate_id: str) -> bool:
+        candidate = session.get(File, candidate_id)
+        return candidate is not None and latest_text_is_authors(session, candidate)
+
+    try:
+        rows = session.exec(
+            select(File.id, File.title, File.file_type).where(
+                File.project_id == project_id,
+                File.is_deleted.is_(False),  # type: ignore[attr-defined]
+                File.file_type != "folder",
+            )
+        ).all()
+        return resolve_offer_context_file(
+            scope.previous_offer_context,
+            ((str(row[0]), str(row[1] or ""), str(row[2] or "")) for row in rows),
+            is_protected,
+        )
+    except Exception as exc:
+        logger.warning("Offer-context lookup failed; not unlocking", extra={"error": str(exc)})
+        return None
+
+
 def _author_edit_refusal(
     file_id: str,
     *,
@@ -1776,7 +1963,14 @@ def _author_edit_refusal(
                 if tool_name == "delete_file":
                     if request_deletes_file(scope, file_id=file.id, title=title):
                         return None
-                elif request_targets_file(scope, file_id=file.id, title=title, file_type=file_type, edits=edits):
+                elif request_targets_file(
+                    scope,
+                    file_id=file.id,
+                    title=title,
+                    file_type=file_type,
+                    edits=edits,
+                    offer_context_file=lambda: _offer_context_file_id(session, scope, file.project_id),
+                ):
                     return None
                 protected = (str(file.id), title)
     except Exception as exc:
@@ -2082,73 +2276,8 @@ def _is_query_files_param_mismatch(exc: TypeError) -> bool:
     return any(param in message for param in ("id", "response_mode", "content_preview_chars", "include_content"))
 
 
-async def hybrid_search(args: dict[str, Any]) -> dict[str, Any]:
-    """混合检索（向量 + 关键词融合）。"""
-    if _should_offload_tool_execution():
-        return await asyncio.to_thread(_run_sync_tool_with_owned_session_cleanup, _hybrid_search_sync, args)
-    return _hybrid_search_sync(args)
-
-
-def _hybrid_search_sync(args: dict[str, Any]) -> dict[str, Any]:
-    """Synchronous hybrid_search implementation."""
-    tool_name = "hybrid_search"
-    project_id = ToolContext._get_context().get("project_id")
-
-    if project_id is None:
-        return _make_error("project_id not set", tool_name=tool_name)
-
-    query = args.get("query", "")
-    top_k = args.get("top_k", 10)
-    entity_types = args.get("entity_types")
-    min_score = args.get("min_score", 0.0)
-
-    if not _is_hybrid_search_tool_enabled():
-        log_with_context(
-            logger,
-            30,  # WARNING
-            "Agent hybrid_search tool disabled by env",
-            project_id=project_id,
-            top_k=top_k,
-        )
-        # 关闭时它本就不在 agent 工具清单里（registry.get_agent_tools）；仍被调用
-        # （历史里见过、或 parallel_execute 子任务）时返回可恢复错误并点名替代工具。
-        # 以前返回 success + 空结果，模型会把「没检索到」当成「项目里没有」继续乱试。
-        return _make_mcp_payload(
-            {
-                "status": "error",
-                "error_type": HYBRID_SEARCH_DISABLED_ERROR_TYPE,
-                "error": HYBRID_SEARCH_DISABLED_MESSAGE,
-                "entity_types": entity_types,
-                "min_score": float(min_score or 0.0),
-                "query": query,
-            },
-            tool_name=tool_name,
-        )
-
-    executor = ToolContext.get_executor()
-
-    try:
-        result = executor.hybrid_search(
-            project_id=project_id,
-            query=query,
-            top_k=top_k,
-            entity_types=entity_types,
-            min_score=min_score,
-        )
-        return _make_result({"status": "success", "data": result}, tool_name=tool_name)
-    except Exception as e:
-        log_with_context(
-            logger,
-            30,  # WARNING
-            "Agent hybrid_search failed",
-            project_id=project_id,
-            error=str(e),
-            error_type=type(e).__name__,
-        )
-        return _make_error(str(e), tool_name=tool_name)
-
-
-_PHASE_CN_CHAPTER_PATTERN = re.compile(r"第\s*([零一二三四五六七八九十百千\d]+)\s*章")
+# 剧本项目按「集」记进度（「已写至第3集」），小说 / 短篇按「章」。
+_PHASE_CN_CHAPTER_PATTERN = re.compile(r"第\s*([零一二三四五六七八九十百千\d]+)\s*[章集]")
 _PHASE_EN_CHAPTER_PATTERN = re.compile(r"\bchapter\s+(\d+)\b", re.IGNORECASE)
 
 
@@ -2205,6 +2334,7 @@ def _suggest_auto_current_phase_from_drafts(project_id: str) -> str | None:
 
     session = ToolContext.get_session()
     from models import File, Project
+    from models.entities import PROJECT_TYPE_SCREENPLAY
 
     project = session.get(Project, project_id)
     if not project:
@@ -2240,7 +2370,9 @@ def _suggest_auto_current_phase_from_drafts(project_id: str) -> str | None:
     if current_phase and current_phase_chapter is None:
         return None
 
-    return f"已写至第{inferred_latest}章"
+    # live run 2 场景 A：短剧项目被写成「已写至第3章」。短篇也是按章写，只有剧本用「集」。
+    unit = "集" if project.project_type == PROJECT_TYPE_SCREENPLAY else "章"
+    return f"已写至第{inferred_latest}{unit}"
 
 
 def _coerce_bool_arg(value: Any) -> bool:
@@ -2259,6 +2391,86 @@ async def update_project(args: dict[str, Any]) -> dict[str, Any]:
     return _update_project_sync(args)
 
 
+def _author_quotes_arg(raw: Any) -> list[str]:
+    if isinstance(raw, str):
+        return [raw]
+    if isinstance(raw, list):
+        return [item for item in raw if isinstance(item, str)]
+    return []
+
+
+def _merge_notes_by_source(project_id: str, normalized_args: dict[str, Any]) -> ProjectNotesMerge:
+    """把 update_project 的 notes / proposals 合进现有备注，按来源分区（见 config/project_notes）。
+
+    「作者确认」只收作者原话撑得住的条目，逐条核对：那一条得是 author_quotes 里某句
+    逐字出现在作者本轮消息里的原话本身（或其中连续的一段）。拿不到作者原话（不是应用内
+    对话）时不核对，和以前一样照单记下。
+    """
+    from models import Project
+
+    # 合并要基于库里当前的备注（作者可能刚在 AI 记忆里改过），不用会话里缓存的旧实例
+    project = ToolContext.get_session().get(Project, project_id, populate_existing=True)
+    existing = getattr(project, "notes", None) if project is not None else None
+    author_messages = (
+        ToolContext.get_author_messages()
+        if isinstance(ToolContext._get_context().get("author_message"), str)
+        else None
+    )
+    notes_arg = normalized_args.get("notes")
+    proposals_arg = normalized_args.get("proposals")
+    merged = merge_project_notes(
+        existing,
+        notes=notes_arg if isinstance(notes_arg, str) else None,
+        proposals=proposals_arg if isinstance(proposals_arg, str) else None,
+        author_quotes=_author_quotes_arg(normalized_args.get("author_quotes")),
+        author_messages=author_messages,
+    )
+    if merged.downgraded:
+        log_with_context(
+            logger,
+            20,  # INFO
+            "update_project notes without author words recorded as AI proposals",
+            project_id=project_id,
+            downgraded_count=len(merged.downgraded),
+        )
+    return merged
+
+
+def _notes_over_budget_error(merged: ProjectNotesMerge) -> dict[str, Any] | None:
+    """notes 和 AI 提议块存在同一个备注字段里，共用一个长度上限。
+
+    合并后超出时在写入任何字段之前返回，说清两块各占多少，让模型精简后整次重发；
+    不偷偷丢掉旧提议（那是作者看得到的内容），也不只写一部分字段。
+    """
+    limit = PROJECT_STATUS_MAX_LENGTHS["notes"]
+    total = len(merged.text.strip())
+    if total <= limit:
+        return None
+    sections = split_project_notes(merged.text)
+    notes_chars = sum(len(line) for line in [*sections.unlabeled, *sections.confirmed])
+    proposals_chars = sum(len(line) for line in sections.proposals)
+    downgraded_part = (
+        f"（其中 {len(merged.downgraded)} 条是这次没核对到作者原话、记成提议的）"
+        if merged.downgraded
+        else ""
+    )
+    return {
+        "status": "error",
+        "error_type": "notes_over_budget",
+        "error": (
+            f"备注没有保存：notes 和 AI 提议块存在同一个备注字段里，合计上限 {limit} 字；"
+            f"这次合并后约定部分约 {notes_chars} 字、AI 提议块约 {proposals_chars} 字"
+            f"{downgraded_part}，加上分区标题共 {total} 字。"
+            "这次调用的其他字段（title、summary、tasks 等）也都没有写入。"
+            "下一步：传 proposals 删掉过时或作者已否定的提议（proposals=\"\" 清空整块），"
+            "或在作者同意的前提下精简 notes，然后整次重新调用 update_project。"
+        ),
+        "notes_chars": notes_chars,
+        "proposals_chars": proposals_chars,
+        "limit": limit,
+    }
+
+
 def _update_project_sync(args: dict[str, Any]) -> dict[str, Any]:
     """Synchronous update_project implementation."""
     tool_name = "update_project"
@@ -2273,6 +2485,16 @@ def _update_project_sync(args: dict[str, Any]) -> dict[str, Any]:
     try:
         normalized_args = _normalize_update_project_args(args)
         result = {}
+
+        # 备注按来源分区：notes 里没有作者原话支撑的条目记成 AI 提议（见 config/project_notes）
+        downgraded_notes: list[str] = []
+        if normalized_args.get("notes") is not None or normalized_args.get("proposals") is not None:
+            merged_notes = _merge_notes_by_source(project_id, normalized_args)
+            over_budget = _notes_over_budget_error(merged_notes)
+            if over_budget is not None:
+                return _make_mcp_payload(over_budget, tool_name=tool_name)
+            normalized_args["notes"] = merged_notes.text
+            downgraded_notes = merged_notes.downgraded
 
         # 更新项目状态（支持空字符串清空字段）
         status_keys = ["summary", "current_phase", "writing_style", "notes"]
@@ -2388,6 +2610,15 @@ def _update_project_sync(args: dict[str, Any]) -> dict[str, Any]:
                 "has_plan": "plan" in result,
             },
         )
+
+        if downgraded_notes:
+            result["notes_recorded_as_proposals"] = downgraded_notes
+            result["notes_note"] = (
+                "这些条目不是作者本轮的原话（逐条核对：一条得是 author_quotes 里某句作者原话本身或其中连续的一段），"
+                "已记在备注的「AI 提议·待作者确认」里，不算作者定下的设定：" + "；".join(downgraded_notes)
+                + "。如果作者确实这样说过，用作者的原话写这一条、把原话放进 author_quotes 再记一次；"
+                "是你的推断就留在提议里。"
+            )
 
         return _make_result({"status": "success", "data": result}, tool_name=tool_name)
     except Exception as e:
@@ -2532,6 +2763,16 @@ def _skill_budget_exhausted_error(tool_name: str) -> dict[str, Any]:
     )
 
 
+def _skill_limit_error(tool_name: str, skill_name: str) -> dict[str, Any]:
+    from agent.skills.content_budget import MAX_LOADED_SKILLS_PER_REQUEST
+
+    return _make_error(
+        f"本轮最多加载 {MAX_LOADED_SKILLS_PER_REQUEST} 个不同的技能，已达上限，没有加载「{skill_name}」。"
+        "请用已加载的技能完成任务；还需要其他技能时，请用户在下一条消息中继续。",
+        tool_name=tool_name,
+    )
+
+
 def _segment_fields(segment, *, skill_id: str, path: str) -> dict[str, Any]:
     """截断时告诉模型如何续读（read_skill_resource + offset）。"""
     if not segment.truncated:
@@ -2564,6 +2805,8 @@ def _load_skill_sync(args: dict[str, Any]) -> dict[str, Any]:
             return error
 
         budget = ToolContext.get_skill_content_budget()
+        if not budget.admit_skill(skill.id):
+            return _skill_limit_error(tool_name, skill.name)
         if budget.remaining <= 0:
             return _skill_budget_exhausted_error(tool_name)
         segment = budget.take(skill.instructions)
@@ -2670,6 +2913,8 @@ def _read_skill_resource_sync(args: dict[str, Any]) -> dict[str, Any]:
                 f"offset {offset} 超出内容长度（共 {len(content)} 个字符）", tool_name=tool_name
             )
         budget = ToolContext.get_skill_content_budget()
+        if not budget.admit_skill(skill.id):
+            return _skill_limit_error(tool_name, skill.name)
         if budget.remaining <= 0 and offset < len(content):
             return _skill_budget_exhausted_error(tool_name)
         segment = budget.take(content, offset)
@@ -2694,7 +2939,6 @@ MCP_TOOL_HANDLERS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "edit_file": edit_file,
     "delete_file": delete_file,
     "query_files": query_files,
-    "hybrid_search": hybrid_search,
     "update_project": update_project,
     "handoff_to_agent": handoff_to_agent,
     "request_clarification": request_clarification,

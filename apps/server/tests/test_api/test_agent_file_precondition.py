@@ -36,8 +36,6 @@ def conditional_file(db_session):
 @pytest.mark.parametrize("expected", [STAMP - timedelta(seconds=1), STAMP + timedelta(seconds=1), STAMP - timedelta(microseconds=1)])
 async def test_stale_agent_write_changes_nothing(client, db_session, conditional_file, monkeypatch, expected):
     file, headers = conditional_file
-    schedule = Mock()
-    monkeypatch.setattr(agent_api, "_schedule_file_index_upsert", schedule)
     response = await client.put(f"/api/v1/agent/files/{file.id}", headers=headers, json={
         "title": "Wrong", "content": "Stale replacement", "order": 9,
         "base_updated_at": expected.isoformat(),
@@ -49,13 +47,11 @@ async def test_stale_agent_write_changes_nothing(client, db_session, conditional
     assert (file.title, file.content, file.order) == ("Draft", "Original", 0)
     assert normalize_datetime_to_utc(file.updated_at) == STAMP
     assert db_session.exec(select(FileVersion).where(FileVersion.file_id == file.id)).all() == []
-    schedule.assert_not_called()
 
 
 @pytest.mark.parametrize("expected", [STAMP.isoformat(), STAMP.replace(tzinfo=None).isoformat(), STAMP.astimezone(timezone(timedelta(hours=8))).isoformat()])
 async def test_matching_agent_write_accepts_normalized_timestamp(client, db_session, conditional_file, monkeypatch, expected):
     file, headers = conditional_file
-    monkeypatch.setattr(agent_api, "_schedule_file_index_upsert", Mock())
     response = await client.put(f"/api/v1/agent/files/{file.id}", headers=headers, json={"title": "Accepted", "base_updated_at": expected})
     assert response.status_code == 200
     db_session.refresh(file)
@@ -65,7 +61,6 @@ async def test_matching_agent_write_accepts_normalized_timestamp(client, db_sess
 async def test_conditional_agent_write_advances_token_with_frozen_clock(client, db_session, conditional_file, monkeypatch):
     file, headers = conditional_file
     monkeypatch.setattr(agent_api, "utcnow", lambda: STAMP)
-    monkeypatch.setattr(agent_api, "_schedule_file_index_upsert", Mock())
     body = {"content": "Accepted", "base_updated_at": STAMP.isoformat()}
     first = await client.put(f"/api/v1/agent/files/{file.id}", headers=headers, json=body)
     assert first.status_code == 200
@@ -84,7 +79,6 @@ async def test_agent_old_token_cannot_overwrite_other_content_writers(
 ):
     from agent.tools.file_ops import FileCRUD, FileEditor, crud, edit
     from api import files as files_api
-    from services import llama_index
     from services.features import file_version_service as versions
 
     file, headers = conditional_file
@@ -92,12 +86,10 @@ async def test_agent_old_token_cannot_overwrite_other_content_writers(
     owner = db_session.get(User, project.owner_id)
     for module in [files_api, crud, edit, versions]:
         monkeypatch.setattr(module, "utcnow", lambda: STAMP + clock_offset)
-    monkeypatch.setattr(agent_api, "_schedule_file_index_upsert", Mock())
-    monkeypatch.setattr(llama_index, "schedule_index_upsert", Mock())
     service = versions.get_file_version_service()
     monkeypatch.setattr(versions.FileVersionService, "check_user_version_quota", lambda *args, **kwargs: (True, 0, 10))
     if writer == "web":
-        files_api.update_file(file.id, files_api.FileUpdate(content="Winner"), BackgroundTasks(), owner, db_session)
+        files_api.update_file(file.id, files_api.FileUpdate(content="Winner"),  owner, db_session)
     elif writer == "edit_tool":
         FileEditor(db_session, user_id=owner.id).edit_file(file.id, [{"op": "replace", "old": "Original", "new": "Winner"}])
     elif writer == "update_tool":
@@ -117,7 +109,6 @@ async def test_agent_old_token_cannot_overwrite_other_content_writers(
 
 async def test_agent_write_without_precondition_remains_supported(client, db_session, conditional_file, monkeypatch):
     file, headers = conditional_file
-    monkeypatch.setattr(agent_api, "_schedule_file_index_upsert", Mock())
     response = await client.put(f"/api/v1/agent/files/{file.id}", headers=headers, json={"title": "Unconditional"})
     assert response.status_code == 200
     db_session.refresh(file)
@@ -135,7 +126,6 @@ async def test_agent_write_runs_sync_database_work_off_event_loop(client, condit
         return load(*args, **kwargs)
 
     monkeypatch.setattr(agent_api, "_load_accessible_file", observe)
-    monkeypatch.setattr(agent_api, "_schedule_file_index_upsert", Mock())
     response = await client.put(f"/api/v1/agent/files/{file.id}", headers=headers, json={"title": "Worker"})
     assert response.status_code == 200
     assert len(observed_threads) == 1
@@ -176,8 +166,6 @@ def test_sqlite_concurrent_agent_writes_accept_one_token_once(db_session, condit
     engine = db_session.get_bind()
     barrier = Barrier(2)
     monkeypatch.setattr(agent_api, "utcnow", lambda: STAMP)
-    schedule = Mock()
-    monkeypatch.setattr(agent_api, "_schedule_file_index_upsert", schedule)
 
     def write(content):
         with Session(engine) as session:
@@ -187,7 +175,7 @@ def test_sqlite_concurrent_agent_writes_accept_one_token_once(db_session, condit
             user_id = key.user_id
             barrier.wait(timeout=5)
             try:
-                result = agent_api.update_file(file_id, agent_api.FileUpdate(content=content, base_updated_at=STAMP), BackgroundTasks(), _rate_limit=0, context=(session, user_id, key))
+                result = agent_api.update_file(file_id, agent_api.FileUpdate(content=content, base_updated_at=STAMP),  _rate_limit=0, context=(session, user_id, key))
                 if inspect.isawaitable(result):
                     asyncio.run(result)
                 return 200, content
@@ -202,7 +190,6 @@ def test_sqlite_concurrent_agent_writes_accept_one_token_once(db_session, condit
     db_session.refresh(file)
     assert file.content == winner
     assert len(db_session.exec(select(FileVersion).where(FileVersion.file_id == file_id)).all()) == 1
-    assert schedule.call_count == 1
 
 
 @pytest.mark.parametrize("method,route_path,payload", [
@@ -218,7 +205,6 @@ def test_sqlite_concurrent_agent_writes_accept_one_token_once(db_session, condit
 ])
 async def test_sync_agent_crud_handlers_run_in_workers(client, conditional_file, monkeypatch, method, route_path, payload):
     from main import app
-    from services import llama_index
 
     file, headers = conditional_file
     path = "/api/v1/agent" + route_path
@@ -226,8 +212,6 @@ async def test_sync_agent_crud_handlers_run_in_workers(client, conditional_file,
     original = route.dependant.call
     loop_thread = get_ident()
     observed = []
-    monkeypatch.setattr(llama_index, "schedule_index_upsert", Mock())
-    monkeypatch.setattr(llama_index, "schedule_index_delete", Mock())
 
     if inspect.iscoroutinefunction(original):
         async def observe(*args, **kwargs):

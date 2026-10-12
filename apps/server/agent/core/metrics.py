@@ -40,7 +40,7 @@ TOOL_CALLS_DURATION_MS: Final[str] = "tool.calls.duration_ms"
 TOOL_CALLS_ERRORS: Final[str] = "tool.calls.errors"
 
 # Read-only co-call observability (gate metric for item 1.5 concurrency-cap relax).
-# Counts model turns in which ≥2 read-only tools (query_files / hybrid_search) were
+# Counts model turns in which ≥2 read-only tools (query_files) were
 # requested before any of their outputs returned — the signal that would justify
 # raising max_function_tool_concurrency above 1.  Pair with TOOL_READONLY_TURNS_TOTAL
 # to compute the fraction of turns that exhibit this pattern.

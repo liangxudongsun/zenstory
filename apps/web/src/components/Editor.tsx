@@ -20,6 +20,7 @@ import { fileApi } from "../lib/api";
 import { ApiError } from "../lib/apiClient";
 import { handleApiError } from "../lib/errorHandler";
 import { toast } from "../lib/toast";
+import { isFileTitleTooLong } from "../lib/fileTitle";
 import { logger } from "../lib/logger";
 import { SimpleEditor } from "./SimpleEditor";
 import type { SaveOutcome, SaveResult, SaveSubmission } from "./SimpleEditor";
@@ -170,6 +171,7 @@ const EditorComponent: React.FC<EditorProps> = () => {
   const [editTitle, setEditTitle] = useState("");
   const [editContent, setEditContent] = useState("");
   const editTitleRef = useRef(editTitle);
+  const longTitleWarnedRef = useRef<string | null>(null);
   const editContentRef = useRef(editContent);
   editTitleRef.current = editTitle;
   editContentRef.current = editContent;
@@ -725,7 +727,8 @@ const EditorComponent: React.FC<EditorProps> = () => {
     let updated;
     try {
       updated = await fileApi.update(targetFileId, {
-        title: submission.title,
+        // 上限之前存下的超长标题没改名时不重发：只改正文也必须能保存。
+        ...(titleChanged || !isFileTitleTooLong(submission.title) ? { title: submission.title } : {}),
         content: submission.content,
         // 乐观并发令牌：带上加载这份正文时的 updated_at。
         // 编辑器提交的是整篇快照，光加锁挡不住丢更新——3 秒防抖期间 AI 的
@@ -734,6 +737,14 @@ const EditorComponent: React.FC<EditorProps> = () => {
         ...submission.versionIntent,
       });
     } catch (error) {
+      if (error instanceof ApiError && error.errorCode === "ERR_FILE_TITLE_TOO_LONG") {
+        // 标题框和正文原样保留，作者缩短标题后下一次保存会一起写入。同一个标题只提示一次。
+        if (longTitleWarnedRef.current !== submission.title) {
+          longTitleWarnedRef.current = submission.title;
+          toast.error(t('editor:fileTree.titleTooLong'));
+        }
+        return { outcome: "failed" };
+      }
       if (
         error instanceof ApiError &&
         error.errorCode === "ERR_QUOTA_FILE_VERSIONS_EXCEEDED"

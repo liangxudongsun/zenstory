@@ -212,7 +212,7 @@ async def test_export_added_public_skill_uses_custom_name_and_public_resources(c
     user, headers = await _login(client, db_session, "pkg_export_added")
     public = PublicSkill(
         name="氛围渲染器", description="强化氛围", instructions="写感官细节。",
-        category="style", tags=json.dumps(["氛围"]), status="approved",
+        category="style", tags=json.dumps(["氛围"]), status="approved", source="community",
     )
     db_session.add(public)
     db_session.commit()
@@ -229,6 +229,30 @@ async def test_export_added_public_skill_uses_custom_name_and_public_resources(c
     assert skill.triggers == ["氛围"]
     assert skill.category == "style"
     assert resources == [("references/senses.md", "五感")]
+
+
+@pytest.mark.integration
+async def test_added_official_skill_cannot_be_exported_or_read(client: AsyncClient, db_session):
+    """官方技能的正文与资源不向用户返回：导出（导出再导入就是复制）和资源读取都拒绝。"""
+    user, headers = await _login(client, db_session, "pkg_official")
+    public = PublicSkill(
+        name="官方技能", description="写悬念", instructions="官方正文", status="approved", source="official",
+    )
+    db_session.add(public)
+    db_session.commit()
+    added = UserAddedSkill(user_id=user.id, public_skill_id=public.id)
+    db_session.add(added)
+    db_session.add(SkillResource(public_skill_id=public.id, path="references/a.md", content="官方资源", size=12))
+    db_session.commit()
+    base = f"/api/v1/skills/{added.id}"
+
+    export = await client.get(f"{base}/export", headers=headers)
+    listing = await client.get(f"{base}/resources", headers=headers)
+    content = await client.get(f"{base}/resources/content", params={"path": "references/a.md"}, headers=headers)
+
+    for response in (export, listing, content):
+        assert response.status_code == 403
+        assert "官方正文" not in response.text and "官方资源" not in response.text
 
 
 # ==================== Resources CRUD ====================
@@ -309,7 +333,7 @@ async def test_resource_count_limit(client: AsyncClient, db_session):
 @pytest.mark.integration
 async def test_added_skill_resources_are_read_only(client: AsyncClient, db_session):
     user, headers = await _login(client, db_session, "pkg_res_added")
-    public = PublicSkill(name="公共技能", description="d", instructions="i", status="approved")
+    public = PublicSkill(name="公共技能", description="d", instructions="i", status="approved", source="community")
     db_session.add(public)
     db_session.commit()
     added = UserAddedSkill(user_id=user.id, public_skill_id=public.id)

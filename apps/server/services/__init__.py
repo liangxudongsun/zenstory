@@ -72,24 +72,6 @@ sys.modules['services.email_service'] = import_module('.infra.email_client', pac
 sys.modules['services.redis_client'] = import_module('.infra.redis_client', package='services')
 
 
-_VECTOR_EXPORTS = {
-    "LlamaIndexService",
-    "get_llama_index_service",
-    "schedule_index_delete",
-    "schedule_index_upsert",
-}
-
-
-def __getattr__(name: str):
-    """Load the optional vector stack only when a vector export is requested."""
-    if name not in _VECTOR_EXPORTS:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-    module = import_module('.infra.vector_search_service', package=__name__)
-    value = getattr(module, name)
-    globals()[name] = value
-    return value
-
 __all__ = [
     # Auth service
     "hash_password",
@@ -125,9 +107,4 @@ __all__ = [
     "reset_verification_attempts",
     # Email client
     "send_verification_email",
-    # Vector search service (LlamaIndex)
-    "LlamaIndexService",
-    "get_llama_index_service",
-    "schedule_index_upsert",
-    "schedule_index_delete",
 ]

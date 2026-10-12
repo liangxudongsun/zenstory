@@ -6,7 +6,6 @@ This module provides Create, Read, Update, Delete operations on the File model:
 - update_file: Update existing file
 - delete_file: Delete a file (with optional recursive deletion)
 - query_files: Query and search files (unified)
-- hybrid_search: Lexical + vector hybrid retrieval (RAG)
 
 Extracted from the monolithic file_executor.py for better maintainability.
 """
@@ -31,7 +30,7 @@ from agent.tools.permissions import (
 )
 from config.datetime_utils import advance_timestamp, utcnow
 from models import File
-from models.file_model import FILE_TYPE_FOLDER
+from models.file_model import FILE_TYPE_FOLDER, validate_file_title
 from models.file_version import (
     CHANGE_SOURCE_AI,
     CHANGE_TYPE_AI_EDIT,
@@ -61,6 +60,7 @@ from utils.title_sequence import (
 from .edit import (
     NORMALIZED_QUOTE_FILE_TYPES,
     acquire_file_write_lock,
+    remember_pre_write_content,
     resolve_write_quote_style,
     stage_pre_ai_write_backup,
 )
@@ -159,6 +159,7 @@ class FileCRUD:
         Raises:
             PermissionError: If user doesn't have permission
         """
+        validate_file_title(title)
         log_with_context(
             logger,
             20,  # INFO
@@ -471,7 +472,6 @@ class FileCRUD:
                         self.session.add(candidate)
                         self.session.commit()
                         self.session.refresh(candidate)
-                        self._schedule_index_upsert(candidate)
 
                     log_with_context(
                         logger,
@@ -544,6 +544,10 @@ class FileCRUD:
         self.session.commit()
         self.session.refresh(file)
 
+        if file.file_type != FILE_TYPE_FOLDER:
+            # 本请求新建的文件整份都是新写的（之后同一请求里的 edit_file 不改变这一点）。
+            remember_pre_write_content(file.id, "")
+
         if content and file.file_type != FILE_TYPE_FOLDER:
             activation_event_service.record_ai_write_accepted(
                 self.session,
@@ -554,8 +558,6 @@ class FileCRUD:
                 tool="create_file",
             )
 
-        # Fire-and-forget vector index upsert (do not block)
-        self._schedule_index_upsert(file, metadata)
 
         log_with_context(
             logger,
@@ -604,6 +606,9 @@ class FileCRUD:
             PermissionError: If user doesn't have permission
             ValueError: If file not found
         """
+        if title is not None:
+            validate_file_title(title)
+
         from database import is_postgres
 
         if parent_id is not None:
@@ -786,8 +791,6 @@ class FileCRUD:
                 tool="update_file",
             )
 
-        # Fire-and-forget vector index upsert (do not block)
-        self._schedule_index_upsert(file)
 
         log_with_context(
             logger,
@@ -882,13 +885,11 @@ class FileCRUD:
                 deleted = [file]
                 self.session.add(file)
 
-            # Keep postcommit logging/index scheduling independent of expired rows.
+            # Keep postcommit logging independent of expired rows.
             project_id = file.project_id
-            index_deletes = tuple((item.project_id, item.file_type, item.id) for item in deleted)
+            deleted_count = len(deleted)
             self.session.commit()
 
-        # Fire-and-forget vector index delete (do not block)
-        self._schedule_index_delete(index_deletes)
 
         log_with_context(
             logger,
@@ -897,7 +898,7 @@ class FileCRUD:
             file_id=id,
             user_id=self.user_id,
             project_id=project_id,
-            deleted_count=len(index_deletes),
+            deleted_count=deleted_count,
             recursive=recursive,
         )
 
@@ -1056,55 +1057,6 @@ class FileCRUD:
             for file, preview, length in self.session.execute(projected_stmt).all()
         ]
 
-    def hybrid_search(
-        self,
-        project_id: str,
-        query: str,
-        top_k: int = 10,
-        entity_types: list[str] | None = None,
-        min_score: float = 0.0,
-    ) -> dict[str, Any]:
-        """
-        Hybrid retrieval (lexical + vector fusion).
-
-        Args:
-            project_id: Project ID
-            query: Search query
-            top_k: Maximum results to return
-            entity_types: Filter by entity types
-            min_score: Minimum fused score threshold
-
-        Returns:
-            Search results with hybrid fused scores
-        """
-        check_project_ownership(self.session, project_id, self.user_id)
-
-        top_k = max(1, min(int(top_k or 10), 20))
-        min_score = float(min_score or 0.0)
-
-        from services.llama_index import get_llama_index_service
-
-        svc = get_llama_index_service()
-        results = svc.hybrid_search(
-            project_id=project_id,
-            query=query,
-            top_k=top_k,
-            entity_types=entity_types,
-        )
-
-        filtered = [
-            r for r in results
-            if (r.fused_score if r.fused_score is not None else (r.score or 0.0)) >= min_score
-        ]
-
-        return {
-            "query": query,
-            "top_k": top_k,
-            "min_score": min_score,
-            "search_mode": "hybrid",
-            "results": [r.to_dict() for r in filtered],
-            "result_count": len(filtered),
-        }
 
     # ========== Helper Methods ==========
 
@@ -1312,55 +1264,6 @@ class FileCRUD:
             change_summary=change_summary,
             commit=False,
         )
-
-    def _schedule_index_upsert(
-        self,
-        file: File,
-        extra_metadata: dict[str, Any] | None = None,
-    ) -> None:
-        """Fire-and-forget vector index upsert (do not block)."""
-        try:
-            from agent.tools.mcp_tools import ToolContext
-            from services.llama_index import schedule_index_upsert
-
-            metadata = extra_metadata or {}
-            if file.file_metadata:
-                with contextlib.suppress(Exception):
-                    metadata = {**metadata, **json.loads(file.file_metadata)}
-            if file.parent_id:
-                metadata = {**metadata, "parent_id": file.parent_id}
-
-            user_id = ToolContext._get_context().get("user_id")
-
-            schedule_index_upsert(
-                project_id=file.project_id,
-                entity_type=file.file_type,
-                entity_id=file.id,
-                title=file.title,
-                content=file.content or "",
-                extra_metadata=metadata,
-                user_id=user_id,
-            )
-        except Exception:
-            pass
-
-    def _schedule_index_delete(self, descriptors: tuple[tuple[str, str, str], ...]) -> None:
-        """Fire-and-forget vector index delete (do not block)."""
-        try:
-            from agent.tools.mcp_tools import ToolContext
-            from services.llama_index import schedule_index_delete
-
-            user_id = ToolContext._get_context().get("user_id")
-
-            for project_id, file_type, entity_id in descriptors:
-                schedule_index_delete(
-                    project_id=project_id,
-                    entity_type=file_type,
-                    entity_id=entity_id,
-                    user_id=user_id,
-                )
-        except Exception:
-            pass
 
 
 __all__ = [

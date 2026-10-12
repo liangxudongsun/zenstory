@@ -85,6 +85,7 @@
     },
     "skillTriggers": "触发词",
     "skillInstructions": "技能内容",
+    "skillInstructionsHidden": "官方技能的具体指令不公开，AI 会在合适的时候使用它。",
     "builtinSkill": "内置",
     "userSkill": "自定义",
     "useSkill": "使用此技能",
@@ -99,7 +100,8 @@
     "noResults": "未找到文件",
     "searching": "搜索中...",
     "shortcutHint": "Ctrl+K",
-    "pathSeparator": " > "
+    "pathSeparator": " > ",
+    "titleTooLong": "文件名最多 255 个字符，请将正文粘贴到编辑器中。"
   },
   "placeholder": {
     "selectFile": "从左侧选择一个文件开始创作",

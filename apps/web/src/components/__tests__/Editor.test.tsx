@@ -5,6 +5,7 @@ import type { SaveResult } from '../SimpleEditor'
 import * as React from 'react'
 import * as api from '../../lib/api'
 import { ApiError } from '../../lib/apiClient'
+import { toast } from '../../lib/toast'
 import {
   createEditorDraftSnapshot,
   getEditorDraftRecoveryKey,
@@ -733,6 +734,43 @@ describe('Editor', () => {
       expect.objectContaining({ content: 'Edited A' }),
     ))
     await waitFor(() => expect(screen.getByTestId('content-input')).toHaveValue('Original B'))
+  })
+
+  it('saves a body edit without resending an unchanged legacy long title', async () => {
+    const legacy = { ...mockFile, title: '雨'.repeat(300) }
+    vi.mocked(api.fileApi.get).mockResolvedValue(legacy)
+    vi.mocked(api.fileApi.update).mockResolvedValue({ ...legacy, content: 'Edited body' })
+    mockProjectContext = createMockProjectContext({
+      selectedItem: { id: 'file-1', type: 'draft', title: legacy.title },
+    })
+    render(<Editor />)
+    await waitFor(() => expect(screen.getByTestId('content-input')).toHaveValue('Test content'))
+    fireEvent.change(screen.getByTestId('content-input'), { target: { value: 'Edited body' } })
+    fireEvent.click(screen.getByTestId('save-button'))
+    await waitFor(() => expect(api.fileApi.update).toHaveBeenCalled())
+    const [, payload] = vi.mocked(api.fileApi.update).mock.calls[0]
+    expect(payload).toEqual(expect.objectContaining({ content: 'Edited body' }))
+    expect(payload).not.toHaveProperty('title')
+  })
+
+  it('tells the author once when a renamed title is too long and keeps the draft', async () => {
+    const toastError = vi.spyOn(toast, 'error')
+    vi.mocked(api.fileApi.get).mockResolvedValue(mockFile)
+    vi.mocked(api.fileApi.update).mockRejectedValue(new ApiError(422, 'ERR_FILE_TITLE_TOO_LONG'))
+    mockProjectContext = createMockProjectContext({
+      selectedItem: { id: 'file-1', type: 'draft', title: 'Test Chapter' },
+    })
+    render(<Editor />)
+    await waitFor(() => expect(screen.getByTestId('content-input')).toHaveValue('Test content'))
+    const longTitle = '雪'.repeat(256)
+    fireEvent.change(screen.getByTestId('title-input'), { target: { value: longTitle } })
+    fireEvent.click(screen.getByTestId('save-button'))
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('editor:fileTree.titleTooLong'))
+    fireEvent.click(screen.getByTestId('save-button'))
+    await waitFor(() => expect(api.fileApi.update).toHaveBeenCalledTimes(2))
+    expect(toastError.mock.calls.filter(([m]) => m === 'editor:fileTree.titleTooLong')).toHaveLength(1)
+    expect(screen.getByTestId('title-input')).toHaveValue(longTitle)
+    toastError.mockRestore()
   })
 
   it('blocks a file switch and preserves the draft when flushing the previous file fails', async () => {

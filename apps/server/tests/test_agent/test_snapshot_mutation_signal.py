@@ -42,7 +42,6 @@ def mutation_project(db_session, monkeypatch):
     db_session.add(folder)
     db_session.commit()
     mcp_tools.ToolContext.set_context(session=db_session, user_id=user.id, project_id=project.id, session_id=None)
-    monkeypatch.setattr(FileCRUD, "_schedule_index_upsert", lambda *_a, **_kw: None)
     monkeypatch.setattr("agent.tools.file_ops.crud.activation_event_service.record_ai_write_accepted", lambda *_a, **_kw: None)
     monkeypatch.setattr("agent.tools.file_ops.edit.activation_event_service.record_ai_write_accepted", lambda *_a, **_kw: None)
     return user, project, folder
@@ -331,3 +330,27 @@ def test_update_commit_failure_never_returns_success(db_session, mutation_projec
         FileCRUD(db_session, user.id).update_file(file.id, content="Changed")
     db_session.rollback()
     assert db_session.exec(select(File).where(File.id == file.id)).one().content == "Body"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("save_succeeds", [True, False])
+async def test_abort_save_receipt_uses_the_save_result_and_unemitted_tail(monkeypatch, save_succeeds):
+    from agent.core.round_outcome import RoundWrittenFiles
+    from utils.text_metrics import count_words
+
+    adapter = StreamAdapter(StreamAdapterConfig())
+    saved = []
+    monkeypatch.setattr(adapter, "_save_file_content_sync", lambda fid, text: (saved.append((fid, text)) or save_succeeds, True))
+    listed = RoundWrittenFiles()
+    body = "雨落在旧书店门口。林澄把铜钥匙握紧。" * 12
+    for workflow_event in [
+        _tool_event("create_file", {"status": "success", "data": {"id": "file", "file_type": "draft", "title": "雾夜", "content": ""}}),
+        StreamEvent(type=StreamEventType.TEXT, data={"text": "<file>" + body}),
+    ]:
+        async for frame in adapter._process_workflow_event(workflow_event):
+            listed.observe(frame.to_sse())
+    assert listed.files()[0]["words"] < count_words(body)
+    receipt = await adapter.settle_aborted_capture()
+    assert saved == [("file", body)]
+    assert receipt == {"file": count_words(body) if save_succeeds else None}
+    assert listed.files(final_word_counts=receipt) == ([{"id": "file", "title": "雾夜", "words": count_words(body)}] if save_succeeds else [])

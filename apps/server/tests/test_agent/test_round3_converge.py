@@ -205,6 +205,34 @@ def test_auto_current_phase_still_infers_from_draft_files(
     assert "3" in suggested
 
 
+@pytest.mark.unit
+def test_auto_current_phase_counts_episodes_for_a_screenplay(db_session: Session, converge_user: User):
+    """live run 2 场景 A：短剧项目被自动写成「已写至第3章」，剧本应按「集」。"""
+    from agent.tools.mcp_tools import ToolContext, _suggest_auto_current_phase_from_drafts
+
+    drama = Project(name="短剧项目", owner_id=converge_user.id, project_type="screenplay")
+    short = Project(name="短篇项目", owner_id=converge_user.id, project_type="short")
+    db_session.add_all([drama, short])
+    db_session.commit()
+    db_session.add_all([
+        File(project_id=drama.id, title="第3集 车灯", file_type="script", content="正文"),
+        File(project_id=short.id, title="第2章 交接", file_type="draft", content="正文"),
+    ])
+    db_session.commit()
+
+    ToolContext.set_context(db_session, converge_user.id, drama.id, "sess-drama")
+    try:
+        assert _suggest_auto_current_phase_from_drafts(drama.id) == "已写至第3集"
+        # 写到第4集后继续往前推（「第3集」要能被认出来，不然进度会停在这里）。
+        drama.current_phase = "已写至第3集"
+        db_session.add(File(project_id=drama.id, title="第4集 认亲", file_type="script", content="正文"))
+        db_session.commit()
+        assert _suggest_auto_current_phase_from_drafts(drama.id) == "已写至第4集"
+        assert _suggest_auto_current_phase_from_drafts(short.id) == "已写至第2章"
+    finally:
+        ToolContext.clear_context()
+
+
 # ---------------------------------------------------------------------------
 # assembler 同族站点：找"前一章"必须覆盖 script
 # ---------------------------------------------------------------------------

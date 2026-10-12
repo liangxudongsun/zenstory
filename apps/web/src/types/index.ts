@@ -765,7 +765,10 @@ export interface Skill {
   name: string;
   description: string | null;
   triggers: string[];
+  /** Empty for added official skills (see instructions_hidden) */
   instructions: string;
+  /** true for added official skills: the backend does not return their instructions */
+  instructions_hidden?: boolean;
   source: SkillSource;
   is_active: boolean;
   /** Number of bundled resource files (references/, assets/) */
@@ -882,6 +885,8 @@ export interface PublicSkill {
   is_added?: boolean;
   /** List responses carry only a preview of `instructions`; true when it was cut */
   instructions_truncated?: boolean;
+  /** true for official skills: `instructions` is empty and is not available to users */
+  instructions_hidden?: boolean;
 }
 
 /**
@@ -893,6 +898,8 @@ export interface AddedSkill {
   name: string;
   description: string | null;
   instructions: string;
+  /** true for official skills: `instructions` is empty and is not available to users */
+  instructions_hidden?: boolean;
   category: string;
   source: "added";
   is_active: boolean;

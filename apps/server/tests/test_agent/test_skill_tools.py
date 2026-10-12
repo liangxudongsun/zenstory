@@ -435,3 +435,50 @@ async def test_read_skill_resource_rejects_bad_offset(db_session: Session, owner
 
     assert negative_text["status"] == "error"
     assert past_end["status"] == "error"
+
+
+@pytest.mark.integration
+async def test_load_skill_gets_full_text_of_added_official_skill(db_session: Session, owner: User, tool_context):
+    """官方技能的正文对用户隐藏，但 agent 自己的 load_skill / read_skill_resource 仍拿到全文。"""
+    public = PublicSkill(
+        name="官方节奏", description="控制节奏", instructions="官方完整方法：先压后扬。",
+        status="approved", source="official",
+    )
+    db_session.add(public)
+    db_session.commit()
+    db_session.add(UserAddedSkill(user_id=owner.id, public_skill_id=public.id))
+    db_session.add(SkillResource(public_skill_id=public.id, path="references/beats.md", content="节拍表", size=9))
+    db_session.commit()
+
+    loaded = _payload(await load_skill({"name": "官方节奏"}))
+    resource = _payload(await read_skill_resource({"name": "官方节奏", "path": "references/beats.md"}))
+
+    assert loaded["data"]["instructions"] == "官方完整方法：先压后扬。"
+    assert loaded["data"]["resources"] == [{"path": "references/beats.md", "size": 9}]
+    assert resource["data"]["content"] == "节拍表"
+
+
+@pytest.mark.integration
+async def test_load_skill_caps_distinct_skills_per_request(db_session: Session, owner: User, tool_context):
+    from agent.skills.content_budget import MAX_LOADED_SKILLS_PER_REQUEST
+
+    names = [f"技能{i}" for i in range(MAX_LOADED_SKILLS_PER_REQUEST + 1)]
+    for name in names:
+        db_session.add(UserSkill(user_id=owner.id, name=name, description="d", instructions=f"{name}的方法"))
+    db_session.commit()
+
+    for name in names[:MAX_LOADED_SKILLS_PER_REQUEST]:
+        assert _payload(await load_skill({"name": name}))["status"] == "success"
+    # 已加载过的技能重复加载、续读不另计
+    assert _payload(await load_skill({"name": names[0]}))["status"] == "success"
+    assert _payload(await read_skill_resource({"name": names[1], "path": "SKILL.md"}))["status"] == "success"
+
+    over = _payload(await load_skill({"name": names[-1]}))
+    over_read = _payload(await read_skill_resource({"name": names[-1], "path": "SKILL.md"}))
+    for result in (over, over_read):
+        assert result["status"] == "error"
+        assert str(MAX_LOADED_SKILLS_PER_REQUEST) in result["error"] and names[-1] in result["error"]
+
+    # 新的一轮请求重新计数
+    ToolContext.set_context(session=db_session, user_id=owner.id, project_id=None, session_id=None)
+    assert _payload(await load_skill({"name": names[-1]}))["status"] == "success"

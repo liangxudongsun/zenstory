@@ -9,7 +9,7 @@ import contextlib
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 from services.auth import get_current_active_user
 from services.file_version import get_file_version_service
@@ -418,7 +418,6 @@ def compare_versions(
 def rollback_to_version(
     file_id: str,
     version_number: int,
-    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_active_user),
     session: Session = Depends(get_session),
     rollback_request: RollbackRequest | None = None,
@@ -460,31 +459,6 @@ def rollback_to_version(
                 project_id=updated_file.project_id,
             )
 
-        try:
-            from services.llama_index import schedule_index_upsert
-
-            extra_metadata = updated_file.get_metadata()
-            if updated_file.parent_id:
-                extra_metadata = {**extra_metadata, "parent_id": updated_file.parent_id}
-            background_tasks.add_task(
-                schedule_index_upsert,
-                project_id=updated_file.project_id,
-                entity_type=updated_file.file_type,
-                entity_id=updated_file.id,
-                title=updated_file.title,
-                content=updated_file.content or "",
-                extra_metadata=extra_metadata,
-                user_id=current_user.id,
-            )
-        except Exception as exc:
-            log_with_context(
-                logger,
-                10,  # DEBUG
-                "Failed to schedule vector reconciliation after version rollback",
-                error=str(exc),
-                file_id=file_id,
-                project_id=updated_file.project_id,
-            )
 
         return RollbackResponse(
             success=True,

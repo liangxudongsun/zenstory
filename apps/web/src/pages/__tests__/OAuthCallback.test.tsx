@@ -93,6 +93,17 @@ describe("OAuthCallback", () => {
     });
   });
 
+  it.each([
+    ['state_mismatch', '597f6c6f', { oauth_stage: 'state_mismatch', request_id: '597f6c6f' }],
+    ['private-input', 'invalid-private-input', {}],
+  ])('only reports safe OAuth correlation metadata (%s)', async (stage, requestId, metadata) => {
+    window.location.search = `?error_code=ERR_AUTH_TOKEN_INVALID&error_stage=${stage}&request_id=${requestId}`;
+    render(<MemoryRouter><OAuthCallback /></MemoryRouter>);
+    await waitFor(() => expect(mockCaptureException).toHaveBeenCalled());
+    expect(mockCaptureException).toHaveBeenCalledWith(expect.any(Error), { feature_area: 'auth', action: 'oauth_callback', ...metadata });
+    expect(replaceStateSpy).toHaveBeenCalledWith(window.history.state, document.title, '/auth/callback');
+  });
+
   it("handles token callback from hash and redirects to dashboard", async () => {
     mockHandleOAuthCallback.mockResolvedValue(undefined);
     Object.defineProperty(window, "location", {

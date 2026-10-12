@@ -33,3 +33,21 @@ def test_base_prompt_does_not_suggest_removed_tools():
     assert "update_file(" not in prompt
     assert "read_file(" not in prompt
 
+
+
+@pytest.mark.unit
+def test_product_identity_does_not_depend_on_database_role_definition():
+    """数据库里的角色定义没写身份时，系统提示照样带上 ZenStory 写作助手的身份说明。"""
+    from agent.prompts.base import OUTPUT_PROTOCOL, PRODUCT_IDENTITY_PROTOCOL
+
+    prompt = get_base_prompt(
+        project_id="proj-1",
+        folder_ids={"draft": "draft-folder"},
+        config={"role_definition": "你是一位资深网文编辑", "capabilities": "",
+                "directory_structure": "{draft}", "content_structure": "",
+                "file_types": "draft", "writing_guidelines": ""},
+    )
+
+    role_at = prompt.index("你是一位资深网文编辑")
+    identity_at = prompt.index(PRODUCT_IDENTITY_PROTOCOL)
+    assert role_at < identity_at < prompt.index(OUTPUT_PROTOCOL)

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * SkillsPage Unit Tests
  *
@@ -265,6 +266,23 @@ describe('SkillsPage', () => {
   afterEach(() => {
     vi.clearAllMocks()
     mediaState.isMobile = false
+  })
+
+  it('keeps the public skill toggle working after translated text nodes are replaced', async () => {
+    render(<SkillsPage />)
+    const button = (await screen.findAllByRole('button', { name: /^Expand$/ }))[0]
+    const walker = document.createTreeWalker(button, NodeFilter.SHOW_TEXT)
+    let label = walker.nextNode()
+    while (label && label.textContent !== 'Expand') label = walker.nextNode()
+    expect(label).not.toBeNull()
+    const translated = document.createElement('font')
+    translated.textContent = 'Translated expand'
+    label!.parentNode!.replaceChild(translated, label!)
+
+    await userEvent.click(button)
+    expect(screen.getByRole('button', { name: /^Collapse$/ })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /^Collapse$/ }))
+    expect(screen.getAllByRole('button', { name: /^Expand$/ })).toHaveLength(2)
   })
 
   // ========================================
@@ -1089,6 +1107,56 @@ describe('SkillsPage', () => {
 
       expect(await screen.findByText('The complete instructions')).toBeInTheDocument()
       expect(publicSkillsApi.get).toHaveBeenCalledWith('public-1')
+    })
+  })
+
+  describe('Official skill instructions are hidden', () => {
+    const hiddenOfficial: PublicSkill = {
+      ...mockPublicSkills[0],
+      instructions: '',
+      instructions_hidden: true,
+      description: 'Expert at writing dialogue, with a long scenario description',
+    }
+
+    it('shows the description and a note instead of instructions for an official public skill', async () => {
+      vi.mocked(publicSkillsApi.list).mockResolvedValue({
+        skills: [hiddenOfficial, mockPublicSkills[1]],
+        total: 2,
+        page: 1,
+        page_size: 20,
+      })
+      render(<SkillsPage />)
+      await screen.findByText('Dialogue Expert')
+
+      await userEvent.click(screen.getByRole('button', { name: /expandDetails/ }))
+
+      expect(await screen.findByText('instructionsHidden')).toBeInTheDocument()
+      expect(publicSkillsApi.get).not.toHaveBeenCalled()
+      // 社区技能照常展开正文
+      await userEvent.click(screen.getByRole('button', { name: /^Expand$/ }))
+      expect(await screen.findByText('Create detailed world settings.')).toBeInTheDocument()
+    })
+
+    it('keeps own skills exportable and editable while an added official skill is read-only without export', async () => {
+      vi.mocked(skillsApi.mySkills).mockResolvedValue({
+        user_skills: mockUserSkills,
+        added_skills: [{ ...mockAddedSkills[0], instructions: '', instructions_hidden: true }],
+        total: 3,
+      })
+      render(<SkillsPage />)
+      await userEvent.click(screen.getByRole('button', { name: /my skills/i }))
+      await screen.findByText('Plot Twist Generator')
+
+      const addedCard = screen.getByText('Plot Twist Generator').closest('.group') as HTMLElement
+      expect(within(addedCard).queryByRole('button', { name: 'skills:export.button' })).not.toBeInTheDocument()
+      await userEvent.click(within(addedCard).getByTitle('skills:expandDetails'))
+      expect(within(addedCard).getByText('skills:instructionsHidden')).toBeInTheDocument()
+      expect(skillsApi.listResources).not.toHaveBeenCalled()
+
+      const ownCard = screen.getByText('Writing Assistant').closest('.group') as HTMLElement
+      expect(within(ownCard).getByRole('button', { name: 'skills:export.button' })).toBeInTheDocument()
+      await userEvent.click(within(ownCard).getByRole('button', { name: 'Edit Skill' }))
+      expect(await screen.findByDisplayValue('You are a writing assistant.')).not.toHaveAttribute('readonly')
     })
   })
 })

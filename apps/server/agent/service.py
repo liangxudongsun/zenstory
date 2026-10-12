@@ -75,6 +75,8 @@ from .tools.author_edit_guard import (
     MAX_CONFIRM_FILE_IDS,
     AuthorEditRefusals,
     confirmed_file_ids_from_history,
+    previous_offer_context_from_history,
+    previous_offer_from_history,
     referenced_file_ids_from_metadata,
 )
 from .tools.mcp_tools import ToolContext, _should_offload_tool_execution
@@ -121,7 +123,11 @@ def routing_from_router_decided(data: dict[str, Any]) -> dict[str, Any]:
         "read_only": routing_metadata.get("read_only") is True,
         "write_content": write_content if isinstance(write_content, bool) else None,
         "scope": scope.strip() if isinstance(scope, str) else "",
+        # last_agent：这一轮最后说话的 agent；owner_agent：负责这一轮任务的 agent。
+        # writer 写完经自动质量门控 / 送审交给审稿人时，last_agent 变成 quality_reviewer，
+        # owner_agent 仍是 writer：作者回答审稿人的提问时要回到 writer（审稿人没有写工具）。
         "last_agent": initial_agent,
+        "owner_agent": initial_agent,
     }
     if routing_metadata.get("clarify_first") is True:
         # 这一轮是为笼统要求先问清楚：下一轮不再问第二次（graph/writing_graph._should_clarify_first）。
@@ -540,6 +546,7 @@ class AgentService:
             language=language,
             skill_catalog=skill_catalog,
             selected_skills=selected_skills or None,
+            author_message=message,
         )
         return selected_skills, system_prompt
 
@@ -1192,6 +1199,9 @@ class AgentService:
                 referenced_file_ids=referenced_file_ids_from_metadata(metadata),
                 author_confirmed_file_ids=confirmed_file_ids_from_history(history_messages),
                 author_edit_refusals=author_edit_refusals,
+                # 上一轮 AI 的提议：作者答应 / 选中改某个文件的那一项时放行它。
+                author_previous_offer=previous_offer_from_history(history_messages),
+                author_previous_offer_context=previous_offer_context_from_history(history_messages),
             )
 
             # Build WritingState for workflow execution
@@ -1270,6 +1280,13 @@ class AgentService:
                             selected_agent = str(event.data.get("agent_type") or "").strip()
                             if selected_agent:
                                 assistant_routing["last_agent"] = selected_agent
+                                # 交接来的审稿人只是在审别人的稿：任务仍归交给它的 agent。
+                                # 本轮从审稿开始（review_only）时审稿人就是负责人。
+                                if (
+                                    selected_agent != "quality_reviewer"
+                                    or assistant_routing.get("initial_agent") == "quality_reviewer"
+                                ):
+                                    assistant_routing["owner_agent"] = selected_agent
 
                     # Track content for history
                     if event_type == "content":
@@ -1511,6 +1528,13 @@ class AgentService:
                             run_outcome.resolve_message_id(None)
 
                 async def _drain_then_save_partial_history_inner() -> None:
+                    # 残稿补存会把没有作为 SSE 发出的尾部缓冲一并保存。先等本轮
+                    # 正文保存回执，再交回消息 id，让 done 与历史使用同一份字数。
+                    adapter = usage_source.get("adapter")
+                    if run_outcome is not None and adapter is not None:
+                        run_outcome.saved_file_word_counts.update(
+                            await adapter.settle_aborted_capture()
+                        )
                     # 取消可能恰好落在 save_messages 期间：它被 shield 保护会
                     # 继续跑完，所以补偿保存前必须等它的真实结果。已落库时
                     # 不能整轮重写（user/steering/assistant 会写两遍），但仍要

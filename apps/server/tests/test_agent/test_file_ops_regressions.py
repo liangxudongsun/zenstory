@@ -24,7 +24,6 @@ from models.file_version import FileVersion
 def local_history_sideeffects(monkeypatch):
     from agent.tools.file_ops import crud
 
-    monkeypatch.setattr(FileCRUD, "_schedule_index_upsert", lambda *_a, **_kw: None)
     monkeypatch.setattr(crud.activation_event_service, "record_ai_write_accepted", lambda *_a, **_kw: None)
 
 

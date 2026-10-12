@@ -58,7 +58,6 @@
   "ERR_MATERIAL_META_EXTRACTION_FAILED": "金手指和世界观没有拆出来，其他内容已完成，重试可补全",
   "ERR_MATERIAL_UPLOAD_FAILED": "上传没有完成，请重试",
   "ERR_MATERIAL_DECOMPOSE_FAILED": "拆解失败，请重试",
-  "ERR_VECTOR_SEARCH_UNAVAILABLE": "AI 搜索暂时不可用，请稍后重试",
 
   "ERR_VERSION_NOT_FOUND": "版本不存在",
   "ERR_VERSION_NO_VERSIONS_FOUND": "这个文件还没有历史版本",
@@ -128,5 +127,6 @@
   "ERR_PAYMENT_RATE_LIMITED": "操作太频繁，请 1 分钟后再试",
   "ERR_PAYMENT_SYNC_FAILED": "暂时无法向支付平台查询订单，请稍后刷新",
   "ERR_QUOTA_AI_DAILY_COST_EXCEEDED": "今天的免费 AI 消息用完了，北京时间明天 00:00 恢复；开通 Pro 可不限条数继续写。",
-  "ERR_AI_COST_BUDGET_UNAVAILABLE": "暂时无法确认 AI 可用额度，请稍后重试。"
+  "ERR_AI_COST_BUDGET_UNAVAILABLE": "暂时无法确认 AI 可用额度，请稍后重试。",
+  "ERR_FILE_TITLE_TOO_LONG": "文件名最多 255 个字符，请将正文粘贴到编辑器中。"
 }

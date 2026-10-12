@@ -131,7 +131,6 @@ async def test_agent_http_done_confirms_real_committed_file_mutation(
     monkeypatch.setattr(database, "get_session", get_session)
     monkeypatch.setattr(database, "create_session", lambda: Session(engine))
     monkeypatch.setattr("agent.service.create_session", lambda: Session(engine))
-    monkeypatch.setattr(FileCRUD, "_schedule_index_upsert", lambda *_a, **_kw: None)
     monkeypatch.setattr("agent.tools.file_ops.crud.activation_event_service.record_ai_write_accepted", lambda *_a, **_kw: None)
     monkeypatch.setattr("agent.tools.file_ops.edit.activation_event_service.record_ai_write_accepted", lambda *_a, **_kw: None)
     created_ids = []

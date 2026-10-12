@@ -668,15 +668,13 @@ async def test_web_order_is_bounded_to_int32(client: AsyncClient, db_session: Se
     assert update.status_code == 422
 
 
-# ==================== Search index after move ====================
+# ==================== Keyword search after move ====================
 
 
 @pytest.mark.integration
 @pytest.mark.parametrize("surface", ["agent", "web"])
-async def test_move_reindexes_parent_id(client: AsyncClient, db_session: Session, monkeypatch, surface: str):
-    calls: list[dict] = []
-    monkeypatch.setattr("services.llama_index.schedule_index_upsert", lambda **kw: calls.append(kw))
-    user, project, key = _setup(db_session, f"move_reindex_{surface}")
+async def test_move_keeps_content_immediately_searchable(client: AsyncClient, db_session: Session, monkeypatch, surface: str):
+    user, project, key = _setup(db_session, f"move_search_{surface}")
     folder = _folder(db_session, project.id)
     file = create_test_file(db_session, project.id, "Alpha", content="正文")
 
@@ -693,9 +691,13 @@ async def test_move_reindexes_parent_id(client: AsyncClient, db_session: Session
         )
 
     assert response.status_code == 200
-    assert [(c["entity_id"], c["extra_metadata"].get("parent_id"), c["content"]) for c in calls] == [
-        (file.id, folder.id, "正文")
-    ]
+    db_session.expire_all()
+    persisted = db_session.get(File, file.id)
+    assert persisted.parent_id == folder.id
+    from services.infra.file_search_service import FileSearchService
+    results = FileSearchService().search(project.id, "正文", session=db_session)
+    assert [(result.entity_id, result.content) for result in results] == [(file.id, "正文")]
+
 
 
 # ==================== Blocking work off the event loop ====================

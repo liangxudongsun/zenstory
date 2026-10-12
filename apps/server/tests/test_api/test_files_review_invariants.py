@@ -48,14 +48,15 @@ async def test_draft_upload_rejects_deleted_destination_folder(db_session, file_
     db_session.add(folder)
     db_session.commit()
     with pytest.raises(APIException) as exc:
-        upload_drafts(project.id, files=[UploadFile(filename="review.txt", file=BytesIO(b"Draft content"))], parent_id=folder.id, current_user=user, session=db_session, background_tasks=BackgroundTasks())
+        upload_drafts(project.id, files=[UploadFile(filename="review.txt", file=BytesIO(b"Draft content"))], parent_id=folder.id, current_user=user, session=db_session, )
     assert exc.value.status_code == 400
 
 
-async def test_draft_upload_indexes_under_authenticated_owner(db_session, file_tree):
+def test_draft_upload_is_immediately_searchable_under_owned_project(db_session, file_tree):
     user, project, folder, _, _ = file_tree
-    background = BackgroundTasks()
-    upload_drafts(project.id, files=[UploadFile(filename="review.txt", file=BytesIO(b"Draft content"))], parent_id=folder.id, current_user=user, session=db_session, background_tasks=background)
-    index_tasks = [task for task in background.tasks if task.func.__name__ == "schedule_index_upsert"]
-    assert index_tasks
-    assert all(task.kwargs.get("user_id") == user.id for task in index_tasks)
+    upload_drafts(project.id, files=[UploadFile(filename="review.txt", file=BytesIO(b"Unique uploaded body"))], parent_id=folder.id, current_user=user, session=db_session)
+    from services.infra.file_search_service import FileSearchService
+    results = FileSearchService().search(project.id, "Unique uploaded", session=db_session)
+    assert len(results) == 1
+    assert results[0].content == "Unique uploaded body"
+    assert db_session.get(File, results[0].entity_id).parent_id == folder.id

@@ -62,22 +62,13 @@ if unexpected:
     assert result.returncode == 0, result.stderr or result.stdout
 
 
-def test_legacy_llama_index_imports_remain_available():
+def test_keyword_search_import_does_not_load_vector_stack():
     result = _run_isolated_import(
         """
-from services import LlamaIndexService as package_export
-from services.llama_index import (
-    LlamaIndexService,
-    get_llama_index_service,
-    schedule_index_delete,
-    schedule_index_upsert,
-)
-
-assert package_export is LlamaIndexService
-assert callable(get_llama_index_service)
-assert callable(schedule_index_delete)
-assert callable(schedule_index_upsert)
+import sys
+from services.infra.file_search_service import FileSearchService
+assert callable(FileSearchService.search)
+assert not any(name.startswith(("llama_index", "chromadb")) for name in sys.modules)
 """
     )
-
     assert result.returncode == 0, result.stderr or result.stdout

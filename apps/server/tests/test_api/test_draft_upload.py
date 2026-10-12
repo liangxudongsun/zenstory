@@ -32,20 +32,6 @@ from models import File, Project, User
 # Helpers
 # ---------------------------------------------------------------------------
 
-# Mock schedule_index_upsert to avoid background task crash in tests.
-# The production code has a pre-existing bug where it passes metadata= instead
-# of extra_metadata= to schedule_index_upsert, which only surfaces during
-# background task execution.
-_mock_schedule_index_upsert = patch(
-    "services.llama_index.schedule_index_upsert", lambda **kw: None
-)
-
-
-@pytest.fixture(autouse=True)
-def _mock_bg_index():
-    with _mock_schedule_index_upsert:
-        yield
-
 async def _create_user_project(client: AsyncClient, db_session, username: str):
     """Create a user, log in, create a project, and return (token, project)."""
     from services.core.auth_service import hash_password

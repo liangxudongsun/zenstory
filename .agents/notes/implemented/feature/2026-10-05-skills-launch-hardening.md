@@ -2,6 +2,8 @@
 
 Status: implemented
 
+后续：官方技能（`source = "official"`）的正文起不再由列表、详情和「我的技能」接口回传，导出与资源读取 403，见 [2026-10-11-official-skill-text-hidden-and-identity-rule](2026-10-11-official-skill-text-hidden-and-identity-rule.md)。
+
 关联：`../architecture/2026-09-27-standard-skills-without-execution.md`（技能格式与渐进式加载）。
 
 ## Problem

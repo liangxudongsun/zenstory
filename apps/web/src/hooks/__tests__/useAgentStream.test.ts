@@ -815,6 +815,59 @@ describe('useAgentStream', () => {
       }))
     })
 
+    it('hands the stopped round\'s written files from done to onComplete', async () => {
+      vi.mocked(agentApi.stopAgentRun).mockResolvedValue(true)
+      const onComplete = vi.fn()
+      const hook = renderHook(() => useAgentStream('test-project-id', { onComplete }))
+      const controller = createMockStreamController()
+      act(() => {
+        hook.result.current.startStream({ message: 'test' })
+      })
+      act(() => {
+        controller.getCallbacks()?.onRunStarted?.('run-1')
+      })
+      await act(async () => {
+        hook.result.current.stop()
+      })
+      act(() => {
+        controller.getCallbacks()?.onDone?.({
+          stop_reason: 'user_stopped',
+          produced_output: true,
+          written_files: [
+            { id: 'ch-1', title: '雨夜', words: 1039 },
+            { id: 'ch-2', title: '人物' },
+            { id: 'ch-3', title: '' },
+          ],
+        })
+      })
+      expect(onComplete).toHaveBeenCalledWith(expect.any(Array), null, expect.objectContaining({
+        stoppedByAuthor: true,
+        writtenFiles: [{ title: '雨夜', words: 1039 }, { title: '人物', words: null }],
+      }))
+    })
+
+    it('leaves writtenFiles out when an older server sends a stopped done without them', async () => {
+      vi.mocked(agentApi.stopAgentRun).mockResolvedValue(true)
+      const onComplete = vi.fn()
+      const hook = renderHook(() => useAgentStream('test-project-id', { onComplete }))
+      const controller = createMockStreamController()
+      act(() => {
+        hook.result.current.startStream({ message: 'test' })
+      })
+      act(() => {
+        controller.getCallbacks()?.onRunStarted?.('run-1')
+      })
+      await act(async () => {
+        hook.result.current.stop()
+      })
+      act(() => {
+        controller.getCallbacks()?.onDone?.({ stop_reason: 'user_stopped', produced_output: true })
+      })
+      const meta = onComplete.mock.calls.at(-1)?.[2]
+      expect(meta).toMatchObject({ stoppedByAuthor: true })
+      expect(meta).not.toHaveProperty('writtenFiles')
+    })
+
     it('drops the connection when the stop request fails', async () => {
       vi.mocked(agentApi.stopAgentRun).mockResolvedValue(false)
       const { result, controller } = startWithRun()
@@ -871,6 +924,75 @@ describe('useAgentStream', () => {
 
       expect(agentApi.stopAgentRun).not.toHaveBeenCalled()
       expect(controller.mockAbortController.abort).toHaveBeenCalled()
+    })
+  })
+
+  describe('whenStreamClosed (start a new chat only after the stopped round wrapped up)', () => {
+    function startStreaming() {
+      const hook = renderHook(() => useAgentStream('test-project-id'))
+      const controller = createMockStreamController()
+      act(() => {
+        hook.result.current.startStream({ message: 'test' })
+      })
+      act(() => {
+        controller.getCallbacks()?.onRunStarted?.('run-1')
+      })
+      return { ...hook, controller }
+    }
+
+    it('resolves at once when no round is open', async () => {
+      const { result } = renderHook(() => useAgentStream('test-project-id'))
+      const settled = vi.fn()
+      await act(async () => {
+        void result.current.whenStreamClosed().then(settled)
+      })
+      expect(settled).toHaveBeenCalled()
+    })
+
+    it('waits past done for the frames that follow it, until the server closes the stream', async () => {
+      vi.mocked(agentApi.stopAgentRun).mockResolvedValue(true)
+      const { result, controller } = startStreaming()
+      const settled = vi.fn()
+      await act(async () => {
+        await result.current.stop()
+        void result.current.whenStreamClosed().then(settled)
+      })
+      act(() => {
+        controller.getCallbacks()?.onDone?.({ stop_reason: 'user_stopped', produced_output: false })
+      })
+      await act(async () => {})
+      // done ended the round, but quota_refunded (removed blank files) may still follow.
+      expect(result.current.isStreaming).toBe(false)
+      expect(settled).not.toHaveBeenCalled()
+      expect(controller.mockAbortController.abort).not.toHaveBeenCalled()
+
+      await act(async () => {
+        controller.getCallbacks()?.onClosed?.()
+      })
+      expect(settled).toHaveBeenCalled()
+    })
+
+    it('resolves when the connection is dropped instead (stop failed or timed out)', async () => {
+      vi.mocked(agentApi.stopAgentRun).mockResolvedValue(false)
+      const { result } = startStreaming()
+      const settled = vi.fn()
+      await act(async () => {
+        void result.current.whenStreamClosed().then(settled)
+        await result.current.stop()
+      })
+      expect(settled).toHaveBeenCalled()
+    })
+
+    it('does not wait forever for a server that never closes the stream', async () => {
+      const { result } = startStreaming()
+      const settled = vi.fn()
+      await act(async () => {
+        void result.current.whenStreamClosed().then(settled)
+      })
+      await act(async () => {
+        vi.advanceTimersByTime(STOP_GRACE_MS)
+      })
+      expect(settled).toHaveBeenCalled()
     })
   })
 

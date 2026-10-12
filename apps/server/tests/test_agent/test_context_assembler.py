@@ -1248,8 +1248,8 @@ class TestContextAssembler:
         ]
 
         assembler = ContextAssembler()
-        with patch("services.llama_index.get_llama_index_service") as mock_factory:
-            mock_factory.return_value.hybrid_search.return_value = mock_results
+        with patch("services.infra.file_search_service.FileSearchService") as mock_factory:
+            mock_factory.return_value.search.return_value = mock_results
             result = assembler.assemble(
                 session=db_session,
                 project_id=test_project.id,
@@ -1280,7 +1280,7 @@ class TestContextAssembler:
         )
 
         assembler = ContextAssembler()
-        with patch("services.llama_index.get_llama_index_service", side_effect=RuntimeError("svc down")):
+        with patch("services.infra.file_search_service.FileSearchService", side_effect=RuntimeError("svc down")):
             result = assembler.assemble(
                 session=db_session,
                 project_id=test_project.id,
@@ -1457,3 +1457,70 @@ class TestContextPrioritizer:
         # CRITICAL and CONSTRAINT should get more than INSPIRATION
         assert allocation[ContextPriority.CRITICAL] >= allocation[ContextPriority.INSPIRATION]
         assert allocation[ContextPriority.CONSTRAINT] >= allocation[ContextPriority.INSPIRATION]
+
+
+@pytest.mark.unit
+def test_project_notes_render_ai_proposals_apart_from_author_confirmed():
+    """备注里的 AI 提议单独成块、写明不是设定；作者确认与未标来源各自标明。"""
+    from config.project_notes import CONFIRMED_HEADER, PROPOSALS_HEADER
+
+    notes = (
+        "反派身份第20章前不得揭露\n\n"
+        f"{CONFIRMED_HEADER}\n主角不会游泳\n\n"
+        f"{PROPOSALS_HEADER}\n反派其实是主角的父亲"
+    )
+    context = ContextAssembler()._format_context([], None, {"notes": notes})
+
+    confirmed_at = context.index("【备注·作者确认】")
+    unlabeled_at = context.index("【备注·未标来源】")
+    proposals_at = context.index("【备注·AI 提议·待作者确认】")
+    assert confirmed_at < context.index("主角不会游泳") < unlabeled_at
+    assert unlabeled_at < context.index("反派身份第20章前不得揭露") < proposals_at
+    assert proposals_at < context.index("反派其实是主角的父亲")
+    assert "不是设定" in context[proposals_at:]
+
+
+_ROUND_TRIP_NOTES = (
+    "主角冷静\n\n"
+    "【作者确认】\n女主要到第五章才出场\n\n"
+    "【AI 提议·待作者确认】\n沧不夺舍"
+)
+
+
+@pytest.mark.unit
+def test_project_notes_copied_back_from_context_keep_their_sections():
+    """模型按提示把上下文里的备注块（连同标题行）照抄回 notes：分区不变，标题不变成条目。"""
+    from agent.context.assembler import _render_project_notes
+    from config.project_notes import merge_project_notes, split_project_notes
+
+    rendered = "\n".join(_render_project_notes(_ROUND_TRIP_NOTES))
+    merged = merge_project_notes(
+        _ROUND_TRIP_NOTES,
+        notes=rendered,
+        proposals=None,
+        author_quotes=None,
+        author_messages=["接着写第三章"],
+    )
+    before = split_project_notes(_ROUND_TRIP_NOTES)
+    after = split_project_notes(merged.text)
+    assert after == before
+    assert merged.downgraded == [] and merged.confirmed_added == []
+
+
+@pytest.mark.unit
+def test_project_notes_copied_back_with_a_new_quoted_entry_only_add_that_entry():
+    from agent.context.assembler import _render_project_notes
+    from config.project_notes import merge_project_notes, split_project_notes
+
+    rendered = "\n".join(_render_project_notes(_ROUND_TRIP_NOTES))
+    merged = merge_project_notes(
+        _ROUND_TRIP_NOTES,
+        notes=rendered + "\n反派第20章揭露",
+        proposals=None,
+        author_quotes=["反派第20章揭露"],
+        author_messages=["再记一条：反派第20章揭露。"],
+    )
+    after = split_project_notes(merged.text)
+    assert after.unlabeled == ["主角冷静"]
+    assert after.confirmed == ["女主要到第五章才出场", "反派第20章揭露"]
+    assert after.proposals == ["沧不夺舍"]

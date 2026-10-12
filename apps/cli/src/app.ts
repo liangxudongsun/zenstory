@@ -36,7 +36,7 @@ import {
 import { formatKeyValues, formatTable, toJson, truncate } from './output.js';
 import { bundledSkillDir, installSkill, SKILL_TARGETS } from './skill.js';
 
-// ==================== Types (mirror apps/server/api/agent_api.py & vector_search.py) ====================
+// ==================== Types (mirror apps/server/api/agent_api.py & search.py) ====================
 
 interface Project {
   id: string;
@@ -1032,7 +1032,7 @@ export const COMMANDS: CommandDef<Ctx>[] = [
   // ---------- retrieval ----------
   {
     name: 'search',
-    summary: 'Hybrid (semantic + keyword) search inside a project.  [POST /agent/projects/{id}/search]',
+    summary: 'Keyword search inside a project.  [POST /agent/projects/{id}/search]',
     args: ['<projectId>', '<query...>'],
     options: {
       limit: { type: 'string', valueName: 'n', description: 'Max results 1-50 (default 10)' },
@@ -1050,7 +1050,7 @@ export const COMMANDS: CommandDef<Ctx>[] = [
         include_content: bool(values, 'content') || undefined,
       });
       if (ctx.json) return ctx.printJson(res);
-      if (res.results.length === 0) return ctx.print('No results. (New files are indexed in the background; retry shortly.)');
+      if (res.results.length === 0) return ctx.print('No matching files.');
       const lines = res.results.map((r, i) => {
         const where = r.line_start != null ? ` line ${r.line_start}` : '';
         const snippet = r.snippet ?? r.content ?? '';
