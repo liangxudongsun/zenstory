@@ -47,7 +47,7 @@ def test_postgres_deletes_fk_valid_1200_depth_tree(pg_engine, monkeypatch, entry
         # Retain ORM references so refresh behavior cannot be hidden by weak refs.
         cached_leaf = session.get(File, ids[-1])
         assert not cached_leaf.is_deleted
-        indexed = _delete(
+        _delete(
             session, monkeypatch, entrypoint=entrypoint, user=user, file_id=ids[0], recursive=True,
         )
         assert cached_leaf.is_deleted
@@ -127,7 +127,7 @@ def test_delete_loader_locks_descendant_only_before_mutation(pg_engine, monkeypa
             assert not future.done()
         finally:
             release.set()
-        assert future.result(10) == list(reversed(ids))
+        future.result(10)
 
     with Session(pg_engine) as verify:
         assert all(verify.get(File, file_id).is_deleted for file_id in ids)

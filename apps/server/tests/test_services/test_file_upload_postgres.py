@@ -175,7 +175,7 @@ async def test_draft_append_reads_one_aggregate_row_instead_of_all_sibling_order
 
 
 @pytest.mark.parametrize(("kind", "count"), [("material", 1), ("material", 3), ("draft", 1), ("draft", 50)])
-async def test_upload_response_and_index_use_no_postcommit_expired_rows(pg_engine, monkeypatch, kind, count):
+async def test_upload_response_uses_no_postcommit_expired_rows(pg_engine, monkeypatch, kind, count):
     from services.infra.dashboard_cache import dashboard_cache
 
     cache_calls = []
@@ -210,12 +210,6 @@ async def test_upload_response_and_index_use_no_postcommit_expired_rows(pg_engin
                 )
                 assert response.total == count and response.errors == []
                 returned = response.files
-                for row, task in zip(returned, tasks.tasks, strict=True):
-                    assert task.kwargs == {
-                        "project_id": project_id, "user_id": user_id, "entity_type": "draft",
-                        "entity_id": row.id, "content": row.content, "title": row.title,
-                        "extra_metadata": {"parent_id": row.parent_id},
-                    }
                 assert cache_calls == [{"user_id": user_id, "project_id": project_id}]
             else:
                 content = "Short material" if count == 1 else "x" * (files_api.MATERIAL_AUTO_SPLIT_MAX_CHARS * 2 + 1)
@@ -239,7 +233,7 @@ async def test_upload_response_and_index_use_no_postcommit_expired_rows(pg_engin
 
 
 @pytest.mark.parametrize("kind", ["material", "draft"])
-async def test_failed_upload_commit_emits_no_index_or_cache_and_rolls_back_folder(pg_engine, monkeypatch, kind):
+async def test_failed_upload_commit_emits_no_cache_and_rolls_back_folder(pg_engine, monkeypatch, kind):
     from services.infra.dashboard_cache import dashboard_cache
 
     cache_calls = []
@@ -261,6 +255,7 @@ async def test_failed_upload_commit_emits_no_index_or_cache_and_rolls_back_folde
                     project_id, [_upload("draft.txt", "Body")], parent_id=None,
                     current_user=user, session=session,
                 )
+    assert cache_calls == []
     with Session(pg_engine) as reader:
         assert reader.exec(select(File).where(File.project_id == project_id)).all() == []
 
@@ -277,4 +272,5 @@ async def test_all_invalid_draft_upload_returns_empty_response_without_postcommi
             project_id, [_upload("invalid.exe", "Rejected")], parent_id=None,
             current_user=session.get(User, user_id), session=session,
         )
+    assert cache_calls == []
     assert result.total == 0 and result.files == [] and len(result.errors) == 1
