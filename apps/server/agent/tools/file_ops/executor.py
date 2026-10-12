@@ -203,24 +203,6 @@ class FileToolExecutor:
             include_content=include_content,
         )
 
-    def hybrid_search(
-        self,
-        project_id: str,
-        query: str,
-        top_k: int = 10,
-        entity_types: list[str] | None = None,
-        min_score: float = 0.0,
-    ) -> dict[str, Any]:
-        """
-        Hybrid retrieval (lexical + vector fusion).
-        """
-        return self._crud.hybrid_search(
-            project_id=project_id,
-            query=query,
-            top_k=top_k,
-            entity_types=entity_types,
-            min_score=min_score,
-        )
 
     # ========== Edit Operations ==========
 

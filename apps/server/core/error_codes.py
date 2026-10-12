@@ -72,7 +72,6 @@ class ErrorCode:
     FILE_TOO_LARGE = "ERR_FILE_TOO_LARGE"
     FILE_CONTENT_TOO_LONG = "ERR_FILE_CONTENT_TOO_LONG"
     FILE_ENCODING_UNSUPPORTED = "ERR_FILE_ENCODING_UNSUPPORTED"
-    VECTOR_SEARCH_UNAVAILABLE = "ERR_VECTOR_SEARCH_UNAVAILABLE"
 
     # ==================== Material Decomposition Errors ====================
     # Upload pre-checks (HTTP errors) and ingestion-job failure codes. Jobs store
@@ -243,7 +242,6 @@ ERROR_MESSAGES = {
         "ERR_MATERIAL_EXTRACTION_FAILED": "章节内容拆解失败",
         "ERR_MATERIAL_PARTIALLY_COMPLETED": "部分内容拆解失败",
         "ERR_MATERIAL_DECOMPOSE_FAILED": "拆解失败",
-        "ERR_VECTOR_SEARCH_UNAVAILABLE": "向量搜索服务不可用",
         "ERR_SKILL_PACKAGE_INVALID": "技能包格式无效",
         "ERR_SKILL_PACKAGE_TOO_LARGE": "技能包或资源文件超出大小限制",
 
@@ -367,7 +365,6 @@ ERROR_MESSAGES = {
         "ERR_MATERIAL_EXTRACTION_FAILED": "Chapter decomposition failed",
         "ERR_MATERIAL_PARTIALLY_COMPLETED": "Some content could not be decomposed",
         "ERR_MATERIAL_DECOMPOSE_FAILED": "Decomposition failed",
-        "ERR_VECTOR_SEARCH_UNAVAILABLE": "Vector search service unavailable",
         "ERR_SKILL_PACKAGE_INVALID": "Invalid skill package",
         "ERR_SKILL_PACKAGE_TOO_LARGE": "Skill package or resource exceeds size limits",
 

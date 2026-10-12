@@ -52,14 +52,13 @@ def test_delete_advances_only_deleted_rows_and_preserves_nonrecursive_children(
     db_session.commit()
     for module in [files_api, crud_module, agent_api]:
         monkeypatch.setattr(module, "utcnow", lambda: NOW)
-    monkeypatch.setattr(FileCRUD, "_schedule_index_delete", lambda *_a, **_kw: None)
 
     if entrypoint == "web":
-        files_api.delete_file(root.id, BackgroundTasks(), recursive=recursive, current_user=user, session=db_session)
+        files_api.delete_file(root.id,  recursive=recursive, current_user=user, session=db_session)
     elif entrypoint == "tool":
         assert FileCRUD(db_session, user.id).delete_file(root.id, recursive=recursive) is True
     else:
-        agent_api.delete_file(root.id, BackgroundTasks(), _rate_limit=0, context=(db_session, user.id, key))
+        agent_api.delete_file(root.id,  _rate_limit=0, context=(db_session, user.id, key))
 
     db_session.refresh(root)
     db_session.refresh(child)

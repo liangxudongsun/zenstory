@@ -415,8 +415,8 @@ class TestFocusAcrossFileTypes:
         ]
 
         assembler = ContextAssembler()
-        with patch("services.llama_index.get_llama_index_service") as mock_factory:
-            mock_factory.return_value.hybrid_search.return_value = mock_results
+        with patch("services.infra.file_search_service.FileSearchService") as mock_factory:
+            mock_factory.return_value.search.return_value = mock_results
             result = assembler.assemble(
                 session=db_session,
                 project_id=project.id,

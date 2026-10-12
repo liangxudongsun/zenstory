@@ -189,49 +189,33 @@ frontend.
 
 ## Effect on active users
 
-The API currently has one volume mounted at `/app/chroma_data`. Besides derived
-Chroma indexes, it contains material source uploads and feedback screenshots.
-Do not detach or reset it as a vector cleanup shortcut. Railway cannot overlap
-two deployments using that volume, so health checks do not guarantee uninterrupted
-API availability. Vercel's static frontend promotion alone is not proof that
-an in-flight API stream will finish.
+The verified API volume is mounted at `/app/uploads` and still contains
+material originals and feedback screenshots. Preserve it and all original bytes.
+Railway cannot overlap deployments sharing a volume, so readiness does not prove
+uninterrupted API availability. The user withdrew the lossless-release scope in
+this PR and requested a faster switch with the existing deployment process.
 
-The API uses `/health/ready` for deployment readiness and a 300-second drain
-window, with Uvicorn's graceful shutdown bounded to 295 seconds so the final
-usage-ledger flush has time to run. Streams longer than the configured shutdown
-window can still be interrupted; retrying a generation automatically can duplicate
-work, so do not introduce transparent POST retries. Main updates only staging;
-production changes are batched behind release tags. Offline vector maintenance
-extends the startup gap and needs a verified offsite backup plus a quiet release
-window. Preserve material files and screenshots when compacting Chroma.
+LlamaIndex/Chroma and their startup maintenance scripts have been removed.
+`scripts/start_api.py` immediately replaces itself with Uvicorn; it no longer
+opens a vector catalog or waits for cleanup before starting the API. Requirements
+and local Compose no longer install/mount the unused indexing stack. Existing
+local named volumes remain on disk; do not remove them with a cleanup command.
+Historical maintenance receipts and original files remain private rollback data.
 
-For seamless API releases, first migrate those uploaded source files and screenshots
-to object storage using verified reads and a reversible data migration. Only
-after the API no longer reads its local volume can the old vector volume move
-to a private maintenance service and the API use overlapping instances. Object storage is being developed and validated in staging; this does not
-authorize migrating production data or removing the production volume.
+Keep `/health/ready`, the 300-second Railway drain and 295-second Uvicorn shutdown
+budget. Shortening them to speed deployment would cut active streams. Streams
+longer than that budget can still be interrupted; never automatically retry a
+generation POST. Actual build/switch timing must be measured after the exact
+revision is deployed; dependency deletion alone does not prove an elapsed-time
+improvement. Main continues to be the staging source and `release-production`
+the explicitly authorized production source, with provider Git integrations as
+the only deployment producers.
 
-The production startup entry point is `scripts/start_api.py`. With no maintenance
-variables, it replaces itself with Uvicorn. The bounded cleanup runs only when
-both `ZENSTORY_VECTOR_MAINTENANCE_OPERATION_ID` and
-`ZENSTORY_VECTOR_MAINTENANCE_RECEIPT_JSON` are explicitly configured. It finishes
-before Uvicorn starts, preserves a private success marker on the volume, and
-fails startup if backup or candidate checks fail. Disable both variables together
-after checking the success marker; a restart with the same operation is a no-op.
-
-Railway has deprecated Config as Code for new services, with legacy support
-ending on December 1, 2026. Cloud service settings must explicitly retain the
-start command, readiness path, and drain window; a checked-in TOML file alone
-does not prove those values are active.
-
-SQLite compaction is optional: the wrapper runs it only when free volume space
-is at least twice the catalog size, as required by the [SQLite VACUUM guidance](https://www.sqlite.org/lang_vacuum.html).
-The wrapper first captures the candidate collections’ exact HNSW segment UUIDs
-from the catalog, removes the collections, and rechecks that those UUIDs have no
-remaining catalog references. It deletes only those direct UUID directories,
-rejecting symlinks and preserving all other files and orphan directories.
-If compaction has insufficient space, it records deferred compaction; freed
-SQLite pages remain reusable while those specific HNSW files are released.
+Any future volume-free release first needs verified, reversible object migration
+for every material/screenshot reference, with legacy originals preserved. This PR
+neither migrates production data nor removes its volume. Railway's checked-in
+TOML does not prove active cloud configuration; read back start command,
+readiness, drain window and source SHA from the provider.
 
 Prefect process-worker shutdown does not wait for active flow processes in the
 pinned 3.6.28 version. Before a production worker release, pause `zenstory-pool`,

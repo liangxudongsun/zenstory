@@ -24,7 +24,6 @@ PARALLEL_TASK_TYPES = (
     "edit_file",
     "delete_file",
     "query_files",
-    "hybrid_search",
 )
 
 
@@ -72,7 +71,7 @@ multiple calls instead of sending more than 5. Files you already read in this
 run are still in context: do not read them again.
 
 Task param conventions:
-- query_files / hybrid_search: params are exactly the standalone tool's params
+- query_files: params are exactly the standalone tool's params
   (e.g. {"id": "<file_id>"} for full content, {"query": "...", "response_mode": "summary"}).
   Very long per-task content is cut with content_truncated=true / content_length;
   then read that one file with a standalone query_files(id=..., response_mode="full").
@@ -95,7 +94,7 @@ Task param conventions:
                     "properties": {
                         "type": {
                             "type": "string",
-                            "description": "Task type: write_chapter, edit_file, delete_file, query_files, hybrid_search",
+                            "description": "Task type: write_chapter, edit_file, delete_file, query_files",
                             "enum": list(PARALLEL_TASK_TYPES),
                         },
                         "description": {
@@ -109,7 +108,7 @@ Task param conventions:
                                 "write_chapter: {title, content (required, inline full text), parent_id}; "
                                 "edit_file: {id, edits, continue_on_error}; "
                                 "delete_file: {id, recursive}; "
-                                "query_files / hybrid_search: same params as the standalone tool."
+                                "query_files: same params as the standalone tool."
                             ),
                         },
                     },
@@ -423,23 +422,6 @@ async def handle_query_files(params: dict[str, Any]) -> dict[str, Any]:
         raise
 
 
-async def handle_hybrid_search(params: dict[str, Any]) -> dict[str, Any]:
-    """Handle hybrid_search task type."""
-    from agent.tools.mcp_tools import ToolContext, hybrid_search
-
-    project_id = ToolContext._get_context().get("project_id")
-    if project_id is None:
-        return _make_error("project_id not set")
-
-    try:
-        result = await hybrid_search(_scoped_task_params(params))
-        return result
-    except RuntimeError as err:
-        if str(err) == "No session available in ToolContext":
-            return _make_error("project_id not set")
-        raise
-
-
 async def execute_parallel(
     tasks: list[dict[str, Any]],
 ) -> dict[str, Any]:
@@ -521,8 +503,7 @@ async def execute_parallel(
         "edit_file": handle_edit_file,
         "delete_file": handle_delete_file,
         "query_files": handle_query_files,
-        "hybrid_search": handle_hybrid_search,
-    }
+        }
 
     semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
 

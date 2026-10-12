@@ -103,7 +103,7 @@ def _invoke_agent_update(
     call = agent_api.update_file(
         file_id,
         agent_api.FileUpdate(content=content, base_updated_at=STAMP),
-        BackgroundTasks(),
+
         _rate_limit=0,
         context=(session, user_id, key),
     )
@@ -131,7 +131,6 @@ def stable_dependencies(monkeypatch: pytest.MonkeyPatch):
         "record_once",
         lambda *_args, **_kwargs: None,
     )
-    monkeypatch.setattr(FileCRUD, "_schedule_index_upsert", lambda *_args, **_kwargs: None)
 
 
 def test_concurrent_agent_updates_with_same_token_commit_one_version(
@@ -142,11 +141,6 @@ def test_concurrent_agent_updates_with_same_token_commit_one_version(
 
     both_preloaded = Barrier(2)
     indexed_contents: list[str] = []
-    monkeypatch.setattr(
-        agent_api,
-        "_schedule_file_index_upsert",
-        lambda _tasks, file, _user_id: indexed_contents.append(file.content),
-    )
 
     def update(content: str):
         with Session(pg_engine) as session:
@@ -173,7 +167,6 @@ def test_concurrent_agent_updates_with_same_token_commit_one_version(
         assert file.updated_at.replace(tzinfo=UTC) > STAMP
         assert len(versions) == 1
         assert versions[0].content == file.content
-    assert indexed_contents == [file.content]
 
 
 def test_agent_rejects_old_token_after_preloaded_web_update(
@@ -184,11 +177,6 @@ def test_agent_rejects_old_token_after_preloaded_web_update(
         user_id, file_id, key_id = _seed_file(setup, "web-agent")
 
     indexed_contents: list[str] = []
-    monkeypatch.setattr(
-        agent_api,
-        "_schedule_file_index_upsert",
-        lambda _tasks, file, _user_id: indexed_contents.append(file.content),
-    )
     current_user = User(
         id=user_id,
         username="agent-precondition-web-agent",
@@ -204,7 +192,7 @@ def test_agent_rejects_old_token_after_preloaded_web_update(
         files_api.update_file(
             file_id,
             files_api.FileUpdate(content="Web winner", base_updated_at=STAMP),
-            BackgroundTasks(),
+
             current_user=current_user,
             session=web_session,
         )
@@ -225,7 +213,6 @@ def test_agent_rejects_old_token_after_preloaded_web_update(
         assert file.content == "Web winner"
         assert len(versions) == 1
         assert versions[0].content == "Web winner"
-    assert indexed_contents == []
 
 
 def test_preloaded_web_writer_rejects_token_invalidated_by_agent(
@@ -233,7 +220,6 @@ def test_preloaded_web_writer_rejects_token_invalidated_by_agent(
 ):
     with Session(pg_engine) as setup:
         user_id, file_id, key_id = _seed_file(setup, "web-cached")
-    monkeypatch.setattr(agent_api, "_schedule_file_index_upsert", lambda *_args: None)
     monkeypatch.setattr(files_api, "utcnow", lambda: STAMP)
     with Session(pg_engine) as web_session, Session(pg_engine) as agent_session:
         cached = web_session.get(File, file_id)
@@ -244,7 +230,7 @@ def test_preloaded_web_writer_rejects_token_invalidated_by_agent(
             files_api.update_file(
                 file_id,
                 files_api.FileUpdate(content="Stale web overwrite", base_updated_at=STAMP),
-                BackgroundTasks(), owner, web_session,
+                 owner, web_session,
             )
         assert conflict.value.status_code == 409
     with Session(pg_engine) as verify:
@@ -276,7 +262,7 @@ def test_preloaded_file_editor_appends_to_latest_web_content(
         web_result = files_api.update_file(
             file_id,
             files_api.FileUpdate(content="Web winner", base_updated_at=STAMP),
-            BackgroundTasks(),
+
             current_user=current_user,
             session=web_session,
         )
@@ -318,7 +304,7 @@ def test_preloaded_file_crud_title_update_returns_latest_web_content(
         web_result = files_api.update_file(
             file_id,
             files_api.FileUpdate(content="Web winner", base_updated_at=STAMP),
-            BackgroundTasks(),
+
             current_user=current_user,
             session=web_session,
         )
@@ -375,7 +361,7 @@ def test_preloaded_rollback_advances_past_latest_web_token(
         web_result = files_api.update_file(
             file_id,
             files_api.FileUpdate(content="Web winner", base_updated_at=STAMP),
-            BackgroundTasks(),
+
             current_user=current_user,
             session=web_session,
         )
@@ -426,7 +412,6 @@ async def test_conditional_undo_waits_for_writer_then_rejects_its_old_token(pg_e
     locked, release = Event(), Event()
     reader_pid = []
     indexed, cache_bumps = [], []
-    monkeypatch.setattr("services.llama_index.schedule_index_upsert", lambda **kw: indexed.append(kw))
     monkeypatch.setattr("services.infra.dashboard_cache.dashboard_cache.bump_project_version", lambda *_a, **kw: cache_bumps.append(kw))
 
     def request_session():
@@ -483,7 +468,7 @@ async def test_conditional_undo_waits_for_writer_then_rejects_its_old_token(pg_e
 
     assert response.status_code == 409
     assert response.json()["error_code"] == "ERR_RESOURCE_CONFLICT"
-    assert indexed == cache_bumps == []
+    assert cache_bumps == []
     with Session(pg_engine) as verify:
         file = verify.get(File, file_id)
         assert file.content == "Writer committed after undo card"
@@ -548,7 +533,6 @@ async def test_undo_token_belongs_to_edit_even_when_web_write_commits_before_ref
     monkeypatch.setattr(files_api.activation_event_service, "record_ai_write_accepted", lambda *_a, **_kw: None)
     cache_bumps, indexed = [], []
     monkeypatch.setattr("services.infra.dashboard_cache.dashboard_cache.bump_project_version", lambda *_a, **kw: cache_bumps.append(kw))
-    monkeypatch.setattr("services.llama_index.schedule_index_upsert", lambda **kw: indexed.append(kw))
 
     own_token = STAMP + timedelta(microseconds=1)
     later_token = STAMP + timedelta(microseconds=2)
@@ -567,7 +551,7 @@ async def test_undo_token_belongs_to_edit_even_when_web_write_commits_before_ref
                     updated = files_api.update_file(
                         file_id,
                         files_api.FileUpdate(content="Later Web work", base_updated_at=own_token),
-                        BackgroundTasks(),
+
                         current_user=owner,
                         session=web_session,
                     )
@@ -602,7 +586,6 @@ async def test_undo_token_belongs_to_edit_even_when_web_write_commits_before_ref
         assert file.updated_at.replace(tzinfo=UTC) == later_token
     assert response.json()["error_code"] == "ERR_RESOURCE_CONFLICT"
     assert cache_bumps == before_rollback_cache_bumps
-    assert indexed == before_rollback_indexed
 
 
 @pytest.mark.parametrize("writer", ["update_file", "edit_file"])
@@ -619,7 +602,6 @@ def test_ai_write_backs_up_unversioned_body_inside_the_locked_postgres_transacti
         setup.add(live)
         setup.commit()
     monkeypatch.setattr(files_api.activation_event_service, "record_ai_write_accepted", lambda *_a, **_kw: None)
-    monkeypatch.setattr(FileCRUD, "_schedule_index_upsert", lambda *_a, **_kw: None)
 
     with Session(pg_engine) as session:
         if writer == "update_file":

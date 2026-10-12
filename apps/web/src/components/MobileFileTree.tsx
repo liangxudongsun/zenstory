@@ -1,3 +1,4 @@
+import { isFileTitleTooLong } from "../lib/fileTitle";
 /**
  * @fileoverview MobileFileTree component - Touch-optimized file tree navigation for mobile devices.
  *
@@ -368,6 +369,11 @@ const MobileFileTreeComponent: React.FC<MobileFileTreeProps> = ({ className }) =
   const handleCreate = useCallback(async (parentId: string) => {
     if (!currentProjectId || !newItemName.trim()) {
       cancelCreate();
+      return;
+    }
+
+    if (isFileTitleTooLong(newItemName.trim())) {
+      toast.error(t('editor:fileTree.titleTooLong'));
       return;
     }
 

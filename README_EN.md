@@ -159,7 +159,7 @@ docker compose exec -e ZENSTORY_ADMIN_EMAIL=you@example.com \
 # Official skills also live only in DB; maintenance: docs/agent-writing-guidance.md.
 ```
 
-Sign in at <http://localhost:5173>; the API reference is at <http://localhost:8000/docs>. The database is SQLite and lives in a Docker volume together with uploads and the vector index, so `docker compose down` and image rebuilds keep your data.
+Sign in at <http://localhost:5173>; the API reference is at <http://localhost:8000/docs>. The database is SQLite and lives in a Docker volume together with uploads, so `docker compose down` and image rebuilds keep your data.
 
 Every account, the admin included, starts on the free plan: 10 AI messages a day (reset at 00:00 Beijing time) and up to 3 projects. To lift that, run `docker compose exec server python scripts/seed_subscription_plans.py` to create the Pro plan (it also creates the free-plan row), then give an account Pro under Subscriptions in the admin console, or raise the free plan's limits under Subscription Plans.
 
@@ -170,7 +170,6 @@ The writing agents use DeepSeek `deepseek-flash` (DeepSeek-V4.1-Flash) and need 
 
 | Feature | Settings |
 | --- | --- |
-| Semantic search in a project (the Agent's `hybrid_search` and the related snippets added each turn) | `ZHIPU_EMBEDDINGS_API_KEY` |
 | Letting other people sign up | invite codes are required by default; an admin generates them under Settings → Referral. To drop them, set `AUTH_REGISTER_INVITE_CODE_OPTIONAL=true` |
 | Verification codes for email sign-up | `REDIS_URL`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`; the quick start has no Redis, so use `docker-compose.full.yml` |
 | Staying signed in across restarts | `JWT_SECRET_KEY` (32+ characters; with the quick start it can go in the root `.env`) |
@@ -404,7 +403,7 @@ zenstory/
 | Frontend | React 19 · TypeScript · Vite 7 · Tailwind CSS 4 · Zustand · TanStack Query |
 | Backend | FastAPI · SQLModel · Server-Sent Events |
 | AI | DeepSeek `deepseek-flash` (DeepSeek-V4.1-Flash, OpenAI-compatible API) · openai-agents-python |
-| Retrieval | LlamaIndex · ChromaDB · Zhipu embedding-3, vector and keyword results fused with RRF |
+| Retrieval | Database keyword search with snippets and line numbers; edits are searchable immediately, without indexing |
 | Data | SQLite (default) / PostgreSQL · Redis · Alembic |
 | Deploy | Docker Compose; the hosted app runs the frontend on Vercel and the API plus Prefect on Railway |
 

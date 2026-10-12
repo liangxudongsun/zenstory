@@ -92,7 +92,6 @@ def _should_offload_tool_execution() -> bool:
       并以**阻塞方式**获取按 file_id 分条带的 ``threading.Lock``；而该锁的另一个
       持有者 ``stream_adapter._save_file_content`` 本来就跑在
       ``asyncio.to_thread`` 的工作线程里。
-    - ``_hybrid_search_sync`` 走向量检索，同样是 CPU 密集。
 
     历史实现返回 ``is_postgres``，于是在项目默认的 SQLite 部署下，上面这些工作
     全部同步跑在事件循环线程上：实测单次 edit_file 可让事件循环停顿 21.93 秒，
@@ -100,18 +99,6 @@ def _should_offload_tool_execution() -> bool:
     "在事件循环线程上等另一个线程释放"的死等。因此这里恒为 True。
     """
     return True
-
-
-HYBRID_SEARCH_DISABLED_ERROR_TYPE = "tool_disabled"
-HYBRID_SEARCH_DISABLED_MESSAGE = "检索功能未启用，请改用 query_files(query=...)，不要再调用 hybrid_search"
-
-
-def _is_hybrid_search_tool_enabled() -> bool:
-    """Temporary kill switch for agent-side hybrid search calls."""
-    raw = os.getenv("AGENT_TOOL_HYBRID_SEARCH_ENABLED")
-    if raw is None:
-        return True
-    return raw.strip().lower() not in {"0", "false", "no", "off"}
 
 
 def _run_sync_tool_with_owned_session_cleanup(
@@ -2289,72 +2276,6 @@ def _is_query_files_param_mismatch(exc: TypeError) -> bool:
     return any(param in message for param in ("id", "response_mode", "content_preview_chars", "include_content"))
 
 
-async def hybrid_search(args: dict[str, Any]) -> dict[str, Any]:
-    """混合检索（向量 + 关键词融合）。"""
-    if _should_offload_tool_execution():
-        return await asyncio.to_thread(_run_sync_tool_with_owned_session_cleanup, _hybrid_search_sync, args)
-    return _hybrid_search_sync(args)
-
-
-def _hybrid_search_sync(args: dict[str, Any]) -> dict[str, Any]:
-    """Synchronous hybrid_search implementation."""
-    tool_name = "hybrid_search"
-    project_id = ToolContext._get_context().get("project_id")
-
-    if project_id is None:
-        return _make_error("project_id not set", tool_name=tool_name)
-
-    query = args.get("query", "")
-    top_k = args.get("top_k", 10)
-    entity_types = args.get("entity_types")
-    min_score = args.get("min_score", 0.0)
-
-    if not _is_hybrid_search_tool_enabled():
-        log_with_context(
-            logger,
-            30,  # WARNING
-            "Agent hybrid_search tool disabled by env",
-            project_id=project_id,
-            top_k=top_k,
-        )
-        # 关闭时它本就不在 agent 工具清单里（registry.get_agent_tools）；仍被调用
-        # （历史里见过、或 parallel_execute 子任务）时返回可恢复错误并点名替代工具。
-        # 以前返回 success + 空结果，模型会把「没检索到」当成「项目里没有」继续乱试。
-        return _make_mcp_payload(
-            {
-                "status": "error",
-                "error_type": HYBRID_SEARCH_DISABLED_ERROR_TYPE,
-                "error": HYBRID_SEARCH_DISABLED_MESSAGE,
-                "entity_types": entity_types,
-                "min_score": float(min_score or 0.0),
-                "query": query,
-            },
-            tool_name=tool_name,
-        )
-
-    executor = ToolContext.get_executor()
-
-    try:
-        result = executor.hybrid_search(
-            project_id=project_id,
-            query=query,
-            top_k=top_k,
-            entity_types=entity_types,
-            min_score=min_score,
-        )
-        return _make_result({"status": "success", "data": result}, tool_name=tool_name)
-    except Exception as e:
-        log_with_context(
-            logger,
-            30,  # WARNING
-            "Agent hybrid_search failed",
-            project_id=project_id,
-            error=str(e),
-            error_type=type(e).__name__,
-        )
-        return _make_error(str(e), tool_name=tool_name)
-
-
 # 剧本项目按「集」记进度（「已写至第3集」），小说 / 短篇按「章」。
 _PHASE_CN_CHAPTER_PATTERN = re.compile(r"第\s*([零一二三四五六七八九十百千\d]+)\s*[章集]")
 _PHASE_EN_CHAPTER_PATTERN = re.compile(r"\bchapter\s+(\d+)\b", re.IGNORECASE)
@@ -3018,7 +2939,6 @@ MCP_TOOL_HANDLERS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "edit_file": edit_file,
     "delete_file": delete_file,
     "query_files": query_files,
-    "hybrid_search": hybrid_search,
     "update_project": update_project,
     "handoff_to_agent": handoff_to_agent,
     "request_clarification": request_clarification,

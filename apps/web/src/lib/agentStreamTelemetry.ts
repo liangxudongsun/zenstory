@@ -5,7 +5,10 @@ import { captureException, trackEvent } from "./analytics";
  * and correlation ids only: never the prompt, the reply or error text, which
  * can echo user content.
  */
+export type AgentStreamFailurePhase = "fetch" | "response" | "read" | "parse" | "callback";
+
 export interface AgentStreamTelemetry {
+  noteFailure(phase: AgentStreamFailurePhase, error: unknown): void;
   /** Record the HTTP response (status and correlation ids). */
   noteResponse(status: number, ids: { requestId?: string; agentRunId?: string }): void;
   /** Count one parsed SSE event. */
@@ -40,6 +43,8 @@ export function createAgentStreamTelemetry(
   let eventCount = 0;
   let toolCallCount = 0;
   let settled = false;
+  let failurePhase: AgentStreamFailurePhase | undefined;
+  let exceptionType: string | undefined;
 
   const baseProperties = () => ({
     project_id: projectId,
@@ -49,6 +54,8 @@ export function createAgentStreamTelemetry(
     tool_calls: toolCallCount,
     request_id: requestId,
     agent_run_id: agentRunId,
+    failure_phase: failurePhase,
+    exception_type: exceptionType,
   });
 
   const settle = (): boolean => {
@@ -58,6 +65,12 @@ export function createAgentStreamTelemetry(
   };
 
   return {
+    noteFailure(phase, error) {
+      failurePhase = phase;
+      const safeNames = new Set(["Error", "TypeError", "SyntaxError", "AbortError", "NotFoundError", "NetworkError", "TimeoutError"]);
+      const name = error instanceof Error || error instanceof DOMException ? error.name : undefined;
+      exceptionType = name && safeNames.has(name) ? name : "OtherError";
+    },
     noteResponse(status, ids) {
       httpStatus = status;
       requestId = ids.requestId;

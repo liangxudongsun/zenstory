@@ -13,7 +13,6 @@ from agent.tools.mcp_tools import (
     delete_file,
     edit_file,
     handoff_to_agent,
-    hybrid_search,
     query_files,
     request_clarification,
     update_project,
@@ -987,61 +986,6 @@ async def test_query_files_falls_back_for_legacy_executor_signature():
 
 @pytest.mark.asyncio
 @pytest.mark.unit
-async def test_hybrid_search_forwards_args_to_executor(monkeypatch):
-    monkeypatch.setenv("AGENT_TOOL_HYBRID_SEARCH_ENABLED", "true")
-    mock_executor = MagicMock()
-    mock_executor.hybrid_search.return_value = {
-        "query": "hero",
-        "result_count": 1,
-        "results": [{"entity_id": "f-1", "fused_score": 0.88}],
-    }
-
-    with patch("agent.tools.mcp_tools.ToolContext.get_executor", return_value=mock_executor), patch(
-        "agent.tools.mcp_tools.ToolContext._get_context",
-        return_value={"project_id": "proj-1"},
-    ):
-        result = await hybrid_search({
-            "query": "hero",
-            "top_k": 5,
-            "entity_types": ["draft"],
-            "min_score": 0.2,
-        })
-
-    payload = _parse_payload(result)
-    assert payload["status"] == "success"
-    assert payload["data"]["result_count"] == 1
-    mock_executor.hybrid_search.assert_called_once_with(
-        project_id="proj-1",
-        query="hero",
-        top_k=5,
-        entity_types=["draft"],
-        min_score=0.2,
-    )
-
-
-@pytest.mark.asyncio
-@pytest.mark.unit
-async def test_hybrid_search_executor_failure_returns_error(monkeypatch):
-    """When executor.hybrid_search raises, tool returns error with structured log."""
-    monkeypatch.setenv("AGENT_TOOL_HYBRID_SEARCH_ENABLED", "true")
-    mock_executor = MagicMock()
-    mock_executor.hybrid_search.side_effect = RuntimeError("vector infra down")
-
-    with patch("agent.tools.mcp_tools.ToolContext.get_executor", return_value=mock_executor), patch(
-        "agent.tools.mcp_tools.ToolContext._get_context",
-        return_value={"project_id": "proj-1"},
-    ), patch("agent.tools.mcp_tools.log_with_context") as mock_log:
-        result = await hybrid_search({"query": "hero", "top_k": 5})
-
-    payload = _parse_payload(result)
-    assert payload["status"] == "error"
-    mock_executor.hybrid_search.assert_called_once()
-    mock_log.assert_called_once()
-    assert mock_log.call_args.args[2] == "Agent hybrid_search failed"
-
-
-@pytest.mark.asyncio
-@pytest.mark.unit
 @pytest.mark.parametrize(
     ("tool_func", "sync_helper", "args"),
     [
@@ -1049,7 +993,6 @@ async def test_hybrid_search_executor_failure_returns_error(monkeypatch):
         (edit_file, "_edit_file_sync", {"id": "file-1", "edits": []}),
         (delete_file, "_delete_file_sync", {"id": "file-1"}),
         (query_files, "_query_files_sync", {"query": "hero"}),
-        (hybrid_search, "_hybrid_search_sync", {"query": "hero"}),
         (update_project, "_update_project_sync", {"tasks": []}),
     ],
 )
@@ -1463,27 +1406,6 @@ async def test_create_file_rejection_names_the_unblocking_action(db_session):
     finally:
         ToolContext.clear_pending_empty_file()
         ToolContext.clear_context()
-
-
-@pytest.mark.asyncio
-@pytest.mark.unit
-async def test_hybrid_search_disabled_returns_recoverable_tool_error(monkeypatch):
-    """关闭时不是 success+空结果，而是点名替代工具的可恢复错误，且不触达检索后端。"""
-    monkeypatch.setenv("AGENT_TOOL_HYBRID_SEARCH_ENABLED", "false")
-    mock_executor = MagicMock()
-
-    with patch("agent.tools.mcp_tools.ToolContext.get_executor", return_value=mock_executor), patch(
-        "agent.tools.mcp_tools.ToolContext._get_context",
-        return_value={"project_id": "proj-1"},
-    ):
-        result = await hybrid_search({"query": "hero"})
-
-    payload = _parse_payload(result)
-    assert payload["status"] == "error"
-    assert payload["error_type"] == "tool_disabled"
-    assert "query_files(query=...)" in payload["error"]
-    assert "不要再调用 hybrid_search" in payload["error"]
-    mock_executor.hybrid_search.assert_not_called()
 
 
 @pytest.mark.asyncio

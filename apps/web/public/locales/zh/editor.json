@@ -100,7 +100,8 @@
     "noResults": "未找到文件",
     "searching": "搜索中...",
     "shortcutHint": "Ctrl+K",
-    "pathSeparator": " > "
+    "pathSeparator": " > ",
+    "titleTooLong": "文件名最多 255 个字符，请将正文粘贴到编辑器中。"
   },
   "placeholder": {
     "selectFile": "从左侧选择一个文件开始创作",

@@ -26,11 +26,9 @@ pytestmark = pytest.mark.integration
 def _round_outcome_on_test_db(monkeypatch):
     """remove_empty_placeholders / record_round_outcome open their own sessions."""
     import database
-    import services.llama_index as llama_index
     from tests.conftest import TestSessionLocal
 
     monkeypatch.setattr(database, "create_session", TestSessionLocal)
-    monkeypatch.setattr(llama_index, "schedule_index_delete", lambda **_kwargs: None)
 
 
 def _project(db_session) -> Project:

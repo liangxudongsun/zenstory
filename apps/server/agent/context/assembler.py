@@ -69,21 +69,6 @@ QUERY_NAME_MATCH_BOOST = 0.5
 MIN_QUERY_NAME_CHARS = 2
 
 
-DEFAULT_RETRIEVAL_SEMANTIC_TIMEOUT_S = 5.0
-
-
-def _retrieval_semantic_timeout_s() -> float:
-    """上下文组装时语义检索的外层时限（AGENT_RETRIEVAL_SEMANTIC_TIMEOUT_S，秒）。"""
-    raw = (os.getenv("AGENT_RETRIEVAL_SEMANTIC_TIMEOUT_S") or "").strip()
-    if not raw:
-        return DEFAULT_RETRIEVAL_SEMANTIC_TIMEOUT_S
-    try:
-        value = float(raw)
-    except ValueError:
-        return DEFAULT_RETRIEVAL_SEMANTIC_TIMEOUT_S
-    return value if value > 0 else DEFAULT_RETRIEVAL_SEMANTIC_TIMEOUT_S
-
-
 def _render_project_notes(notes: str) -> list[str]:
     """备注按来源分开渲染：作者确认 / 未标来源 / AI 提议（见 config/project_notes）。
 
@@ -287,7 +272,7 @@ class ContextAssembler:
             if isinstance(item.id, str) and item.id.strip()
         }
 
-        # 6.2 Query-time retrieval snippets (hybrid search, best-effort).
+        # 6.2 Query-time retrieval snippets (keyword search, best-effort).
         # Inject compact snippet payloads with source/line/score metadata.
         # 片段单独做 query 加成：已有条目的相关度已经加过一次，不能重复叠加。
         snippets = self._get_retrieved_snippets(
@@ -851,10 +836,10 @@ class ContextAssembler:
         top_k: int = 6,
     ) -> list[ContextItem]:
         """
-        Retrieve query-related snippet items via hybrid search.
+        Retrieve query-related snippet items via database keyword search.
 
         Best-effort:
-        - Fails open (returns []) when vector service is unavailable.
+        - Fails open (returns []) when file search service is unavailable.
         - Never blocks normal context assembly.
         """
         enabled_raw = os.getenv("AGENT_ENABLE_RETRIEVAL_SNIPPETS")
@@ -879,17 +864,14 @@ class ContextAssembler:
         error_reason: str | None = None
         search_results: list[Any] = []
         try:
-            from services.llama_index import get_llama_index_service
+            from services.infra.file_search_service import FileSearchService
 
-            svc = get_llama_index_service()
-            search_results = svc.hybrid_search(
+            svc = FileSearchService()
+            search_results = svc.search(
                 project_id=project_id,
                 query=normalized_query,
                 top_k=max(1, int(top_k or 6)),
                 entity_types=None,
-                # 每轮 /stream 组装上下文都会走这里：embedding 服务变慢时语义
-                # 分支到时即放弃，只用词法结果，不让整轮对话卡在「组装上下文」。
-                semantic_timeout_s=_retrieval_semantic_timeout_s(),
             )
         except Exception as e:
             error_reason = str(e)
@@ -911,7 +893,7 @@ class ContextAssembler:
                 log_with_context(
                     logger,
                     20,  # INFO
-                    "Hybrid snippet retrieval finished",
+                    "Keyword snippet retrieval finished",
                     project_id=project_id,
                     query_length=len(normalized_query),
                     query_hash=query_hash,

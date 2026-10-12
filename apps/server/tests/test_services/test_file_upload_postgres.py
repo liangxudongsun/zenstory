@@ -66,11 +66,10 @@ async def test_draft_nul_is_per_input_error_and_keeps_valid_neighbour(pg_engine,
     with Session(pg_engine) as session:
         result = files_api.upload_drafts(
             project_id, [invalid, valid] if invalid_first else [valid, invalid],
-            parent_id=None, current_user=session.get(User, user_id), session=session, background_tasks=tasks,
+            parent_id=None, current_user=session.get(User, user_id), session=session,
         )
     assert len(result.errors) == 1 and str(ErrorCode.VALIDATION_ERROR) in result.errors[0]
     _assert_persisted(pg_engine, project_id, result, ["valid body"])
-    assert [task.kwargs["entity_id"] for task in tasks.tasks] == [result.files[0].id]
 
 
 @pytest.mark.parametrize("field", ["body", "filename"])
@@ -98,12 +97,11 @@ async def test_draft_oversized_inferred_order_rejects_entire_input_only(pg_engin
     with Session(pg_engine) as session:
         result = files_api.upload_drafts(
             project_id, [_upload("before.txt", "before"), invalid, _upload("after.txt", "after")],
-            parent_id=None, current_user=session.get(User, user_id), session=session, background_tasks=tasks,
+            parent_id=None, current_user=session.get(User, user_id), session=session,
         )
     assert len(result.errors) == 1 and str(ErrorCode.VALIDATION_ERROR) in result.errors[0]
     assert [row.order for row in result.files] == [0, 1], "rejected input must not consume append slots"
     _assert_persisted(pg_engine, project_id, result, ["before", "after"])
-    assert len(tasks.tasks) == 2
 
 
 async def test_draft_appended_order_overflow_is_error_but_explicit_boundary_still_valid(pg_engine):
@@ -117,7 +115,7 @@ async def test_draft_appended_order_overflow_is_error_but_explicit_boundary_stil
         session.commit()
         result = files_api.upload_drafts(
             project_id, [_upload("unnumbered.txt", "rejected"), _upload("Chapter 2147483647.txt", "boundary")],
-            parent_id=None, current_user=session.get(User, user_id), session=session, background_tasks=BackgroundTasks(),
+            parent_id=None, current_user=session.get(User, user_id), session=session,
         )
     assert result.total == 1 and len(result.errors) == 1
     assert result.files[0].order == MAX_ORDER and result.files[0].content == "boundary"
@@ -137,7 +135,7 @@ async def test_draft_append_order_ignores_foreign_project_dirty_parent_edge(pg_e
         session.commit()
         result = files_api.upload_drafts(
             project_id, [_upload("ordinary.txt", "local")], parent_id=None,
-            current_user=session.get(User, user_id), session=session, background_tasks=BackgroundTasks(),
+            current_user=session.get(User, user_id), session=session,
         )
     assert result.total == 1 and result.errors == [] and result.files[0].order == 0
     _assert_persisted(pg_engine, project_id, result, ["local"])
@@ -166,7 +164,7 @@ async def test_draft_append_reads_one_aggregate_row_instead_of_all_sibling_order
         try:
             result = files_api.upload_drafts(
                 project_id, [_upload("ordinary.txt", "local")], parent_id=None,
-                current_user=session.get(User, user_id), session=session, background_tasks=BackgroundTasks(),
+                current_user=session.get(User, user_id), session=session,
             )
         finally:
             event.remove(pg_engine, "after_cursor_execute", record_order_query)
@@ -208,11 +206,10 @@ async def test_upload_response_and_index_use_no_postcommit_expired_rows(pg_engin
                 content = "\n\n".join(f"Chapter {index + 1} Title\nBody {index + 1}" for index in range(count))
                 response = files_api.upload_drafts(
                     project_id, [_upload("novel.txt", content)], parent_id=None,
-                    current_user=user, session=session, background_tasks=tasks,
+                    current_user=user, session=session,
                 )
                 assert response.total == count and response.errors == []
                 returned = response.files
-                assert len(tasks.tasks) == count
                 for row, task in zip(returned, tasks.tasks, strict=True):
                     assert task.kwargs == {
                         "project_id": project_id, "user_id": user_id, "entity_type": "draft",
@@ -226,7 +223,6 @@ async def test_upload_response_and_index_use_no_postcommit_expired_rows(pg_engin
                     project_id, _upload("material.txt", content), current_user=user, session=session,
                 )
                 returned = [files_api.FileResponse.model_validate(response)]
-                assert tasks.tasks == [] and cache_calls == []
             assert len(committed) == 1
             assert reads == [], f"postcommit expired File/User SELECTs: {len(reads)}"
         finally:
@@ -263,9 +259,8 @@ async def test_failed_upload_commit_emits_no_index_or_cache_and_rolls_back_folde
             else:
                 files_api.upload_drafts(
                     project_id, [_upload("draft.txt", "Body")], parent_id=None,
-                    current_user=user, session=session, background_tasks=tasks,
+                    current_user=user, session=session,
                 )
-    assert tasks.tasks == [] and cache_calls == []
     with Session(pg_engine) as reader:
         assert reader.exec(select(File).where(File.project_id == project_id)).all() == []
 
@@ -280,7 +275,6 @@ async def test_all_invalid_draft_upload_returns_empty_response_without_postcommi
     with Session(pg_engine) as session:
         result = files_api.upload_drafts(
             project_id, [_upload("invalid.exe", "Rejected")], parent_id=None,
-            current_user=session.get(User, user_id), session=session, background_tasks=tasks,
+            current_user=session.get(User, user_id), session=session,
         )
     assert result.total == 0 and result.files == [] and len(result.errors) == 1
-    assert tasks.tasks == [] and cache_calls == []

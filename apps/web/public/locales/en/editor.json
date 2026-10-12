@@ -100,7 +100,8 @@
     "noResults": "No files found",
     "searching": "Searching...",
     "shortcutHint": "Ctrl+K",
-    "pathSeparator": " > "
+    "pathSeparator": " > ",
+    "titleTooLong": "File names can contain up to 255 characters. Paste your text into the editor."
   },
   "placeholder": {
     "selectFile": "Select a file from left to start creating",

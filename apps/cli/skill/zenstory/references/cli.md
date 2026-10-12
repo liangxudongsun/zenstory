@@ -172,8 +172,8 @@ Response:
   "query": "玉佩的来历",
   "results": [
     { "id": "…", "title": "第三章", "file_type": "draft", "content": null,
-      "score": 0.82, "snippet": "…", "line_start": 41, "fused_score": 0.03,
-      "sources": ["semantic", "lexical"], "metadata": {} }
+      "score": 0.82, "snippet": "…", "line_start": 41, "fused_score": 0.82,
+      "sources": ["lexical"], "metadata": {} }
   ],
   "result_count": 1
 }

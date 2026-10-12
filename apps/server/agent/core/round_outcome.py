@@ -209,8 +209,6 @@ def _reused_file_had_body(data: dict[str, Any], content: str) -> bool:
 def remove_empty_placeholders(
     project_id: str,
     candidates: list[dict[str, str]],
-    *,
-    user_id: str | None = None,
 ) -> list[dict[str, str]]:
     """移除这一轮新建、到现在仍然没有正文的文件（软删除）；返回真正移除了的 {id, title}。
 
@@ -229,7 +227,6 @@ def remove_empty_placeholders(
     from services.file_tree_rules import lock_project_for_files
 
     removed: list[dict[str, str]] = []
-    index_deletes: list[tuple[str, str]] = []
     try:
         with create_session() as session:
             lock_project_for_files(session, project_id, exclusive=True)
@@ -260,7 +257,6 @@ def remove_empty_placeholders(
                 file.updated_at = advance_timestamp(file.updated_at, now=now)
                 session.add(file)
                 removed.append({"id": file.id, "title": file.title or candidate.get("title", "")})
-                index_deletes.append((file.id, file.file_type))
             session.commit()
     except Exception as exc:
         log_with_context(
@@ -274,18 +270,6 @@ def remove_empty_placeholders(
         return []
 
     if removed:
-        try:
-            from services.llama_index import schedule_index_delete
-
-            for entity_id, entity_type in index_deletes:
-                schedule_index_delete(
-                    project_id=project_id,
-                    entity_type=entity_type,
-                    entity_id=entity_id,
-                    user_id=user_id,
-                )
-        except Exception:  # pragma: no cover - 索引清理失败不影响结果
-            pass
         log_with_context(
             logger,
             20,  # INFO

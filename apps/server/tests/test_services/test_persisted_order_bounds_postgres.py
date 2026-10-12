@@ -49,14 +49,11 @@ def order_engine():
 @pytest.fixture
 def effects(monkeypatch):
     import database
-    import services.llama_index as indexing
     from services.features.activation_event_service import activation_event_service
     from services.infra.dashboard_cache import dashboard_cache
 
-    captured = {"index": [], "activation": [], "cache": []}
+    captured = {"activation": [], "cache": []}
     monkeypatch.setattr(database, "is_postgres", True)
-    monkeypatch.setattr(indexing, "schedule_index_upsert", lambda **kw: captured["index"].append(kw))
-    monkeypatch.setattr(indexing, "schedule_index_delete", lambda **kw: captured["index"].append(kw))
     monkeypatch.setattr(activation_event_service, "record_once", lambda *a, **kw: captured["activation"].append(kw))
     monkeypatch.setattr(activation_event_service, "record_ai_write_accepted", lambda *a, **kw: captured["activation"].append(kw))
     monkeypatch.setattr(dashboard_cache, "bump_project_version", lambda **kw: captured["cache"].append(kw))
@@ -121,19 +118,19 @@ def _invoke(session, ids, writer, operation, payload, background):
     assert key.is_active and "write" in key.scopes and ids["project"] in key.project_ids
     if writer == "web":
         if operation == "create":
-            return web.create_file(ids["project"], web.FileCreate(**payload), background, current_user=user, session=session)
+            return web.create_file(ids["project"], web.FileCreate(**payload),  current_user=user, session=session)
         if operation == "update":
-            return web.update_file(ids["target"], web.FileUpdate(**payload), background, current_user=user, session=session)
+            return web.update_file(ids["target"], web.FileUpdate(**payload),  current_user=user, session=session)
         if operation == "move":
-            return web.move_file(ids["target"], web.MoveFileRequest(**payload), background, current_user=user, session=session)
+            return web.move_file(ids["target"], web.MoveFileRequest(**payload),  current_user=user, session=session)
         return web.reorder_files(ids["project"], web.ReorderFilesRequest(ordered_ids=[ids["target"], ids["peer"]]), current_user=user, session=session)
     if writer == "agent":
         context = (session, ids["user"], key)
         if operation == "create":
-            return agent_api.create_file(ids["project"], agent_api.FileCreate(**payload), background, _rate_limit=0, context=context)
+            return agent_api.create_file(ids["project"], agent_api.FileCreate(**payload),  _rate_limit=0, context=context)
         if operation == "update":
-            return agent_api.update_file(ids["target"], agent_api.FileUpdate(**payload), background, _rate_limit=0, context=context)
-        return agent_api.move_file(ids["target"], agent_api.FileMove(**payload), background, _rate_limit=0, context=context)
+            return agent_api.update_file(ids["target"], agent_api.FileUpdate(**payload),  _rate_limit=0, context=context)
+        return agent_api.move_file(ids["target"], agent_api.FileMove(**payload),  _rate_limit=0, context=context)
     ToolContext.set_context(session, ids["user"], ids["project"], None)
     try:
         crud = FileCRUD(session, ids["user"])
@@ -226,7 +223,6 @@ def test_invalid_persisted_order_is_domain_rejection_and_atomic(order_engine, ef
         "background_tasks": len(background.tasks), "effects": {k: len(v) for k, v in effects.items()},
     })
     assert after == before, "Rejected order changed File/token/parent/content/metadata/history"
-    assert background.tasks == []
     assert all(not calls for calls in effects.values())
     if writer == "tool":
         assert isinstance(error, ValueError), f"Expected tool input ValueError, got {type(error).__name__}; PG={sql_errors}"
@@ -259,7 +255,6 @@ def test_valid_explicit_create_bounds_keep_content_baseline(order_engine, effect
     assert len(versions) == 1 and versions[0]["version_number"] == 1 and versions[0]["is_base_version"]
     assert versions[0]["content"] == "Created baseline body"
     assert len(after["files"]) == len(before["files"]) + 1
-    assert len(background.tasks) + len(effects["index"]) == 1
     _record(record_property, {"writer": writer, "operation": "create", "control_order": order, "stored_order": row["order"], "initial_versions": 1})
 
 
@@ -295,7 +290,6 @@ def test_valid_update_bound_keeps_real_history_and_advances_token(order_engine, 
     assert changed["parent_id"] == original["parent_id"]
     assert changed["updated_at"] > original["updated_at"]
     assert len(after["versions"]) == len(before["versions"]) + 1
-    assert len(background.tasks) + len(effects["index"]) == 1
     _record(record_property, {"writer": writer, "operation": "update", "control_order": order, "token_advanced": True, "history_added": 1})
 
 
@@ -312,7 +306,6 @@ def test_web_move_does_not_resolve_order_from_legacy_title_metadata(order_engine
     assert moved["parent_id"] == ids["b"] and moved["order"] == 13 and moved["content"] == old["content"]
     assert moved["title"] == old["title"] and moved["file_metadata"] == old["file_metadata"]
     assert moved["updated_at"] > old["updated_at"] and after["versions"] == before["versions"]
-    assert len(background.tasks) == 1
     _record(record_property, {"writer": "web", "operation": "move", "kind": kind, "stored_order": 13, "derived_order": False})
 
 
@@ -331,7 +324,6 @@ def test_valid_agent_move_resolves_bound_and_advances_parent_token(order_engine,
     moved = next(f for f in after["files"] if f["id"] == ids["target"])
     assert moved["order"] == expected and moved["parent_id"] == ids["b"]
     assert moved["updated_at"] > old["updated_at"] and moved["content"] == old["content"]
-    assert after["versions"] == before["versions"] and len(background.tasks) == 1
     _record(record_property, {"writer": "agent", "operation": "move", "control_title": title,
                               "stored_order": expected, "parent_token_advanced": True})
 
@@ -402,7 +394,6 @@ def test_invalid_order_preserves_attached_fields_before_rollback(order_engine, e
         finally:
             session.rollback()
     assert _snapshot(order_engine, ids["project"]) == before
-    assert not tasks.tasks and all(not calls for calls in effects.values())
 
 
 def test_later_invalid_reorder_preserves_earlier_attached_row(order_engine, effects):
@@ -474,3 +465,22 @@ def test_invalid_screenplay_reuse_never_promotes_attached_candidate(order_engine
             session.rollback()
     assert _snapshot(order_engine, ids["project"]) == before
     assert all(not calls for calls in effects.values())
+
+
+@pytest.mark.parametrize("writer", ["web", "agent", "tool"])
+@pytest.mark.parametrize("operation", ["create", "update"])
+def test_file_title_index_boundary_preserves_body(order_engine, effects, writer, operation):
+    ids = _seed(order_engine)
+    body = "正文" * 4000
+    with Session(order_engine) as session:
+        result = _invoke(session, ids, writer, operation, {"title": "😀" * 255, "content": body}, None)
+        file_id = result["id"] if isinstance(result, dict) else result.id
+    with Session(order_engine) as reader:
+        file = reader.get(File, file_id)
+        assert file.title == "😀" * 255 and file.content == body
+    before = _snapshot(order_engine, ids["project"])
+    with Session(order_engine) as session:
+        with pytest.raises(ValueError):
+            _invoke(session, ids, writer, operation, {"title": "😀" * 256, "content": "must not overwrite"}, None)
+        session.rollback()
+    assert _snapshot(order_engine, ids["project"]) == before

@@ -740,7 +740,7 @@ async def run_openai_agents_streaming_agent(
     # We track per-turn how many read-only tool calls appear before the first tool_output
     # of that turn; when ≥2 are observed we record a co-call event.  A new "turn" begins
     # after every tool_output (the model produced a fresh response with new tool requests).
-    _READONLY_TOOLS: frozenset[str] = frozenset({"query_files", "hybrid_search"})
+    _READONLY_TOOLS: frozenset[str] = frozenset({"query_files"})
     _turn_readonly_pending: int = 0   # read-only calls seen since last tool_output
     _turn_has_output: bool = False    # whether the current turn has received any tool_output
 

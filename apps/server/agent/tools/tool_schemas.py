@@ -28,7 +28,8 @@ CREATE_FILE_TOOL: dict[str, Any] = {
         "properties": {
             "title": {
                 "type": "string",
-                "description": "文件标题/名称"
+                "description": "文件标题/名称，最多 255 字；正文必须放入 content，不要放在标题中",
+                "maxLength": 255
             },
             "file_type": {
                 "type": "string",
@@ -231,38 +232,6 @@ QUERY_FILES_TOOL: dict[str, Any] = {
     }
 }
 
-# Tool: hybrid_search
-HYBRID_SEARCH_TOOL: dict[str, Any] = {
-    "name": "hybrid_search",
-    "description": "混合检索（关键词 + 向量融合）。优先使用此工具进行 RAG 检索，返回 snippet/line_start/fused_score/sources。",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "query": {
-                "type": "string",
-                "description": "搜索查询文本"
-            },
-            "top_k": {
-                "type": "integer",
-                "description": "返回最相关的结果数量",
-                "default": 10
-            },
-            "entity_types": {
-                "type": "array",
-                "description": "限制搜索的实体类型",
-                "items": {
-                    "type": "string"
-                }
-            },
-            "min_score": {
-                "type": "number",
-                "description": "最小融合分数阈值",
-                "default": 0.0
-            }
-        },
-        "required": ["query"]
-    }
-}
 
 # Tool: update_project (合并 update_project_status + update_plan)
 UPDATE_PROJECT_TOOL: dict[str, Any] = {
@@ -511,7 +480,6 @@ TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "edit_file": EDIT_FILE_TOOL,
     "delete_file": DELETE_FILE_TOOL,
     "query_files": QUERY_FILES_TOOL,
-    "hybrid_search": HYBRID_SEARCH_TOOL,
     "update_project": UPDATE_PROJECT_TOOL,
     "handoff_to_agent": HANDOFF_TO_AGENT_TOOL,
     "request_clarification": REQUEST_CLARIFICATION_TOOL,

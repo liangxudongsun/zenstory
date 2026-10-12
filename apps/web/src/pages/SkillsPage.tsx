@@ -1560,9 +1560,9 @@ function PublicSkillCard({
           className="text-xs text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-secondary))] flex items-center gap-1 transition-colors"
         >
           {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-          {hidden
+          <span>{hidden
             ? expanded ? t("collapseDetails") : t("expandDetails")
-            : expanded ? t("collapse") : t("expand")}
+            : expanded ? t("collapse") : t("expand")}</span>
         </button>
 
         <div className="flex items-center gap-3">
@@ -1581,9 +1581,9 @@ function PublicSkillCard({
             {adding ? (
               <div className="w-3 h-3 animate-spin rounded-full border-2 border-[hsl(var(--accent-primary))] border-t-transparent" />
             ) : isAdded ? (
-              <>{t("alreadyAdded")}</>
+              <span>{t("alreadyAdded")}</span>
             ) : (
-              <>{t("addToMine")}</>
+              <span>{t("addToMine")}</span>
             )}
           </button>
         </div>

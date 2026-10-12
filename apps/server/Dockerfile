@@ -30,7 +30,7 @@ COPY . .
 # Create a non-root user. The data directories exist in the image so that
 # Docker named volumes mounted there start out owned by that user.
 RUN useradd -m -u 1000 zenstory && \
-    mkdir -p /app/db /app/uploads /app/chroma_data && \
+    mkdir -p /app/db /app/uploads && \
     chown -R zenstory:zenstory /app
 USER zenstory
 

@@ -46,6 +46,7 @@ describe("chunkRecovery", () => {
   it("detects stale dynamic import failures", () => {
     expect(recovery.isChunkLoadError(new Error("Failed to fetch dynamically imported module"))).toBe(true);
     expect(recovery.isChunkLoadError(new Error("ChunkLoadError: Loading chunk 1 failed"))).toBe(true);
+    expect(recovery.isChunkLoadError(new Error("error loading dynamically imported module: /assets/page.js"))).toBe(true);
     expect(recovery.isChunkLoadError(new Error("other error"))).toBe(false);
   });
 

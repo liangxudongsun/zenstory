@@ -336,11 +336,9 @@ def owner_project(db_session, monkeypatch):
     project = Project(name="还剩三分钟", owner_id=user.id)
     db_session.add_all([user, project])
     db_session.commit()
-    monkeypatch.setattr(FileCRUD, "_schedule_index_upsert", lambda *_a, **_kw: None)
     monkeypatch.setattr(activation_event_service, "record_ai_write_accepted", lambda *_a, **_kw: None)
     monkeypatch.setattr(activation_event_service, "record_once", lambda *_a, **_kw: None)
     monkeypatch.setattr(FileVersionService, "check_user_version_quota", lambda *_a, **_kw: (True, 0, 10))
-    monkeypatch.setattr("services.llama_index.schedule_index_upsert", lambda **_kw: None)
     monkeypatch.setattr("services.infra.dashboard_cache.dashboard_cache.bump_project_version", lambda *_a, **_kw: None)
     return user, project
 
@@ -363,7 +361,7 @@ def _author_saves(session, user, file, content):
     files_api.update_file(
         file.id,
         files_api.FileUpdate(content=content),
-        BackgroundTasks(),
+
         current_user=user,
         session=session,
     )
@@ -430,7 +428,7 @@ async def test_comparison_save_keeps_the_rename_protected_only_as_an_author_edit
     files_api.update_file(
         chapter.id,
         files_api.FileUpdate(content=AUTHOR_CH3, change_type=change_type, change_source="user"),
-        BackgroundTasks(),
+
         current_user=user,
         session=db_session,
     )

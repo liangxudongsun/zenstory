@@ -625,7 +625,6 @@ async def stream_request(
                         remove_empty_placeholders,
                         body.project_id,
                         run_outcome.removable(tracker.removable_placeholders()),
-                        user_id=user_id,
                     )
             message_id = await run_outcome.wait_message_id(ROUND_OUTCOME_MESSAGE_ID_WAIT_S)
             if not message_id:
@@ -708,7 +707,6 @@ async def stream_request(
                         remove_empty_placeholders,
                         body.project_id,
                         run_outcome.removable(tracker.removable_placeholders()),
-                        user_id=user_id,
                     )
                     yield quota_refunded_frame(billing_reason, removed_files)
             except (asyncio.CancelledError, GeneratorExit):

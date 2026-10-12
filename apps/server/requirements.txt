@@ -25,10 +25,6 @@ prefect==3.6.28
 # Keep the metadata backport explicit for the Python 3.11 server/worker images.
 importlib-metadata>=4.4
 
-# Zhipu AI (embeddings)
-# Provides `from zai import ZhipuAiClient`
-zai-sdk>=0.2.0
-
 # Authentication
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
@@ -61,13 +57,7 @@ psycopg2-binary>=2.9.9  # PostgreSQL support (sync)
 psycopg[binary]>=3.1.0  # PostgreSQL psycopg3 driver
 asyncpg>=0.29.0  # Async PostgreSQL driver
 
-# LlamaIndex for RAG and retrieval
-llama-index-core>=0.10.0
-llama-index-vector-stores-chroma>=0.1.0
 
-# Chroma vector database
-chromadb>=0.4.0
-posthog>=2.4.0,<6.0.0  # chromadb telemetry compatibility
 
 # Database migrations (recommended for production)
 alembic>=1.12.0

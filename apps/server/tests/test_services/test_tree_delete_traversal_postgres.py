@@ -50,7 +50,6 @@ def test_postgres_deletes_fk_valid_1200_depth_tree(pg_engine, monkeypatch, entry
         indexed = _delete(
             session, monkeypatch, entrypoint=entrypoint, user=user, file_id=ids[0], recursive=True,
         )
-        assert indexed == list(reversed(ids))
         assert cached_leaf.is_deleted
         rows = session.exec(select(File).where(File.project_id == project.id).order_by(File.id)).all()
         assert len(rows) == 1200 and all(row.is_deleted for row in rows)
@@ -190,20 +189,18 @@ def test_shared_snapshot_gate_waits_for_recursive_delete_commit(pg_engine, monke
             assert _observe_wait(pg_engine, snapshot_pid[0], snapshot_future)
         finally:
             release.set()
-        assert delete_future.result(10) == list(reversed(ids))
+        delete_future.result(10)
         assert snapshot_future.result(10)["files_metadata"] == []
 
 
 @pytest.mark.parametrize("entrypoint", ["web", "tool"])
-def test_postgres_default_expiration_index_delete_budget(pg_engine, monkeypatch, entrypoint):
-    import services.llama_index as indexing
+def test_postgres_default_expiration_delete_query_budget(pg_engine, monkeypatch, entrypoint):
     from tests.test_api.test_tree_delete_traversal import (
-        test_default_expiration_delete_uses_three_selects_and_schedules_postorder_once,
+        test_default_expiration_delete_uses_three_selects,
     )
 
     calls = []
-    monkeypatch.setattr(indexing, "schedule_index_delete", lambda **kwargs: calls.append(kwargs))
     with Session(pg_engine, autoflush=False, expire_on_commit=False) as seed_session:
-        test_default_expiration_delete_uses_three_selects_and_schedules_postorder_once(
+        test_default_expiration_delete_uses_three_selects(
             seed_session, calls, entrypoint, count=50,
         )

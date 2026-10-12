@@ -184,7 +184,7 @@ Agent 可以通过两种方式交接：
   graph 同时置 `state["read_only"]`，`tools_adapter` 对
   `registry.FILE_WRITE_TOOL_NAMES`（create/edit/delete_file、parallel_execute）的调用一律拒绝执行、
   返回 `error_type="read_only_request"` 的可恢复错误（工具仍在清单里，描述标明本轮不可用），
-  拒绝经熔断器记账；`parallel_execute` 整次拒绝，即使这一批只有 query_files / hybrid_search
+  拒绝经熔断器记账；`parallel_execute` 整次拒绝，即使这一批只有 query_files
   子任务；`update_project`（项目信息/任务计划，不是文件）不在其中，只读请求下照常执行。
   只读请求万一留下空文件，直接回滚、不安排补写。
 - runner 的 `RunConfig` 设 `tool_not_found_behavior="return_error_to_model"`：模型调用工具集里
@@ -362,7 +362,6 @@ runner 回放历史时丢弃工具结果，所以新一轮靠两样东西知道�
 | `edit_file` | 精确编辑 (replace/insert/append/delete) |
 | `delete_file` | 删除文件 |
 | `query_files` | 查询和搜索文件 |
-| `hybrid_search` | 关键词+向量混合检索（语义检索可能未启用；定位文件以 `query_files(query=…)` 为准） |
 | `update_project` | 更新项目状态 |
 | `handoff_to_agent` | 交接给另一个 agent |
 | `request_clarification` | 请求用户澄清并暂停工作流 |

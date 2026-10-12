@@ -39,7 +39,6 @@ docker compose exec -e ZENSTORY_ADMIN_EMAIL=you@example.com \
 
 | 功能 | 需要的配置 |
 | --- | --- |
-| 项目内语义检索（Agent 的 `hybrid_search` 与每轮自动检索片段） | `ZHIPU_EMBEDDINGS_API_KEY` |
 | 邮箱注册验证码 | `REDIS_URL`、`RESEND_API_KEY`、`RESEND_FROM_EMAIL` |
 | 语音输入 | `TENCENT_SECRET_ID`、`TENCENT_SECRET_KEY` |
 | Google 登录 | 后端 `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`、`GOOGLE_REDIRECT_URI`、`FRONTEND_URL`；前端（`web.environment`）`VITE_GOOGLE_OAUTH_ENABLED=true` |

@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import ClassVar, Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query
+from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func
 from sqlalchemy.orm import load_only
@@ -29,6 +29,7 @@ from core.error_handler import APIException
 from database import create_session
 from middleware.rate_limit import require_agent_rate_limit
 from models import File, FileVersion, Project
+from models.file_model import MAX_FILE_TITLE_LENGTH
 from models.file_version import CHANGE_SOURCE_USER, CHANGE_TYPE_AI_EDIT, CHANGE_TYPE_CREATE
 from services.agent_auth_service import verify_project_access
 from services.features.file_version_service import get_file_version_service
@@ -71,7 +72,7 @@ class ProjectResponse(BaseModel):
 class FileCreate(BaseModel):
     """Request body for creating a file."""
 
-    title: str = Field(..., description="File title")
+    title: str = Field(..., max_length=MAX_FILE_TITLE_LENGTH, description="File title")
     file_type: str = Field(default="draft", description="File type (outline, draft, character, lore, etc.)")
     content: str = Field(default="", description="File content")
     parent_id: str | None = Field(default=None, description="Parent folder ID (a folder in the same project)")
@@ -91,7 +92,7 @@ class FileCreate(BaseModel):
 class FileUpdate(BaseModel):
     """Request body for updating a file."""
 
-    title: str | None = Field(default=None, description="New title")
+    title: str | None = Field(default=None, max_length=MAX_FILE_TITLE_LENGTH, description="New title")
     content: str | None = Field(default=None, description="New content")
     order: int | None = Field(default=None, ge=0, le=MAX_FILE_ORDER, description="New sort order among siblings")
     base_updated_at: datetime | None = Field(
@@ -304,35 +305,6 @@ def _file_metadata(file: File) -> dict:
     except Exception:
         return {}
     return parsed if isinstance(parsed, dict) else {}
-
-
-def _schedule_file_index_upsert(background_tasks: BackgroundTasks, file: File, user_id: str) -> None:
-    """Fire-and-forget vector index upsert after a content change; never blocks the write."""
-    try:
-        extra_metadata = _file_metadata(file)
-        if file.parent_id:
-            extra_metadata = {**extra_metadata, "parent_id": file.parent_id}
-
-        from services.llama_index import schedule_index_upsert
-
-        background_tasks.add_task(
-            schedule_index_upsert,
-            project_id=file.project_id,
-            entity_type=file.file_type,
-            entity_id=file.id,
-            title=file.title,
-            content=file.content or "",
-            extra_metadata=extra_metadata,
-            user_id=user_id,
-        )
-    except Exception:
-        log_with_context(
-            logger,
-            logging.DEBUG,
-            "Failed to schedule vector index upsert for updated file",
-            file_id=file.id,
-            project_id=file.project_id,
-        )
 
 
 # ==================== Project Endpoints ====================
@@ -660,7 +632,6 @@ def list_files(
 def create_file(
     project_id: str,
     file_data: FileCreate,
-    background_tasks: BackgroundTasks,
     _rate_limit: int = Depends(require_agent_rate_limit("agent_write", 1000, 3600)),
     context: AgentAuthContext = Depends(require_project_access("write")),
 ):
@@ -728,32 +699,6 @@ def create_file(
         file_type=file_data.file_type,
     )
 
-    # Fire-and-forget vector index upsert
-    try:
-        from services.llama_index import schedule_index_upsert
-
-        extra_metadata = file_data.metadata or {}
-        if file.parent_id:
-            extra_metadata = {**extra_metadata, "parent_id": file.parent_id}
-
-        background_tasks.add_task(
-            schedule_index_upsert,
-            project_id=project_id,
-            entity_type=file.file_type,
-            entity_id=file.id,
-            title=file.title,
-            content=file.content or "",
-            extra_metadata=extra_metadata,
-            user_id=user_id,
-        )
-    except Exception:
-        log_with_context(
-            logger,
-            logging.DEBUG,
-            "Failed to schedule vector index upsert for created file",
-            project_id=project_id,
-            file_id=file.id,
-        )
 
     response = FileWriteResponse.model_validate(file)
     response.version_quota_exceeded = version_quota_exceeded
@@ -882,7 +827,6 @@ def _snapshot_agent_file_content(
 def update_file(
     file_id: str,
     file_data: FileUpdate,
-    background_tasks: BackgroundTasks,
     _rate_limit: int = Depends(require_agent_rate_limit("agent_write", 1000, 3600)),
     context: AgentAuthContext = Depends(require_scope("write")),
 ):
@@ -957,7 +901,6 @@ def update_file(
         project_id=file.project_id,
     )
 
-    _schedule_file_index_upsert(background_tasks, file, user_id)
 
     response = FileWriteResponse.model_validate(file)
     response.version_quota_exceeded = version_quota_exceeded
@@ -967,7 +910,6 @@ def update_file(
 @router.delete("/files/{file_id}")
 def delete_file(
     file_id: str,
-    background_tasks: BackgroundTasks,
     _rate_limit: int = Depends(require_agent_rate_limit("agent_write", 1000, 3600)),
     context: AgentAuthContext = Depends(require_scope("write")),
 ):
@@ -1005,25 +947,6 @@ def delete_file(
         project_id=file.project_id,
     )
 
-    # Fire-and-forget vector index delete
-    try:
-        from services.llama_index import schedule_index_delete
-
-        background_tasks.add_task(
-            schedule_index_delete,
-            project_id=file.project_id,
-            entity_type=file.file_type,
-            entity_id=file.id,
-            user_id=user_id,
-        )
-    except Exception:
-        log_with_context(
-            logger,
-            logging.DEBUG,
-            "Failed to schedule vector index delete for deleted file",
-            file_id=file_id,
-            project_id=file.project_id,
-        )
 
     return {"message": "File deleted successfully"}
 
@@ -1032,7 +955,6 @@ def delete_file(
 def move_file(
     file_id: str,
     move_data: FileMove,
-    background_tasks: BackgroundTasks,
     _rate_limit: int = Depends(require_agent_rate_limit("agent_write", 1000, 3600)),
     context: AgentAuthContext = Depends(require_scope("write")),
 ):
@@ -1090,8 +1012,6 @@ def move_file(
         new_parent_id=file.parent_id,
     )
 
-    # The index stores parent_id as metadata; keep it in sync with the new location.
-    _schedule_file_index_upsert(background_tasks, file, user_id)
 
     return file
 
@@ -1177,7 +1097,6 @@ def get_file_version(
 def rollback_file_version(
     file_id: str,
     version_number: int,
-    background_tasks: BackgroundTasks,
     _rate_limit: int = Depends(require_agent_rate_limit("agent_write", 1000, 3600)),
     context: AgentAuthContext = Depends(require_scope("write")),
 ):
@@ -1218,7 +1137,6 @@ def rollback_file_version(
         new_version_number=new_version.version_number if new_version is not None else None,
     )
 
-    _schedule_file_index_upsert(background_tasks, file, user_id)
 
     return FileRollbackResponse(
         success=True,

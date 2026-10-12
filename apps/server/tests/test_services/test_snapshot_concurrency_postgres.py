@@ -54,12 +54,9 @@ def pg_engine():
 @pytest.fixture(autouse=True)
 def isolated_dependencies(monkeypatch):
     import database
-    import services.llama_index as indexing
 
     monkeypatch.setattr(database, "is_postgres", True)
     monkeypatch.setattr(FileVersionService, "check_user_version_quota", lambda *_a, **_kw: (True, 0, 10))
-    monkeypatch.setattr(indexing, "schedule_index_upsert", lambda **_kw: None)
-    monkeypatch.setattr(FileCRUD, "_schedule_index_upsert", lambda *_a, **_kw: None)
     monkeypatch.setattr(files_api.activation_event_service, "record_once", lambda *_a, **_kw: None)
     # Gate tests isolate unrelated material-library decoding/ownership. The
     # authentic preview/import transaction is covered by the SQLite regressions.
@@ -172,10 +169,10 @@ def _create_via(session, entrypoint, user_id, project_id, key_id):
     user = session.get(User, user_id)
     content = "Created after rollback"
     if entrypoint == "web":
-        return files_api.create_file(project_id, files_api.FileCreate(title="Concurrent", content=content), BackgroundTasks(), current_user=user, session=session).id
+        return files_api.create_file(project_id, files_api.FileCreate(title="Concurrent", content=content),  current_user=user, session=session).id
     if entrypoint == "agent":
         key = session.get(AgentApiKey, key_id)
-        return agent_api.create_file(project_id, agent_api.FileCreate(title="Concurrent", content=content), BackgroundTasks(), _rate_limit=0, context=(session, user_id, key)).id
+        return agent_api.create_file(project_id, agent_api.FileCreate(title="Concurrent", content=content),  _rate_limit=0, context=(session, user_id, key)).id
     if entrypoint in {"tool", "tool-folder"}:
         kwargs = {} if entrypoint == "tool" else {"file_type": "draft", "parent_id": f"{project_id}-draft-folder"}
         return FileCRUD(session, user_id).create_file(project_id, "Concurrent", content=content, **kwargs)["id"]
@@ -186,7 +183,7 @@ def _create_via(session, entrypoint, user_id, project_id, key_id):
     upload = UploadFile(filename="concurrent.txt", file=BytesIO(content.encode()))
     if entrypoint == "material":
         return files_api.upload_material(project_id, upload, current_user=user, session=session).id
-    result = files_api.upload_drafts(project_id, [upload], parent_id=None, current_user=user, session=session, background_tasks=BackgroundTasks())
+    result = files_api.upload_drafts(project_id, [upload], parent_id=None, current_user=user, session=session, )
     assert result.errors == []
     return result.files[0].id
 
@@ -252,7 +249,7 @@ def test_rollback_locks_before_safety_snapshot_and_stale_writer_rejects(pg_engin
             pid_box.append(session.exec(text("SELECT pg_backend_pid()")).scalar_one())
             writer_started.set()
             try:
-                files_api.update_file(file_id, files_api.FileUpdate(content="Concurrent edit", base_updated_at=STAMP), BackgroundTasks(), current_user=user, session=session)
+                files_api.update_file(file_id, files_api.FileUpdate(content="Concurrent edit", base_updated_at=STAMP),  current_user=user, session=session)
                 return 200
             except APIException as exc:
                 session.rollback()
@@ -373,7 +370,7 @@ def test_create_revalidates_cached_parent_deleted_by_rollback(pg_engine, monkeyp
             pid_box.append(session.exec(text("SELECT pg_backend_pid()")).scalar_one())
             creator_started.set()
             try:
-                created = files_api.create_file(project_id, files_api.FileCreate(title="Concurrent child", parent_id=parent_id, content="Child"), BackgroundTasks(), current_user=user, session=session)
+                created = files_api.create_file(project_id, files_api.FileCreate(title="Concurrent child", parent_id=parent_id, content="Child"),  current_user=user, session=session)
                 return 200, created.id
             except APIException as exc:
                 session.rollback()
@@ -400,7 +397,7 @@ def test_create_revalidates_cached_parent_deleted_by_rollback(pg_engine, monkeyp
 def test_api_reconciliation_includes_creator_committed_while_rollback_waits(pg_engine, monkeypatch):
     user_id, project_id, _, snapshot_id, key_id, _ = _seed(pg_engine, "reconcile-wait")
     creator_ready, finish_create, rollback_started = Event(), Event(), Event()
-    pid_box, reconciled = [], []
+    pid_box, refreshed = [], []
     original_initial = FileVersionService.create_initial_version
 
     def pause_after_baseline(self, *args, **kwargs):
@@ -410,7 +407,7 @@ def test_api_reconciliation_includes_creator_committed_while_rollback_waits(pg_e
         return result
 
     monkeypatch.setattr(FileVersionService, "create_initial_version", pause_after_baseline)
-    monkeypatch.setattr(snapshots_api, "_schedule_snapshot_rollback_reconciliation", lambda **kwargs: reconciled.append(kwargs["file_ids"]))
+    monkeypatch.setattr(snapshots_api, "_refresh_snapshot_dashboard_cache", lambda **kwargs: refreshed.append(kwargs["project_id"]))
 
     def create():
         with Session(pg_engine) as session:
@@ -421,7 +418,7 @@ def test_api_reconciliation_includes_creator_committed_while_rollback_waits(pg_e
             user = session.get(User, user_id)
             pid_box.append(session.exec(text("SELECT pg_backend_pid()")).scalar_one())
             rollback_started.set()
-            return snapshots_api.rollback_to_snapshot(snapshot_id, BackgroundTasks(), current_user=user, session=session)
+            return snapshots_api.rollback_to_snapshot(snapshot_id,  current_user=user, session=session)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         creator = pool.submit(create)
@@ -435,8 +432,7 @@ def test_api_reconciliation_includes_creator_committed_while_rollback_waits(pg_e
         created_id = creator.result(timeout=10)
         result = rollback.result(timeout=10)
     assert blocked
-    assert len(reconciled) == 1
-    assert created_id in reconciled[0]
+    assert refreshed == [project_id]
     assert set(result) == {"snapshot_id", "pre_rollback_snapshot_id", "restored"}
     with Session(pg_engine) as reader:
         assert reader.get(File, created_id).is_deleted is True
@@ -481,7 +477,7 @@ def test_snapshot_api_rechecks_project_access_after_gate(pg_engine, action, proj
                 if action == "create":
                     snapshots_api.create_snapshot(project_id, snapshots_api.CreateSnapshotRequest(file_id=file_id), current_user=user, session=session)
                 else:
-                    snapshots_api.rollback_to_snapshot(snapshot_id, BackgroundTasks(), current_user=user, session=session)
+                    snapshots_api.rollback_to_snapshot(snapshot_id,  current_user=user, session=session)
             except APIException as exc:
                 session.rollback()
                 return exc.status_code
@@ -646,7 +642,7 @@ def test_scoped_rollback_does_not_block_unrelated_web_writer(pg_engine, monkeypa
     def update():
         with Session(pg_engine) as session:
             user = session.get(User, user_id)
-            return files_api.update_file(unrelated_id, files_api.FileUpdate(content="Independent edit", base_updated_at=STAMP), BackgroundTasks(), current_user=user, session=session).content
+            return files_api.update_file(unrelated_id, files_api.FileUpdate(content="Independent edit", base_updated_at=STAMP),  current_user=user, session=session).content
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         rollback = pool.submit(_rollback, pg_engine, snapshot_id)

@@ -71,7 +71,7 @@ def test_default_constructor_is_a_600k_safety_valve():
 
 
 def test_regression_four_full_reads_and_a_search_pass_through_unchanged():
-    """事故回归：4 次 query_files 全文读取（共 ~31k 字）+ 1 次 hybrid_search 不得被改写。
+    """事故回归：4 次 query_files 全文读取（共 ~31k 字）+ 1 次 query_files 不得被改写。
 
     旧实现只保留最近 2 个读取结果，把更早的 A、B 折叠成预览，模型随即重读 A、B，
     形成「读 A,B → 缺 C,D → 读 C,D → 缺 A,B」循环。
@@ -83,7 +83,7 @@ def test_regression_four_full_reads_and_a_search_pass_through_unchanged():
         call_id = f"read-{index}"
         items.append(_fc(call_id, "query_files", json.dumps({"id": file_id, "response_mode": "full"})))
         items.append(_fco(call_id, _read_output(file_id, body)))
-    items.append(_fc("search-1", "hybrid_search", json.dumps({"query": "旧钥匙"}, ensure_ascii=False)))
+    items.append(_fc("search-1", "query_files", json.dumps({"query": "旧钥匙"}, ensure_ascii=False)))
     items.append(_fco("search-1", json.dumps({"status": "success", "data": {"results": ["片段" * 2_000]}})))
 
     md = ModelInputData(input=copy.deepcopy(items), instructions="系统提示" * 2_000)
@@ -96,9 +96,9 @@ def test_regression_four_full_reads_and_a_search_pass_through_unchanged():
 def test_under_budget_never_compacts_stale_reads_or_write_receipts():
     old_write_args = json.dumps({"id": "file-old", "edits": [{"old": "甲" * 6_000, "new": "乙" * 6_000}]})
     items = [
-        _fc("c1", "hybrid_search"),
+        _fc("c1", "query_files"),
         _fco("c1", BIG),
-        _fc("c2", "hybrid_search"),
+        _fc("c2", "query_files"),
         _fco("c2", BIG),
         _fc("c3", "query_files"),
         _fco("c3", BIG),
@@ -160,7 +160,7 @@ def test_compaction_summary_tells_model_not_to_reread_and_keeps_trace():
     assert summary["original_chars"] == len(items[1]["output"])
 
 
-def test_hybrid_search_trace_keeps_entity_and_line_references():
+def test_query_files_trace_keeps_entity_and_line_references():
     search_output = json.dumps(
         {
             "status": "success",
@@ -172,7 +172,7 @@ def test_hybrid_search_trace_keeps_entity_and_line_references():
         },
         ensure_ascii=False,
     )
-    items = [_fc("s1", "hybrid_search"), _fco("s1", search_output), _fc("r2", "query_files"), _fco("r2", BIG)]
+    items = [_fc("s1", "query_files"), _fco("s1", search_output), _fc("r2", "query_files"), _fco("r2", BIG)]
     out = _run(IntraRunToolOutputTrimmer(max_input_chars=_chars(items) - 1), items)
 
     trace = json.loads(out[1]["output"])["trace"]
@@ -245,7 +245,7 @@ def test_parallel_execute_read_result_is_compacted_and_traceable_over_budget():
         {
             "tasks": [
                 {"type": "query_files", "description": "读取第一章", "params": {"id": "chapter-1", "response_mode": "full"}},
-                {"type": "hybrid_search", "description": "搜索伏笔", "params": {"query": "旧钥匙"}},
+                {"type": "query_files", "description": "搜索伏笔", "params": {"query": "旧钥匙"}},
             ]
         },
         ensure_ascii=False,
@@ -256,7 +256,7 @@ def test_parallel_execute_read_result_is_compacted_and_traceable_over_budget():
             "data": {
                 "tasks": [
                     {"id": "task-1", "type": "query_files", "status": "completed", "result": {"id": "chapter-1", "content": "甲" * 50_000}},
-                    {"id": "task-2", "type": "hybrid_search", "status": "completed", "result": "乙" * 50_000},
+                    {"id": "task-2", "type": "query_files", "status": "completed", "result": "乙" * 50_000},
                 ]
             },
         },
@@ -396,9 +396,9 @@ def test_empty_input_returns_unchanged():
 
 def test_does_not_mutate_original_items_when_compacting():
     original = [
-        _fc("c1", "hybrid_search"),
+        _fc("c1", "query_files"),
         _fco("c1", BIG),
-        _fc("c2", "hybrid_search"),
+        _fc("c2", "query_files"),
         _fco("c2", BIG),
     ]
     snapshot = copy.deepcopy(original)
@@ -426,7 +426,7 @@ def test_metrics_measure_model_input_reduction_over_budget():
 
 def test_no_trim_metrics_under_budget():
     reset_metrics_collector()
-    _run(IntraRunToolOutputTrimmer(), [_fc("c1", "hybrid_search"), _fco("c1", BIG)])
+    _run(IntraRunToolOutputTrimmer(), [_fc("c1", "query_files"), _fco("c1", BIG)])
     metrics = get_metrics_collector().get_all_metrics()
     assert TOOL_OUTPUT_TRIMMED_TOTAL not in metrics["counters"]
     before = metrics["histograms"][MODEL_INPUT_FILTER_CHARS_BEFORE]["summary"]

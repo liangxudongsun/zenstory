@@ -36,6 +36,7 @@ import { resolveApiErrorMessage } from "./errorHandler";
 import { getLocale } from "./i18n-helpers";
 import { parseContentDispositionFilename } from "./contentDisposition";
 import { logger } from "./logger";
+import { isFileTitleTooLong } from "./fileTitle";
 import { captureException, trackEvent } from "./analytics";
 
 const MATERIAL_UPLOAD_MAX_BYTES = 2_000_000; // 2MB
@@ -1022,6 +1023,7 @@ export const fileApi = {
       metadata?: Record<string, unknown>;
     },
   ) => {
+    if (isFileTitleTooLong(file.title)) throw new ApiError(422, "ERR_FILE_TITLE_TOO_LONG");
     const created = await api.post<File>(`/api/v1/projects/${projectId}/files`, file);
     trackEvent("file_created", {
       project_id: projectId,
@@ -1060,6 +1062,7 @@ export const fileApi = {
       metadata?: Record<string, unknown>;
     },
   ) => {
+    if (file.title !== undefined && isFileTitleTooLong(file.title)) throw new ApiError(422, "ERR_FILE_TITLE_TOO_LONG");
     const updated = await api.put<File>(`/api/v1/files/${fileId}`, file);
     if (Object.prototype.hasOwnProperty.call(file, "content") && shouldTrackFileSaved(fileId)) {
       trackEvent("file_saved", {

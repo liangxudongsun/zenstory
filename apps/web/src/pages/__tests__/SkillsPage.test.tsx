@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /**
  * SkillsPage Unit Tests
  *
@@ -265,6 +266,23 @@ describe('SkillsPage', () => {
   afterEach(() => {
     vi.clearAllMocks()
     mediaState.isMobile = false
+  })
+
+  it('keeps the public skill toggle working after translated text nodes are replaced', async () => {
+    render(<SkillsPage />)
+    const button = (await screen.findAllByRole('button', { name: /^Expand$/ }))[0]
+    const walker = document.createTreeWalker(button, NodeFilter.SHOW_TEXT)
+    let label = walker.nextNode()
+    while (label && label.textContent !== 'Expand') label = walker.nextNode()
+    expect(label).not.toBeNull()
+    const translated = document.createElement('font')
+    translated.textContent = 'Translated expand'
+    label!.parentNode!.replaceChild(translated, label!)
+
+    await userEvent.click(button)
+    expect(screen.getByRole('button', { name: /^Collapse$/ })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /^Collapse$/ }))
+    expect(screen.getAllByRole('button', { name: /^Expand$/ })).toHaveLength(2)
   })
 
   // ========================================

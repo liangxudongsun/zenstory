@@ -22,10 +22,8 @@ def chapter(db_session, monkeypatch):
     db_session.flush()
     get_file_version_service().create_initial_version(db_session, file)
     db_session.commit()
-    monkeypatch.setattr(FileCRUD, "_schedule_index_upsert", lambda *_a, **_kw: None)
     monkeypatch.setattr(activation_event_service, "record_ai_write_accepted", lambda *_a, **_kw: None)
     monkeypatch.setattr(activation_event_service, "record_once", lambda *_a, **_kw: None)
-    monkeypatch.setattr("services.llama_index.schedule_index_upsert", lambda **_kw: None)
     monkeypatch.setattr("services.infra.dashboard_cache.dashboard_cache.bump_project_version", lambda *_a, **_kw: None)
     return user, project, file
 
@@ -51,7 +49,7 @@ def _manual_save_without_version(session, user, file, content):
         response = files_api.update_file(
             file.id,
             files_api.FileUpdate(content=content),
-            BackgroundTasks(),
+
             current_user=user,
             session=session,
         )
@@ -147,7 +145,7 @@ def _manual_save(session, user, file, content):
     return files_api.update_file(
         file.id,
         files_api.FileUpdate(content=content),
-        BackgroundTasks(),
+
         current_user=user,
         session=session,
     )

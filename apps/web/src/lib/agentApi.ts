@@ -344,6 +344,7 @@ export function streamAgentRequest(
   const callbacks = withOutcomeTelemetry(rawCallbacks, telemetry);
 
   const fetchStream = async (accessToken: string | null = entryAccess, isRetry = false) => {
+    let failurePhase: import("./agentStreamTelemetry").AgentStreamFailurePhase = "fetch";
     try {
       // Track whether we received a terminal SSE event ("done" or "error").
       // If the server/proxy closes the connection without a terminal event,
@@ -377,6 +378,7 @@ export function streamAgentRequest(
         signal: abortController.signal,
       });
 
+      failurePhase = "response";
       const responseRequestId = response.headers?.get?.("X-Request-ID") ?? undefined;
       const responseTraceId = response.headers?.get?.(TRACE_ID_HEADER) ?? traceId;
       const responseAgentRunId = response.headers?.get?.("X-Agent-Run-ID") ?? undefined;
@@ -444,6 +446,7 @@ export function streamAgentRequest(
 
       if (responseAgentRunId) callbacks.onRunStarted?.(responseAgentRunId);
 
+      failurePhase = "read";
       const reader = response.body?.getReader();
       if (!reader) {
         callbacks.onError?.("No response body", "NO_BODY", false);
@@ -454,6 +457,7 @@ export function streamAgentRequest(
       let buffer = "";
 
       while (true) {
+        failurePhase = "read";
         const { done, value } = await reader.read();
 
         if (done) {
@@ -472,10 +476,12 @@ export function streamAgentRequest(
         for (const eventString of events) {
           if (!eventString.trim()) continue;
 
+          failurePhase = "parse";
           const event = parseSSEEvent(eventString);
           if (!event) continue;
           telemetry.noteEvent();
 
+          failurePhase = "callback";
           switch (event.type) {
             case "thinking": {
               const data = event.data as { message: string; step?: string };
@@ -826,9 +832,11 @@ export function streamAgentRequest(
       if (buffer.trim()) {
         const trailingEvents = buffer.split("\n\n").filter((item) => item.trim());
         for (const eventString of trailingEvents) {
+          failurePhase = "parse";
           const event = parseSSEEvent(eventString);
           if (!event) continue;
 
+          failurePhase = "callback";
           switch (event.type) {
             case "done": {
               const data = event.data as StreamDoneData;
@@ -866,15 +874,16 @@ export function streamAgentRequest(
       }
     } catch (error: unknown) {
       const err = error as { name?: string; message?: string };
-      if (err.name === "AbortError") {
+      if (abortController.signal.aborted || err.name === "AbortError") {
         // Request was cancelled, don't call onError
         telemetry.cancelled();
         return;
       }
+      telemetry.noteFailure(failurePhase, error);
       callbacks.onError?.(
         toUserErrorMessage(err.message || "Stream error"),
         "STREAM_ERROR",
-        true,
+        failurePhase !== "callback",
       );
     }
   };

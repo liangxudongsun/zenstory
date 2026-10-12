@@ -155,7 +155,7 @@ export default defineConfig({
     : [
       {
         command:
-          'cd ../server && if [ -f .env.test ]; then cp .env.test .env; fi && if [ -d .venv312 ]; then . .venv312/bin/activate; elif [ -d venv ]; then . venv/bin/activate; elif [ -d .venv ]; then . .venv/bin/activate; fi && AUTH_RATE_LIMIT_ENABLED=false ASYNC_VECTOR_INDEX_ENABLED=false python main.py',
+          'cd ../server && if [ -f .env.test ]; then cp .env.test .env; fi && if [ -d .venv312 ]; then . .venv312/bin/activate; elif [ -d venv ]; then . venv/bin/activate; elif [ -d .venv ]; then . .venv/bin/activate; fi && AUTH_RATE_LIMIT_ENABLED=false python main.py',
         env: { INSPIRATIONS_ENABLED: inspirationTestFlag },
         url: process.env.E2E_API_HEALTH_URL || 'http://127.0.0.1:8000/health',
         reuseExistingServer,

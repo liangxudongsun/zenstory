@@ -197,7 +197,6 @@ def get_tool_usage_guide(folder_ids: dict[str, str]) -> str:
 - edit_file: 精确编辑文件内容（用于续写、修改段落、插入内容）[推荐]
 - delete_file: 删除文件（作者没要求时，只删你本轮自己新建、还空着的文件；其他文件，包括项目自带的空白草稿，作者点名要删才删）
 - query_files: 查询/读取文件（query_files(id=...) 读取该文件全文；query_files(query=...) 按标题/内容定位文件）
-- hybrid_search: 语义检索（可能未启用；不在可用工具里时改用 query_files(query=...) 定位文件）
 - update_project: 更新项目状态信息（记录作者定下的项目背景和写作要求）
 - update_project(tasks=[...]): 管理任务计划板（跨文件/多步任务开始时规划一次、全部完成时更新一次）
 - parallel_execute: 一次并行执行多个**相互独立**的任务（批量提速）
@@ -211,7 +210,7 @@ def get_tool_usage_guide(folder_ids: dict[str, str]) -> str:
 - 读取也可以批量，但最简单的做法是在同一条回复里并列发出多个 query_files(id=…) 调用
 
 **调用格式**：`parallel_execute(tasks=[{{"type": ..., "description": ..., "params": {{...}}}}, ...])`
-- 支持的 type：`edit_file`、`delete_file`、`query_files`、`write_chapter`（语义检索启用时还有 `hybrid_search`）
+- 支持的 type：`edit_file`、`delete_file`、`query_files`、`write_chapter`
 - 每个 task 的 params 与对应单体工具完全一致（如 edit_file 用 `id`+`edits`，query_files 用 `id` 读全文）
 - 最多 5 个任务
 

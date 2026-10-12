@@ -49,7 +49,7 @@ from api.skills import router as skills_router
 from api.snapshots import router as snapshots_router
 from api.stats import router as stats_router
 from api.subscription import router as subscription_router
-from api.vector_search import router as vector_search_router
+from api.search import router as file_search_router
 from api.verification import router as verification_router
 from api.versions import router as versions_router
 from api.voice import router as voice_router
@@ -186,7 +186,7 @@ app.include_router(payments_router)
 app.include_router(points_router)
 app.include_router(agent_api_keys_router)
 app.include_router(agent_api_router)
-app.include_router(vector_search_router)
+app.include_router(file_search_router)
 app.include_router(feedback_router)
 
 

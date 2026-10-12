@@ -326,6 +326,22 @@ describe('api', () => {
   })
 
   describe('fileApi', () => {
+    it('rejects a body-sized title before POST and preserves the supplied content', async () => {
+      const input = { title: '设定'.repeat(1600), content: '原始正文' }
+      await expect(fileApi.create('project-1', input)).rejects.toMatchObject({ status: 422 })
+      expect(mockApi.post).not.toHaveBeenCalled()
+      expect(input.title).toHaveLength(3200)
+      expect(input.content).toBe('原始正文')
+    })
+
+    it('rejects a long rename but permits a 255-codepoint emoji title', async () => {
+      await expect(fileApi.update('file-1', { title: '😀'.repeat(256) })).rejects.toMatchObject({ status: 422 })
+      expect(mockApi.put).not.toHaveBeenCalled()
+      mockApi.post.mockResolvedValue({ id: 'file-1' })
+      await fileApi.create('project-1', { title: '😀'.repeat(255), content: '正文'.repeat(4000) })
+      expect(mockApi.post).toHaveBeenCalled()
+    })
+
     describe('getAll', () => {
       it('fetches all files for a project', async () => {
         const mockFiles = [

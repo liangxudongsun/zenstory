@@ -42,7 +42,6 @@ def mutation_project(db_session, monkeypatch):
     db_session.add(folder)
     db_session.commit()
     mcp_tools.ToolContext.set_context(session=db_session, user_id=user.id, project_id=project.id, session_id=None)
-    monkeypatch.setattr(FileCRUD, "_schedule_index_upsert", lambda *_a, **_kw: None)
     monkeypatch.setattr("agent.tools.file_ops.crud.activation_event_service.record_ai_write_accepted", lambda *_a, **_kw: None)
     monkeypatch.setattr("agent.tools.file_ops.edit.activation_event_service.record_ai_write_accepted", lambda *_a, **_kw: None)
     return user, project, folder

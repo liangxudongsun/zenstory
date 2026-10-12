@@ -34,6 +34,8 @@ export default function OAuthCallback() {
     callbackProcessed.current = true;
     const processCallback = async () => {
       let ownsAttempt = false;
+      let failureStage: string | undefined;
+      let failureRequestId: string | undefined;
       try {
         // main.tsx captures the callback params and scrubs the URL at boot,
         // before analytics starts. Fall back to the live URL (query, then
@@ -52,6 +54,11 @@ export default function OAuthCallback() {
           hashParams.get("error") ||
           queryParams.get("error_code") ||
           hashParams.get("error_code");
+
+        const stage = queryParams.get("error_stage") || hashParams.get("error_stage");
+        if (stage && ["missing_state", "invalid_state", "state_mismatch", "configuration", "token_exchange", "user_info", "identity"].includes(stage)) failureStage = stage;
+        const requestId = queryParams.get("request_id") || hashParams.get("request_id");
+        if (requestId && /^[0-9a-f]{8}$/.test(requestId)) failureRequestId = requestId;
 
         // Capture first, then remove credentials/errors before any async work.
         // Preserve router history state and scrub failure paths as well as success.
@@ -126,6 +133,8 @@ export default function OAuthCallback() {
         captureException(err, {
           feature_area: "auth",
           action: "oauth_callback",
+          ...(failureStage ? { oauth_stage: failureStage } : {}),
+          ...(failureRequestId ? { request_id: failureRequestId } : {}),
         });
         const errorMessage = err instanceof Error && !(err instanceof OAuthGenericError)
           ? toUserErrorMessage(err.message)

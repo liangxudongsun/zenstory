@@ -26,6 +26,14 @@ from utils.text_metrics import count_words
 
 from .utils import generate_uuid
 
+MAX_FILE_TITLE_LENGTH = 255
+
+
+def validate_file_title(title: str) -> str:
+    if len(title) > MAX_FILE_TITLE_LENGTH:
+        raise ValueError("文件标题最多 255 个字符；请将正文放入 content 字段。")
+    return title
+
 
 class File(SQLModel, table=True):
     """

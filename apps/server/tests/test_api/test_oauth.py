@@ -121,6 +121,9 @@ async def test_google_oauth_callback_missing_state_redirects_to_frontend_error(
 
     assert f"{parsed.scheme}://{parsed.netloc}{parsed.path}" == "http://localhost:5173/auth/callback"
     assert params["error_code"] == ["ERR_AUTH_TOKEN_INVALID"]
+    assert params["error_stage"] == ["missing_state"]
+    assert params["request_id"] == [response.headers["x-request-id"]]
+    assert "dummy-code" not in response.headers["location"]
     assert response.headers.get("content-type") != "application/json"
 
 
