@@ -555,7 +555,7 @@ export default function OnboardingPersonaPage() {
                   }}
                   disabled={!canSubmit || saving}
                   isLoading={saving}
-                  loadingText={t("onboarding:actions.saving", "正在保存...")}
+                  loadingText={t("onboarding:actions.saving", "正在保存…")}
                   rightIcon={<ArrowRight className="w-4 h-4" />}
                   aria-describedby={!canSubmit ? "onboarding-submit-reason" : undefined}
                 >

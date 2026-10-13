@@ -86,7 +86,7 @@ for (const viewport of sizes) {
     await page.keyboard.press('Escape');
     await expect(dialog).not.toBeVisible();
     await page.goto('/materials/responsive-material');
-    const search = page.getByPlaceholder('搜索...', { exact: true });
+    const search = page.getByPlaceholder("搜索", { exact: true });
     if (viewport.width < 768) expect((await search.boundingBox())!.width).toBeGreaterThanOrEqual(200);
     await page.getByRole('button', { name: '章节', exact: true }).click();
     await page.getByText('第1章 很长的标题与人物选择', { exact: true }).click();

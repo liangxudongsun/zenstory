@@ -62,7 +62,7 @@ vi.mock('../SnapshotComparisonDialog', () => ({
 const mockT = vi.fn((key: string) => {
   const translations: Record<string, string> = {
     'editor:versionHistory.title': 'Version History',
-    'common:loading': 'Loading...',
+    'common:loading': "Loading…",
     'common:retry': 'Retry',
     'editor:versionHistory.loadMore': 'Load more',
     'editor:versionHistory.updateFailed': 'Description update failed',
@@ -802,7 +802,7 @@ describe('VersionHistoryPanel', () => {
         else finishOld(mockSnapshots)
         await old.catch(() => undefined)
       })
-      expect(screen.getByText('Loading...')).toBeInTheDocument()
+      expect(screen.getByText("Loading…")).toBeInTheDocument()
       expect(screen.queryByText('Failed to load versions')).not.toBeInTheDocument()
       expect(screen.queryByTestId('comparison-dialog')).not.toBeInTheDocument()
       expect(screen.queryByPlaceholderText('Add a description')).not.toBeInTheDocument()

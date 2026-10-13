@@ -13,7 +13,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
       await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
       await page.goto('/zh/');
-      await expect(page.getByRole('heading', { level: 1 })).toHaveText('写下故事。做出作品。');
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText('写下故事，做出作品');
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
       const stage = page.locator('.stage');
       if (width === 1440) {
@@ -65,7 +65,7 @@ test('English home remains readable without JavaScript and keeps native video co
   const page = await context.newPage();
   // The finalized directory is served without Vercel's apex -> /org-home rewrite locally.
   await page.goto(baseURL + '/org-home/');
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Write stories. Make them real.');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Write stories Make them real');
   await expect(page.locator('.showcase-controls')).toBeHidden();
   await expect(page.locator('.case-card')).toHaveCount(4);
   for (const video of await page.locator('video').all()) {

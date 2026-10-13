@@ -23,7 +23,7 @@ const V1 = Array.from({ length: 40 }, (_, i) => `中午十二点，老周还在�
 const V2 = `第二天，${V1}`;
 
 const textarea = (page: Page) => page.locator('[data-editor-scroll-container="true"] textarea');
-const titleInput = (page: Page) => page.getByPlaceholder('请输入标题...');
+const titleInput = (page: Page) => page.getByPlaceholder("请输入标题");
 
 async function setup(page: Page) {
   await mockResponsiveApp(page);

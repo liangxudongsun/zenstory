@@ -58,7 +58,7 @@ const chatPanelTranslations: Record<string, string> = {
   'dashboard:billing.ctaUpgradePro': '升级专业版',
   'home:pricingTeaser.viewPricing': '查看套餐权益',
   'chat:input.placeholderQuotaExhausted': '先把想法写下来，额度恢复后再发。',
-  'chat:input.placeholderWhileProcessing': 'AI 正在生成，你可以先输入，结束后再发送…',
+  'chat:input.placeholderWhileProcessing': "AI 正在生成，你可以先输入，结束后再发送",
   'chat:tool.undo_edit': '撤销这次修改',
   'chat:actions.undo': '撤销',
   'common:cancel': '取消',
@@ -406,7 +406,7 @@ describe('ChatPanel mount smoke', () => {
     const timestamp = new Date()
     mockStreamSnapshot.items = [
       { type: 'thinking_status', id: 'ctx', content: '正在组装上下文...', transient: true, timestamp },
-      { type: 'thinking_status', id: 'think', content: '正在思考...', transient: true, timestamp },
+      { type: 'thinking_status', id: 'think', content: "正在思考…", transient: true, timestamp },
       { type: 'router_thinking', id: 'router', content: '高质量模式：正在规划工作流...', timestamp },
       { type: 'router_decided', id: 'plan', initialAgent: 'planner', workflowAgents: ['writer'], timestamp },
       { type: 'thinking_status', id: 'handoff', content: '接下来由内容创作者继续', timestamp },
@@ -1703,7 +1703,7 @@ describe('ChatPanel new-author flow', () => {
     await waitFor(() => expect(testQueryClient.getQueryData(['subscription-quota', 'test-user'])).toBeDefined())
     await act(async () => {})
     expect(screen.queryByTestId('chat-quota-card')).not.toBeInTheDocument()
-    expect(lastMessageInputProps().placeholder).toBe('AI 正在生成，你可以先输入，结束后再发送…')
+    expect(lastMessageInputProps().placeholder).toBe("AI 正在生成，你可以先输入，结束后再发送")
 
     // The round ends (done): the panel re-renders idle.
     mockAgentStreamState.isStreaming = false

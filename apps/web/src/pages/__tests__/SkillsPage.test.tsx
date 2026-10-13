@@ -31,8 +31,8 @@ vi.mock('react-i18next', () => ({
         'discoverTab': 'Discover',
         'mySkillsTab': 'My Skills',
         'create': 'Create',
-        'searchPlaceholder': 'Search skills...',
-        'searchMySkillsPlaceholder': 'Search my skills...',
+        'searchPlaceholder': "Search skills",
+        'searchMySkillsPlaceholder': "Search my skills",
         'allCategories': 'All',
         'noSkillsFound': 'No skills found',
         'addToMine': 'Add',
@@ -302,7 +302,7 @@ describe('SkillsPage', () => {
       const user = userEvent.setup()
       render(<SkillsPage />)
 
-      const search = screen.getByPlaceholderText('Search skills...')
+      const search = screen.getByPlaceholderText("Search skills")
       await user.type(search, 'w')
       expect(await screen.findByText('Newest category result')).toBeInTheDocument()
 
@@ -466,7 +466,7 @@ describe('SkillsPage', () => {
         expect(screen.getByText('Skills')).toBeInTheDocument()
       })
 
-      const searchInput = screen.getByPlaceholderText('Search skills...')
+      const searchInput = screen.getByPlaceholderText("Search skills")
       await userEvent.type(searchInput, 'dialogue')
 
       // Wait for debounce and API call
@@ -583,7 +583,7 @@ describe('SkillsPage', () => {
 
       vi.mocked(skillsApi.mySkills).mockClear()
 
-      const searchInput = screen.getByPlaceholderText('Search my skills...')
+      const searchInput = screen.getByPlaceholderText("Search my skills")
       await userEvent.type(searchInput, 'writing')
 
       // Wait for debounce and API call
@@ -869,7 +869,7 @@ describe('SkillsPage', () => {
       })
 
       // Change search query which triggers loadPublicSkills
-      const searchInput = screen.getByPlaceholderText('Search skills...')
+      const searchInput = screen.getByPlaceholderText("Search skills")
       await userEvent.type(searchInput, 'test')
 
       // Should not throw TDZ error

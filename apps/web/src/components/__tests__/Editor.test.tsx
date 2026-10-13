@@ -16,7 +16,7 @@ const editorTranslations = vi.hoisted(() => ({
   'editor:placeholder.folderSelected': 'Folder selected: ',
   'editor:placeholder.folderHint': 'Select a file to view its content',
   'editor:placeholder.loadFailed': 'Failed to load file',
-  'common:loading': 'Loading...',
+  'common:loading': "Loading…",
   'editor:emptyStateTitle': 'Ready to Create',
   'editor:emptyStateDescription': 'Select a file from the left panel or create a new one to begin writing your story.',
   'editor:emptyStateHint': 'Tip: Use the AI assistant on the right to help with writing, brainstorming, and more.',

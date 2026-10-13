@@ -50,7 +50,7 @@ const mockT = vi.fn((key: string, options?: Record<string, unknown>) => {
     'chat:tool.edit_success': 'Edit success',
     'chat:tool.view_edit_details': 'View edit details',
     'chat:tool.status_updated': 'Status updated',
-    'chat:tool.processing_ellipsis': 'Processing...',
+    'chat:tool.processing_ellipsis': "Processing…",
     'chat:tool.create_file': 'Create file',
     'chat:tool.update_file': 'Update file',
     'chat:tool.edit_file': 'Edit file',
@@ -149,7 +149,7 @@ describe('ToolResultCard', () => {
           isPending={true}
         />
       )
-      expect(screen.getByText('Processing...')).toBeInTheDocument()
+      expect(screen.getByText("Processing…")).toBeInTheDocument()
     })
 
     it('displays tool description for create_file', () => {

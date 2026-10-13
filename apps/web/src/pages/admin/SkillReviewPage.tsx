@@ -533,7 +533,7 @@ function SkillReviewMaterials({
           <p role="alert" className="text-xs text-[hsl(var(--error-text))]">{resourcesError}</p>
         ) : resources === null ? (
           <p className="text-xs text-[hsl(var(--text-tertiary))]">
-            {t("admin:skills.loadingResources", "正在加载资源文件...")}
+            {t("admin:skills.loadingResources", "正在加载资源文件…")}
           </p>
         ) : (
           <div className="space-y-2">

@@ -45,7 +45,7 @@
     "trialSupportedFormats": ".txt only, up to 20MB, with chapter headings (e.g. \"Chapter 1\" or \"第一章\"); the first {{chapters}} chapters must total no more than 300,000 characters",
     "titleLabel": "Novel title",
     "titlePlaceholder": "Leave blank to use the file name",
-    "uploading": "Uploading...",
+    "uploading": "Uploading…",
     "upload": "Upload and decompose",
     "errors": {
       "invalidType": "Only .txt files are supported",
@@ -82,7 +82,7 @@
     "relatedChapters": "Related Chapters",
     "emptyTitle": "Choose something to view",
     "emptyDescription": "Select a chapter, character, or worldbuilding entry from the list",
-    "searchPlaceholder": "Search...",
+    "searchPlaceholder": "Search",
     "notFound": "This material couldn't be found",
     "plotTitle": "Plot Point",
     "involvedCharacters": "Involved Characters",

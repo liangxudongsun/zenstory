@@ -205,7 +205,7 @@ for (const strict of [false, true]) {
       const user = await mount(strict)
       await click(user, screen.getByRole('button', { name: 'Create Account' }))
       await waitFor(() => expect(registrations).toHaveLength(1))
-      const button = screen.getByRole('button', { name: 'Creating account...' })
+      const button = screen.getByRole('button', { name: "Creating account…" })
       expect(button).toBeDisabled()
       expect(screen.getByTestId('register-form')).toHaveAttribute('aria-busy', 'true')
       expect(screen.getByLabelText(/^Email/)).toBeDisabled()

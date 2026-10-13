@@ -21,7 +21,7 @@ let mockLanguage = 'en'
 let mockTranslations: Record<string, string> = {}
 
 const englishTranslations: Record<string, string> = {
-  loading: 'Loading...',
+  loading: "Loading…",
   menu: 'Menu',
   notFound: 'Document Not Found',
   loadError: 'Failed to Load Document',

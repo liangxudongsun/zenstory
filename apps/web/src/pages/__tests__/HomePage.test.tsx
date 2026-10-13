@@ -85,6 +85,15 @@ describe("HomePage reduced-motion carousel behavior", () => {
     vi.restoreAllMocks();
   });
 
+  it("keeps the app footer focused on legal links and copyright", () => {
+    setupMatchMedia(true);
+    const { container } = render(<MemoryRouter><HomePage /></MemoryRouter>);
+    const footer = container.querySelector('footer')!;
+    expect(Array.from(footer.querySelectorAll('a'), link => link.getAttribute('href')))
+      .toEqual(['/privacy-policy', '/terms-of-service']);
+    expect(footer).toHaveTextContent('home:footer.copyright');
+  });
+
   it("does not auto-rotate scenes when reduced-motion is enabled", () => {
     setupMatchMedia(true);
 

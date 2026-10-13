@@ -501,7 +501,7 @@ export default function FeedbackManagement() {
 
           {previewLoading && (
             <div className="flex h-80 items-center justify-center text-[hsl(var(--text-secondary))]">
-              {t("common:loading", "加载中...")}
+              {t("common:loading", "加载中…")}
             </div>
           )}
 

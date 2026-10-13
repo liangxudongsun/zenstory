@@ -380,7 +380,7 @@ export function DocsPage() {
                       <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-[hsl(var(--accent-primary))] animate-spin" />
                       <div className="absolute inset-2 rounded-full bg-[hsl(var(--accent-primary)/0.05)] blur-sm" />
                     </div>
-                    <p className="mt-4 text-sm text-[hsl(var(--text-secondary))]">{t('loading', '正在加载...')}</p>
+                    <p className="mt-4 text-sm text-[hsl(var(--text-secondary))]">{t('loading', "正在加载…")}</p>
                   </div>
                 ) : error ? (
                   <div className="text-center py-20 md:py-28 animate-fade-in">

@@ -97,9 +97,9 @@ export function RedeemProModal({ isOpen, onClose }: RedeemProModalProps) {
         className="flex-1"
       >
         {redeemMutation.isPending
-          ? t('common:processing', '处理中...')
+          ? t('common:processing', "处理中…")
           : (!balanceReady || !pricingReady) && !loadError
-          ? t('common:loading', '加载中...')
+          ? t('common:loading', "加载中…")
           : !balanceReady || !pricingReady
           ? t('redeem', '兑换')
           : canAfford
@@ -140,7 +140,7 @@ export function RedeemProModal({ isOpen, onClose }: RedeemProModalProps) {
               {t('common:retry', '重试')}
             </Button>
           </div>}
-          {(balanceQuery.isLoading || configQuery.isLoading) && <p role="status">{t('common:loading', '加载中...')}</p>}
+          {(balanceQuery.isLoading || configQuery.isLoading) && <p role="status">{t('common:loading', "加载中…")}</p>}
           {/* Current Balance */}
           <div className="mb-4 p-3 bg-[hsl(var(--warning)/0.1)] rounded-lg">
             <div className="flex items-center gap-2">

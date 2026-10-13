@@ -35,7 +35,7 @@
     }
   },
   "admin": {
-    "verifyingPermission": "正在确认权限...",
+    "verifyingPermission": "正在确认权限…",
     "insufficientPermission": "无权访问",
     "superuserRequired": "只有管理员可以进入管理后台。",
     "backToHome": "返回首页"
@@ -210,7 +210,7 @@
     "none": "无",
     "metadata": "元数据",
     "resources": "资源文件",
-    "loadingResources": "正在加载资源文件...",
+    "loadingResources": "正在加载资源文件…",
     "resourcesLoadFailed": "资源文件加载失败，请重试",
     "resourceCount": "{{count}} 个资源文件",
     "resourceCount_one": "{{count}} 个资源文件",
@@ -332,7 +332,7 @@
     "editTitle": "编辑灵感",
     "description": "描述",
     "tags": "标签",
-    "tagsPlaceholder": "输入标签，用逗号分隔...",
+    "tagsPlaceholder": "输入标签，用逗号分隔",
     "setFeatured": "设为推荐",
     "deleteTitle": "删除灵感",
     "deleteConfirm": "确定删除该灵感吗？删除后无法恢复。",
@@ -586,7 +586,7 @@
     "activeOnly": "仅活跃",
     "inactiveOnly": "仅已禁用",
     "generateButton": "生成邀请码",
-    "generating": "生成中...",
+    "generating": "生成中…",
     "generateSuccess": "邀请码已生成：{{code}}",
     "generateError": "生成邀请码失败，请重试",
     "types": {
@@ -656,7 +656,7 @@
     "needsAttention": "已收款未开通",
     "needsAttentionCount": "{{count}} 笔已收款订单尚未开通",
     "sync": "核对付款并开通",
-    "syncing": "正在核对...",
+    "syncing": "正在核对…",
     "syncHint": "向支付平台核对这笔订单：确认已付款且金额一致才会开通会员，重复点击不会重复开通。操作会记入审计日志。",
     "syncFailed": "核对失败：{{reason}}",
     "syncOutcome": {

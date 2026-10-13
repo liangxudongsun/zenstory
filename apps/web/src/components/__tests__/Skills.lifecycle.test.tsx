@@ -203,7 +203,7 @@ describe.each([false, true])('live page rootStrict=%s', strict => {
     await myPage(strict)
     const a = deferred(collection('obsolete')); const b = deferred(collection('latest'))
     vi.mocked(skillsApi.mySkills).mockImplementation(options => options?.search === 'a' ? a.promise : options?.search === 'b' ? b.promise : Promise.resolve(collection()))
-    const input = screen.getByPlaceholderText('Search my skills...')
+    const input = screen.getByPlaceholderText("Search my skills")
     fireEvent.change(input, { target: { value: 'a' } }); await advance()
     fireEvent.change(input, { target: { value: 'b' } }); await advance()
     await act(async () => { b.resolve(collection('latest')) })

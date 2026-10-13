@@ -211,7 +211,7 @@ test.describe('organization site', () => {
 
     // 10-03 首页改版后 h1 是口号，品牌名在 <title>。
     await expect(page).toHaveTitle(/^ZenStory AI — /)
-    await expect(page.getByRole('heading', { level: 1 })).toContainText('Write stories.')
+    await expect(page.getByRole('heading', { level: 1 })).toContainText('Write stories')
     await expect(page.locator('article.home .lede').first()).toContainText(/novels with AI|story|open-source/i)
     await expect(page.locator('html')).toHaveAttribute('lang', 'en')
     await expect(page.locator('link[rel="alternate"][hreflang="zh-CN"]')).toHaveAttribute('href', `${CANONICAL_SITE}/zh`)
@@ -237,7 +237,7 @@ test.describe('organization site', () => {
 
     await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
     await expect(page).toHaveTitle(/^ZenStory AI — /)
-    await expect(page.getByRole('heading', { level: 1 })).toContainText('写下故事。')
+    await expect(page.getByRole('heading', { level: 1 })).toContainText('写下故事，')
     await expect(page.locator('article.home .lede').first()).toContainText(/用 AI 写小说|故事|创作/)
     await expect(page.locator('article.home .lede').first()).not.toContainText(/open-source tools/)
     await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', `${CANONICAL_SITE}/zh`)

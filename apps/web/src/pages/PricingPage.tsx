@@ -211,7 +211,7 @@ export default function PricingPage() {
       <main className="max-w-6xl mx-auto px-4 md:px-6 py-8 md:py-14 pb-28 md:pb-14 space-y-6 md:space-y-8">
         <section className="text-center space-y-2 md:space-y-3">
           <h1 className="text-3xl md:text-4xl font-bold text-[hsl(var(--text-primary))]">
-            {isCatalogLoading ? t("common:loading", "加载中...") : t("dashboard:billing.compareTitle", "选一个适合你的方案")}
+            {isCatalogLoading ? t("common:loading", "加载中…") : t("dashboard:billing.compareTitle", "选一个适合你的方案")}
           </h1>
           <p className="text-sm md:text-base text-[hsl(var(--text-secondary))]">
             {t("dashboard:billing.catalogSubtitle", "免费版每天 10 条 AI 消息，够你先写起来；要日更连载，再开 Pro。")}

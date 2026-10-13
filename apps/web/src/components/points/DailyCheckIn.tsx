@@ -73,7 +73,7 @@ export function DailyCheckIn({ className = '' }: DailyCheckInProps) {
         <Button
           onClick={handleCheckIn}
           isLoading={checkInMutation.isPending}
-          loadingText={t('common:loading', '处理中...')}
+          loadingText={t('common:loading', "处理中…")}
           className="w-full"
         >
           {t('checkIn', '签到领积分')}

@@ -195,9 +195,9 @@ describe('PaymentCheckoutModal', () => {
     await waitFor(() => expect(payButton).toBeEnabled())
     fireEvent.click(payButton)
 
-    expect(await screen.findByRole('button', { name: '正在前往支付宝...' })).toBeDisabled()
+    expect(await screen.findByRole('button', { name: "正在前往支付宝…" })).toBeDisabled()
     expect(screen.getByRole('button', { name: '取消' })).toBeDisabled()
-    fireEvent.click(screen.getByRole('button', { name: '正在前往支付宝...' }))
+    fireEvent.click(screen.getByRole('button', { name: "正在前往支付宝…" }))
     expect(paymentApi.createOrder).toHaveBeenCalledTimes(1)
     expect(paymentApi.createOrder).toHaveBeenCalledWith({
       plan_name: 'pro', cycle: 'month', payment_method: 'alipay', upgrade_source: 'pricing_page_primary',

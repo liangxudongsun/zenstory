@@ -141,7 +141,7 @@ export default function PaymentReturnPage() {
   if (orderQuery.isLoading) {
     return (
       <Card variant="outlined" padding="lg" className="mx-auto max-w-xl">
-        <ResultHeader icon={<RefreshCw className="h-10 w-10 animate-spin text-[hsl(var(--accent-primary))]" />} title={t('dashboard:billing.paymentChecking', '正在确认支付结果...')} />
+        <ResultHeader icon={<RefreshCw className="h-10 w-10 animate-spin text-[hsl(var(--accent-primary))]" />} title={t('dashboard:billing.paymentChecking', "正在确认支付结果…")} />
       </Card>
     )
   }

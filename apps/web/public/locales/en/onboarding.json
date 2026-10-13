@@ -91,7 +91,7 @@
   "actions": {
     "skip": "Skip",
     "submit": "Save and enter workspace",
-    "saving": "Saving...",
+    "saving": "Saving…",
     "needPersona": "Pick a writer type first, or tap Skip"
   },
   "preview": {

@@ -884,7 +884,7 @@ export default function DashboardHome() {
                       data-testid={`today-action-execute-${index + 1}`}
                     >
                       {executingTodayActionId === item.id
-                        ? t("todayActionPlan.executing", { defaultValue: "处理中..." })
+                        ? t("todayActionPlan.executing", { defaultValue: "处理中…" })
                         : item.ctaLabel}
                     </button>
                   </div>

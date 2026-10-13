@@ -265,7 +265,7 @@ export function PaymentCheckoutModal({
           </div>
 
           {optionsQuery.isLoading && (
-            <p role="status">{t('common:loading', '加载中...')}</p>
+            <p role="status">{t('common:loading', "加载中…")}</p>
           )}
           {isUnavailable && (
             <div className="rounded-lg bg-[hsl(var(--warning)/0.1)] p-3 text-[hsl(var(--warning))]" role="alert">
@@ -290,9 +290,9 @@ export function PaymentCheckoutModal({
         </Button>
         <Button onClick={handlePay} disabled={!alipayEnabled || isBusy || optionsQuery.isLoading}>
           {redirecting
-            ? t('dashboard:billing.paymentRedirecting', '正在前往支付宝...')
+            ? t('dashboard:billing.paymentRedirecting', "正在前往支付宝…")
             : createOrder.isPending
-            ? t('dashboard:billing.paymentCreating', '正在创建订单...')
+            ? t('dashboard:billing.paymentCreating', "正在创建订单…")
             : selectedPrice !== undefined
             ? t('dashboard:billing.goToPayAmount', '去支付 {{price}}', { price: formatYuan(selectedPrice, i18n.language) })
             : t('dashboard:billing.goToPay', '去支付')}
