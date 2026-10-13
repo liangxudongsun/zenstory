@@ -5,12 +5,12 @@ type SupportedLanguage = 'zh' | 'en';
 type ThemeMode = 'dark' | 'light';
 
 const ACCENT_PRIMARY_BY_COLOR: Record<string, string> = {
-  '#4a9eff': '217 91% 64%',
-  '#22c55e': '142 71% 45%',
-  '#fbbf24': '38 92% 50%',
-  '#f87171': '0 84% 60%',
-  '#ec4899': '330 81% 60%',
-  '#8b5cf6': '262 83% 64%',
+  '#4a9eff': '217 91% 43%',
+  '#22c55e': '142 71% 26%',
+  '#fbbf24': '38 92% 28%',
+  '#f87171': '0 84% 40%',
+  '#ec4899': '330 81% 40%',
+  '#8b5cf6': '262 83% 43%',
 };
 
 /**

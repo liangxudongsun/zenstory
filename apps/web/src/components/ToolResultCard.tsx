@@ -177,14 +177,14 @@ interface ToolResultCardProps {
  * @returns CSS classes for text and border colors
  *
  * @example
- * const colorClass = getSeverityColor('high'); // 'text-[hsl(var(--error))] border-[hsl(var(--error))]'
+ * const colorClass = getSeverityColor('high'); // 'text-[hsl(var(--error-text))] border-[hsl(var(--error))]'
  */
 const getSeverityColor = (severity: string) => {
   switch (severity) {
     case 'high':
-      return 'text-[hsl(var(--error))] border-[hsl(var(--error))]';
+      return 'text-[hsl(var(--error-text))] border-[hsl(var(--error))]';
     case 'medium':
-      return 'text-[hsl(var(--warning))] border-[hsl(var(--warning))]';
+      return 'text-[hsl(var(--warning-text))] border-[hsl(var(--warning))]';
     case 'low':
       return 'text-[hsl(var(--success))] border-[hsl(var(--success))]';
     default:
@@ -244,7 +244,7 @@ const getToolDisplayInfo = (toolName: string, t: (key: string) => string): { ico
   switch (toolName) {
     case 'create_file':
       return { 
-        icon: <FilePlus className="w-4 h-4 text-[hsl(var(--success-light))]" />, 
+        icon: <FilePlus className="w-4 h-4 text-[hsl(var(--success-text))]" />,
         label: t('chat:tool.create_file')
       };
     case 'update_file':
@@ -254,12 +254,12 @@ const getToolDisplayInfo = (toolName: string, t: (key: string) => string): { ico
       };
     case 'edit_file':
       return { 
-        icon: <Edit3 className="w-4 h-4 text-[hsl(var(--success-light))]" />, 
+        icon: <Edit3 className="w-4 h-4 text-[hsl(var(--success-text))]" />,
         label: t('chat:tool.edit_file')
       };
     case 'delete_file':
       return { 
-        icon: <Trash2 className="w-4 h-4 text-[hsl(var(--error))]" />, 
+        icon: <Trash2 className="w-4 h-4 text-[hsl(var(--error-text))]" />,
         label: t('chat:tool.delete_file')
       };
     case 'query_files':
@@ -274,7 +274,7 @@ const getToolDisplayInfo = (toolName: string, t: (key: string) => string): { ico
       };
     case 'update_project':
       return {
-        icon: <Settings className="w-4 h-4 text-[hsl(var(--warning))]" />,
+        icon: <Settings className="w-4 h-4 text-[hsl(var(--warning-text))]" />,
         label: t('chat:tool.update_project')
       };
     case 'parallel_execute':
@@ -398,12 +398,12 @@ const getFileTypeInfo = (fileType: string, t: (key: string) => string): { icon: 
       };
     case 'draft':
       return { 
-        icon: <FileText className="w-3.5 h-3.5 text-[hsl(var(--success-light))]" />, 
+        icon: <FileText className="w-3.5 h-3.5 text-[hsl(var(--success-text))]" />,
         label: t('chat:fileType.draft')
       };
     case 'character':
       return { 
-        icon: <User className="w-3.5 h-3.5 text-[hsl(var(--warning))]" />, 
+        icon: <User className="w-3.5 h-3.5 text-[hsl(var(--warning-text))]" />,
         label: t('chat:fileType.character')
       };
     case 'lore':
@@ -418,7 +418,7 @@ const getFileTypeInfo = (fileType: string, t: (key: string) => string): { icon: 
       };
     case 'script':
       return {
-        icon: <FileText className="w-3.5 h-3.5 text-[hsl(var(--success-light))]" />,
+        icon: <FileText className="w-3.5 h-3.5 text-[hsl(var(--success-text))]" />,
         label: t('chat:fileType.script')
       };
     case 'document':
@@ -665,8 +665,8 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
       return (
         <div className="bg-[hsl(var(--result-bg))] border border-[hsl(var(--result-border))] rounded-lg px-3 py-2">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <CheckCircle2 className="w-4 h-4 shrink-0 text-[hsl(var(--success-light))]" />
-            <span className="shrink-0 text-sm text-[hsl(var(--success-light))]">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-[hsl(var(--success-text))]" />
+            <span className="shrink-0 text-sm text-[hsl(var(--success-text))]">
               {t('chat:tool.created', { type: typeInfo.label })}
             </span>
             <span className="flex basis-full min-w-0 items-start gap-1 pl-6 text-sm text-[hsl(var(--text-primary))]">
@@ -691,8 +691,8 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
       return (
         <div className="bg-[hsl(var(--result-bg))] border border-[hsl(var(--result-border))] rounded-lg px-3 py-2">
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-[hsl(var(--success-light))]" />
-            <span className="text-sm text-[hsl(var(--success-light))]">
+            <CheckCircle2 className="w-4 h-4 text-[hsl(var(--success-text))]" />
+            <span className="text-sm text-[hsl(var(--success-text))]">
               {t('chat:tool.updated')}
             </span>
             <span className="text-sm text-[hsl(var(--text-primary))]">
@@ -713,8 +713,8 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
       return (
         <div className="bg-[hsl(var(--result-bg))] border border-[hsl(var(--result-border))] rounded-lg px-3 py-2">
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-[hsl(var(--success-light))]" />
-            <span className="text-sm text-[hsl(var(--success-light))]">
+            <CheckCircle2 className="w-4 h-4 text-[hsl(var(--success-text))]" />
+            <span className="text-sm text-[hsl(var(--success-text))]">
               {t('chat:tool.deleted')}
             </span>
           </div>
@@ -743,8 +743,8 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
       return (
         <div className="bg-[hsl(var(--result-bg))] border border-[hsl(var(--result-border))] rounded-lg px-3 py-2">
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-[hsl(var(--success-light))]" />
-            <span className="text-sm text-[hsl(var(--success-light))]">
+            <CheckCircle2 className="w-4 h-4 text-[hsl(var(--success-text))]" />
+            <span className="text-sm text-[hsl(var(--success-text))]">
               {t('chat:tool.files_found', { count })}
             </span>
           </div>
@@ -788,8 +788,8 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
       return (
         <div className="bg-[hsl(var(--result-bg))] border border-[hsl(var(--result-border))] rounded-lg px-3 py-2">
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-[hsl(var(--success-light))]" />
-            <span className="text-sm text-[hsl(var(--success-light))]">
+            <CheckCircle2 className="w-4 h-4 text-[hsl(var(--success-text))]" />
+            <span className="text-sm text-[hsl(var(--success-text))]">
               {t('chat:tool.status_updated')}
             </span>
             {updatedLabels && (
@@ -847,9 +847,9 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
           case 'prepend':
           case 'insert_after':
           case 'insert_before':
-            return <Plus className="w-3 h-3 text-[hsl(var(--success-light))]" />;
+            return <Plus className="w-3 h-3 text-[hsl(var(--success-text))]" />;
           case 'delete':
-            return <Minus className="w-3 h-3 text-[hsl(var(--error))]" />;
+            return <Minus className="w-3 h-3 text-[hsl(var(--error-text))]" />;
           default:
             return <Edit3 className="w-3 h-3 text-[hsl(var(--ref-tag-text))]" />;
         }
@@ -870,8 +870,8 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
       return (
         <div className="bg-[hsl(var(--result-bg))] border border-[hsl(var(--result-border))] rounded-lg p-3">
           <div className="flex items-center gap-2 mb-2">
-            <Edit3 className="w-4 h-4 text-[hsl(var(--success-light))]" />
-            <span className="text-sm text-[hsl(var(--success-light))] font-medium">
+            <Edit3 className="w-4 h-4 text-[hsl(var(--success-text))]" />
+            <span className="text-sm text-[hsl(var(--success-text))] font-medium">
               {t('chat:tool.edit_success')}
             </span>
             {authorEditsTouched && (
@@ -1040,8 +1040,8 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
       const shownFailed = Math.max(0, failed - skippedCount);
       const anyFailed = shownFailed > 0;
       const accentClass = anyFailed
-        ? 'text-[hsl(var(--warning))]'
-        : 'text-[hsl(var(--success-light))]';
+        ? 'text-[hsl(var(--warning-text))]'
+        : 'text-[hsl(var(--success-text))]';
 
       return (
         <div
@@ -1082,7 +1082,7 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
                     ) : isFailed ? (
                       <XCircle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[hsl(var(--text-secondary))]" />
                     ) : (
-                      <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[hsl(var(--success-light))]" />
+                      <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[hsl(var(--success-text))]" />
                     )}
                     <div className="min-w-0">
                       {showTaskLabel ? (
@@ -1126,8 +1126,8 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
       return (
         <div className="bg-[hsl(var(--result-bg))] border border-[hsl(var(--result-border))] rounded-lg px-3 py-2">
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-[hsl(var(--success-light))]" />
-            <span className="text-sm text-[hsl(var(--success-light))]">
+            <CheckCircle2 className="w-4 h-4 text-[hsl(var(--success-text))]" />
+            <span className="text-sm text-[hsl(var(--success-text))]">
               {label}{t('chat:tool.complete_suffix')}
             </span>
             {detail && (
@@ -1143,8 +1143,8 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
     return (
       <div className="bg-[hsl(var(--result-bg))] border border-[hsl(var(--result-border))] rounded-lg px-3 py-2">
         <div className="flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-[hsl(var(--success-light))]" />
-          <span className="text-sm text-[hsl(var(--success-light))]">
+          <CheckCircle2 className="w-4 h-4 text-[hsl(var(--success-text))]" />
+          <span className="text-sm text-[hsl(var(--success-text))]">
             {label}{t('chat:tool.complete_suffix')}
           </span>
         </div>
@@ -1161,11 +1161,11 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
       >
         <div className="flex items-start gap-2 mb-2">
           {conflict.severity === 'high' ? (
-            <XCircle className="w-4 h-4 text-[hsl(var(--error))] shrink-0 mt-0.5" />
+            <XCircle className="w-4 h-4 text-[hsl(var(--error-text))] shrink-0 mt-0.5" />
           ) : conflict.severity === 'medium' ? (
-            <AlertCircle className="w-4 h-4 text-[hsl(var(--warning))] shrink-0 mt-0.5" />
+            <AlertCircle className="w-4 h-4 text-[hsl(var(--warning-text))] shrink-0 mt-0.5" />
           ) : (
-            <Lightbulb className="w-4 h-4 text-[hsl(var(--success-light))] shrink-0 mt-0.5" />
+            <Lightbulb className="w-4 h-4 text-[hsl(var(--success-text))] shrink-0 mt-0.5" />
           )}
           <div className="flex-1">
             <h4 className={`text-sm font-medium mb-1 ${getSeverityColor(conflict.severity).split(' ')[0]}`}>
@@ -1200,8 +1200,8 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
         {/* Response Text Card */}
         <div className="bg-[hsl(var(--success)/0.1)] border border-[hsl(var(--success)/0.3)] rounded-lg p-4 mb-4">
           <div className="flex items-center gap-2 mb-2">
-            <FileText className="w-4 h-4 text-[hsl(var(--success-light))]" />
-            <span className="text-sm text-[hsl(var(--success-light))] font-medium">{t('chat:response.generated_result')}</span>
+            <FileText className="w-4 h-4 text-[hsl(var(--success-text))]" />
+            <span className="text-sm text-[hsl(var(--success-text))] font-medium">{t('chat:response.generated_result')}</span>
           </div>
 
           <div className="text-[hsl(var(--text-secondary))] text-sm leading-relaxed whitespace-pre-wrap mb-4">
@@ -1288,8 +1288,8 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
         {response.conflicts && response.conflicts.length > 0 && (
           <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-[hsl(var(--warning))]" />
-              <span className="text-sm text-[hsl(var(--warning))] font-medium">
+              <AlertCircle className="w-4 h-4 text-[hsl(var(--warning-text))]" />
+              <span className="text-sm text-[hsl(var(--warning-text))] font-medium">
                 {t('chat:response.conflicts_detected', { count: response.conflicts.length })}
               </span>
             </div>
@@ -1301,11 +1301,11 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
               >
                 <div className="flex items-start gap-2 mb-2">
                   {conflict.severity === 'high' ? (
-                    <XCircle className="w-5 h-5 text-[hsl(var(--error))] shrink-0" />
+                    <XCircle className="w-5 h-5 text-[hsl(var(--error-text))] shrink-0" />
                   ) : conflict.severity === 'medium' ? (
-                    <AlertCircle className="w-5 h-5 text-[hsl(var(--warning))] shrink-0" />
+                    <AlertCircle className="w-5 h-5 text-[hsl(var(--warning-text))] shrink-0" />
                   ) : (
-                    <Lightbulb className="w-5 h-5 text-[hsl(var(--success-light))] shrink-0" />
+                    <Lightbulb className="w-5 h-5 text-[hsl(var(--success-text))] shrink-0" />
                   )}
 
                   <div className="flex-1">
@@ -1346,7 +1346,7 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
         {response.reasoning && (
           <div className="mt-4 p-3 bg-[hsl(var(--bg-tertiary))] border border-[hsl(var(--border-color))] rounded-lg">
             <div className="flex items-start gap-2">
-              <Lightbulb className="w-4 h-4 text-[hsl(var(--warning))] shrink-0 mt-0.5" />
+              <Lightbulb className="w-4 h-4 text-[hsl(var(--warning-text))] shrink-0 mt-0.5" />
               <div>
                 <div className="text-xs text-[hsl(var(--text-secondary))] mb-1">{t('chat:response.reasoning_label')}</div>
                 <div className="text-sm text-[hsl(var(--text-secondary))]">

@@ -373,7 +373,7 @@ const MATERIALS_PAGE = {
   title: 'h1',
   uploadButton: 'button:has-text("Upload"), button:has-text("上传")',
   materialsGrid: '.grid',
-  materialCard: '[class*="group"][class*="rounded-xl"]',
+  materialCard: '[data-testid="material-card"]',
   emptyState: '.text-center:has(svg)',
   searchInput: 'input[placeholder*="search" i], input[placeholder*="搜索"]',
 }

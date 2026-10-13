@@ -300,7 +300,7 @@ test.describe('Smoke Tests - Critical Path', () => {
       await gotoWithRetry(page, '/dashboard');
       await expect(page).toHaveURL(/\/dashboard\/?$/, { timeout: 10000 });
 
-      const billingEntry = page.getByRole('button', { name: /(订阅|权益|Billing)/i }).first();
+      const billingEntry = page.getByRole('link', { name: /(订阅|权益|Billing)/i }).first();
       await expect(billingEntry).toBeVisible({ timeout: 10000 });
       await billingEntry.click();
 

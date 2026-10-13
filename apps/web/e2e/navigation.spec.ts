@@ -282,7 +282,7 @@ test.describe('Browser Navigation', () => {
 
     // Select file and verify content
     await refreshedFile.click();
-    await expect(page.locator('textarea[placeholder="开始你的创作..."]').first()).toBeVisible();
+    await expect(page.locator('[data-editor-scroll-container] textarea').first()).toBeVisible();
   });
 
   test('navigation history is correct after multiple navigations', async ({ page, request }) => {
