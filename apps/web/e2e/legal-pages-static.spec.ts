@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/static-site';
 
 // Run against the finalized build, not the Vite development SPA.
 test.use({ javaScriptEnabled: false });
@@ -11,7 +11,7 @@ for (const path of ['/privacy-policy', '/terms-of-service']) {
       await page.route('https://fonts.gstatic.com/**', route => route.abort());
       await page.route('**/org/org.css', async route => {
         await new Promise(resolve => setTimeout(resolve, 600));
-        await route.continue();
+        await route.fallback();
       });
       const requests: string[] = [];
       page.on('request', request => requests.push(request.url()));

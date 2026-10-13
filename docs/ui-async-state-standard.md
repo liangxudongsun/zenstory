@@ -1,61 +1,34 @@
-# Async Data UI 标准（2026-03）
+# 异步页面状态
 
-## 背景问题
+页面应区分首次加载、稳定空结果、请求失败和后台刷新。避免先显示“没有数据”，随后突然切成列表。
 
-多个页面在首屏或后台刷新期间，会短暂展示“空数据占位”，随后又切换到真实列表，形成明显闪烁（Empty → List）。
+## 展示规则
 
-## 新标准（统一执行）
+| 状态 | 展示 |
+| --- | --- |
+| 首次请求尚未完成 | 加载状态或骨架，不显示空结果 |
+| 后台刷新且已有数据 | 保留可用内容，避免整页跳变 |
+| 后台刷新且列表为空 | 加载完成前不把空列表当最终结果 |
+| 请求完成、结果为空 | 与任务对应的空态和可执行下一步 |
+| 请求失败 | 错误提示；只在确实可重试时给重试入口 |
+| 尚未选择查询条件 | 提示先选择条件，与无结果分开 |
 
-1. **加载优先（Loading-first）**
-   - 正在拉取数据时，不展示空态文案。
-   - 特别是 `isFetching && isEmpty` 场景，统一显示加载态。
+管理页复用 `AdminPageState`。该组件的加载条件是 `isLoading || (isFetching && isEmpty)`；错误在空态前处理。已有结果的后台失败是否保留数据，由 owning page 按操作含义决定，不把错误伪装成稳定空结果。
 
-2. **空态仅在“稳定为空”时出现**
-   - 仅当请求结束且确实为空，再展示空态。
-   - 避免后台刷新期间空态和内容来回切换。
+## 交互与文案
 
-3. **列表区域优先骨架化**
-   - 关键页面列表区使用骨架/Spinner，减少布局跳变和视觉闪烁。
+加载进度用状态语义，错误用 alert，按钮写明下一步。手机重试和主要操作使用 44px 触控高度。只在执行真实请求时显示加载，失败后不留下永远转动的按钮。
 
-4. **按场景区分空态**
-   - “未查询用户 / 未选择条件”与“查询结果为空”语义分离，不混用。
+列表为空可以建议创建或调整筛选，但不能展示不可用入口。保留搜索和筛选值，错误重试不自动清空作者输入。
 
-## 本次改造覆盖清单
+## 并发请求
 
-### 通用组件层
-- `apps/web/src/components/admin/AdminPageState.tsx`
-  - 新增 `isFetching` 支持
-  - 统一为 `isLoading || (isFetching && isEmpty)` 时展示加载态
-  - 升级加载态视觉（Spinner + 文案）
+忽略已经被新请求替代的结果。切换账号、项目或文件后，旧响应不能覆盖新页面；主动取消的请求不当作用户错误。
 
-### Admin 页面（全量接入 isFetching）
-- `AdminDashboard.tsx`
-- `UserManagement.tsx`
-- `CodeManagement.tsx`
-- `PromptManagement.tsx`
-- `InspirationManagement.tsx`
-- `SubscriptionPlanManagement.tsx`
-- `FeedbackManagement.tsx`
-- `AuditLogPage.tsx`
-- `SubscriptionManagement.tsx`
-- `ReferralManagement.tsx`
-- `CheckInStatsPage.tsx`
-- `QuotaManagement.tsx`
-- `PointsManagement.tsx`
+写操作按实际结果确认。生成请求和支付不能因网络错误自动重复，保存冲突需要比较与选择。
 
-### Dashboard / 业务页面
-- `DashboardHome.tsx`
-  - 项目列表增加 `projectsLoading` 骨架态
-  - 精选灵感改为 `isLoading || (isFetching && 空列表)` 时展示骨架
-- `BillingPage.tsx`
-  - 套餐对比区新增 Catalog pending 骨架，避免“暂无数据”闪现
-- `SkillsPage.tsx`
-  - 我的技能区新增 `hasLoadedMySkills`，首轮请求前不再直接渲染空态
+## 验证
 
-### Hook 能力
-- `useInspirations.ts`
-  - `useFeaturedInspirations` 返回 `isFetching`，支持页面做稳定态判断
+行为回归覆盖首次加载、后台刷新、成功为空、错误和旧响应晚返回。浏览器检查关注实际焦点、滚动、可达操作和视觉闪烁；DOM 断言不能替代截图审阅。
 
----
-
-该标准后续可作为所有“列表页/表格页/卡片页”接入规范。
+更多 UI 规则见 [DESIGN.md](../DESIGN.md)，测试入口见 [E2E 与 CI](development/e2e.md)。

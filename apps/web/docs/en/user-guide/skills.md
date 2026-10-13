@@ -1,156 +1,48 @@
-# Skills System
+# Using skills
 
-The Skills System is a core feature of ZenStory Writing Workbench, allowing you to quickly invoke AI for writing tasks through preset instruction templates. Simply enter a trigger word in the chat, and AI will automatically apply the corresponding skill instructions.
+A skill stores a reusable writing method, such as character development, scene drafting, or local revision. Choose a method suited to the task, then provide characters, source text, and this turn's requirements.
 
-## What are Skills?
+## Add and use a skill
 
-Skills are preset AI instruction templates activated by trigger words. When you enter content containing a trigger word in a conversation, the system automatically recognizes and applies the corresponding instruction, making AI respond according to the preset method.
+1. Open **Skills** in the workbench, browse discovery, search names, or filter categories.
+2. Read the name and purpose, then choose **Add to My Skills**.
+3. Return to a project. Type `/` in the input to select a skill, or add it from the project's Skills tab.
+4. Describe the task and send.
 
-**Core Advantages**:
-- Quickly invoke complex instructions without repetitive input
-- Ensure consistency in AI output style
-- Customize exclusive skills based on personal habits
-- Discover and use quality skills shared by the community
+Select up to 3 skills for a turn. The AI can also load available skills as needed. Trigger phrases are usage clues; a matching word does not guarantee activation.
 
-## Discover Skills
+Official skills show their purpose but keep detailed instructions private. Add them to use them. Community skills are shared by authors and reviewed; published instructions can be read.
 
-[Screenshot: Discover Skills page, showing skill card grid, category filters, and search box]
+## Manage your skills
 
-Browse and add quality skills from official and community sources on the "Discover Skills" page:
+| Source | Available actions |
+| --- | --- |
+| Created by you | Edit, enable or disable, export, share, delete |
+| Added from the public library | Use, enable or disable, remove; content visibility depends on source |
 
-**Functional Operations**:
-- **Search**: Enter keywords to quickly find needed skills
-- **Category Filter**: Click category tags (Writing Techniques, Character Development, etc.) to filter
-- **Add Skill**: Click "Add to My Skills" to add the skill to your personal library
-- **Expand View**: Click the expand button to view complete instruction content
+Added official skills cannot export instructions or resources. Create your own skill to customize a method.
 
-**Skill Sources**:
-| Source | Description |
-|--------|-------------|
-| Official | Carefully crafted by the ZenStory team, fully tested and optimized |
-| Community | Created and shared by users, published after review |
+## Create a custom skill
 
-## My Skills
+Choose New and enter a name, purpose, trigger phrases, and instructions. Separate phrases with English commas. Start with one specific task:
 
-[Screenshot: My Skills page, divided into "Custom Skills" and "Added Skills" sections]
+```text
+Name: Limited viewpoint check
+Purpose: Find information the viewpoint character should not know yet.
+Triggers: check viewpoint, limited viewpoint
 
-Manage all personal skills, divided into two categories:
-
-| Type | Description | Permissions |
-|------|-------------|-------------|
-| Custom Skills | Skills you created personally | Editable, deletable, shareable |
-| Added Skills | Skills added from public library | Read-only, removable |
-
-**Management Features**:
-- Search: Quickly locate skills by name or description
-- Batch Operations: Select multiple skills for batch deletion
-
-## Create Custom Skills
-
-[Screenshot: Create skill form, containing four input fields: name, description, trigger words, instruction content]
-
-### Basic Information
-
-- **Skill Name** (required): A concise and clear name
-- **Description** (optional): Explain purpose and usage scenarios
-
-### Trigger Word Settings
-
-[Screenshot: Trigger word input box]
-
-Trigger words are the key to activating a skill. Setting guidelines:
-- Separate multiple trigger words with commas
-- Use natural language phrases for easy memorization
-- Avoid overly common words
-
-**Example**: `create character, new character, character card`
-
-### Instruction Content
-
-[Screenshot: Instruction editor]
-
-Detailed instructions that AI will follow, supports Markdown format.
-
-**Writing Suggestions**:
-- Clearly define AI's role and task
-- Provide output format requirements
-- Use Markdown to structure content
-
-**Example Instruction**:
-
-```markdown
-# Character Creation Expert
-
-You are a professional novel character design consultant. Please generate character settings in the following format:
-
-## Basic Information
-- Name, age, gender, identity
-
-## Physical Features
-Detailed description of the character's appearance.
-
-## Personality Traits
-- Core personality, behavioral habits, speech style
-
-## Background Story
-Brief description of growth experience and important events.
-
-Please ensure character settings are consistent with the story style.
+Instructions: Read the specified character notes and quoted passage first.
+List each problem sentence, its evidence, and the smallest replacement.
+Distinguish author knowledge from character knowledge. Ask when evidence is missing.
+Suggest changes first; do not edit files or add character background.
 ```
 
-## Edit and Delete Skills
+Save, select it in a project, and provide the passage to check. Free supports 3 owned custom skills; Pro supports 20. Deleting an unused owned skill frees a slot.
 
-**Edit**: Click the edit icon on the custom skill card to modify content. Added public skills are read-only and cannot be edited.
+## Import, export, and share
 
-**Delete**: Click the delete icon, confirm to permanently delete. Supports batch deletion of multiple skills.
+Use Import to select Markdown or a ZIP skill package. Check its name, instructions, and resources before enabling it. Export your own skills to retain a copy.
 
-**Note**: Deletion cannot be undone, please proceed with caution.
+Sharing submits a skill for review; approved skills enter the public library. Remove private manuscripts, account details, and text you cannot publish first. A pending submission is not yet public.
 
-## Share Skills
-
-[Screenshot: Share skill dialog, including category selection]
-
-After creating valuable skills, you can share them to the public library:
-
-1. Click the share icon
-2. Select category (Writing Techniques, Character Development, World-Building, Plot Design, Style Polishing)
-3. Submit for sharing
-
-Shared skills will be submitted for administrator review and appear in the public library after approval.
-
-## Skill Usage Statistics
-
-[Screenshot: Skill statistics dialog]
-
-Click "Usage Statistics" to view skill usage for the current project:
-
-**Statistical Indicators**:
-- Total trigger count, average confidence
-- Built-in skills vs. custom skills trigger count
-
-**Time Range**: 7 days / 30 days / 90 days
-
-**Visualization**:
-- Most used skills ranking (Top 5)
-- Daily usage trend bar chart
-
-## Usage Tips
-
-**Trigger Word Design**:
-- Choose natural language phrases
-- Avoid trigger word conflicts between different skills
-- 2-5 trigger words per skill is appropriate
-
-**Instruction Writing**:
-- Use Markdown for structured organization
-- Include examples of expected output
-- Continuously optimize based on AI output
-
-**Skill Management**:
-- Regularly clean up unused skills
-- Use consistent naming conventions
-- Share valuable skills promptly
-
----
-
-By reasonably using official skills, discovering community skills, and creating personal skills, let AI better understand and execute your writing needs. Happy writing!
+See [advanced custom skills](../advanced/skill-creation.md) for instruction writing, resources, and format limits.

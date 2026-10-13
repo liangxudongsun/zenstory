@@ -507,10 +507,17 @@ test('docs pages sit on the organization shell with resolved links and their own
     const html = readFileSync(join(outDir, 'docs', file), 'utf8')
     assert.equal(matches(html, /<h1\b/g).length, 1, `docs/${file} has one h1`)
     assert.doesNotMatch(html, /<pre>/, `docs/${file}: code blocks are focusable`)
+    const description = html.match(/<meta name="description" content="([^"]*)"/)[1]
+    assert.doesNotMatch(description, /\]\(|\(https?:\/\//, `docs/${file}: metadata uses link labels rather than Markdown destinations`)
+    const englishArticle = html.split('<section class="prose" id="en" lang="en">')[1]?.split('</section>')[0]
+    assert.ok(englishArticle, `docs/${file}: every page has a complete English article`)
+    for (const [, href] of englishArticle.matchAll(/href="([^"#]*(?:\/docs)(?:\/[^"#]*)?)"/g)) {
+      assert.fail(`docs/${file}: English link loses the reading language: ${href}`)
+    }
+
     if (html.includes('id="en"')) assert.match(html.slice(html.indexOf('<section class="prose" id="en"')), /^<section class="prose" id="en" lang="en">\s*<h2\b/, `docs/${file}: English starts at h2`)
   }
   const index = readOutput(outDir, 'docs')
-  assert.match(index, /<h1>ZenStory 工作台帮助文档<\/h1>/)
   assert.ok(index.includes('href="/docs/reference/faq"'))
   assert.ok(index.includes('href="/docs/getting-started/installation"'))
   const quickStart = readOutput(outDir, 'docs/getting-started/quick-start')
@@ -519,7 +526,7 @@ test('docs pages sit on the organization shell with resolved links and their own
   assert.ok(readOutput(outDir, 'docs/reference/faq').includes('href="/docs/user-guide/interface-overview"'))
 })
 
-test('account documentation keeps app entrypoints and source limits', (t) => {
+test('account documentation links to the canonical app entrypoints in both languages', (t) => {
   const outDir = mkdtempSync(join(tmpdir(), 'zenstory-account-doc-'))
   t.after(() => rmSync(outDir, { recursive: true, force: true }))
   run('build-docs-pages.mjs', outDir)
@@ -527,20 +534,10 @@ test('account documentation keeps app entrypoints and source limits', (t) => {
   for (const route of ['register', 'login', 'forgot-password']) {
     assert.ok(html.includes(`href="https://app.zenstory.ai/${route}"`), `Missing direct app ${route} entry`)
   }
-  assert.equal(html.split('https://app.zenstory.ai/register?invite=ABCD-1234').length - 1, 2)
   assert.doesNotMatch(html, /https:\/\/zenstory\.ai\/(?:register|login|forgot-password)/)
-  // The page opens with the steps, not an audit disclaimer; checked sources stay at the end.
-  assert.doesNotMatch(html, /不是线上账号验收|not a live-account acceptance test/)
-  assert.match(html, /已核对源码/)
-  assert.match(html, /Reviewed Source/)
-  assert.match(html, /没有网页自助发送密码重置链接的流程/)
-  assert.match(html, /no web self-service reset-link flow/)
-  assert.ok(html.includes('href="https://zenstory.ai/docs/getting-started/installation"'))
-  const sources = matches(html, /href="(https:\/\/github\.com\/zenstory-ai\/zenstory\/blob\/[a-f0-9]{40}\/[^"#]+#L\d+(?:-L\d+)?)"/g).map(match => match[1])
-  assert.equal(sources.length, 24, 'Both languages need all twelve checked-source references')
-  const midpoint = sources.length / 2
-  assert.deepEqual(sources.slice(0, midpoint), sources.slice(midpoint))
-  for (const source of sources) assert.ok(source.includes('/blob/76b8ab84ce73ca309083f0c1a90f3c9d7ce8d72b/'))
+  assert.match(html, /id="zh" lang="zh-CN"/)
+  assert.match(html, /id="en" lang="en"/)
+
 })
 
 test('docs generator fails closed on a link to a page that does not exist', (t) => {

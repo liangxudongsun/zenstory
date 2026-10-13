@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/static-site';
 import AxeBuilder from '@axe-core/playwright';
 
 // Static organization build: no login, API, paid models or payment requests.
@@ -60,9 +60,10 @@ test('mobile carousel tracks button navigation, native scrolling and its ends', 
   expect(Math.abs((await third.boundingBox())!.x - ((await grid.boundingBox())!.x + gutter))).toBeLessThan(2);
 });
 
-test('English home remains readable without JavaScript and keeps native video controls', async ({ browser, baseURL }) => {
-  const context = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 390, height: 844 } });
-  const page = await context.newPage();
+test.describe('Without JavaScript', () => {
+  test.use({ javaScriptEnabled: false });
+test('English home remains readable without JavaScript and keeps native video controls', async ({ page, baseURL }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   // The finalized directory is served without Vercel's apex -> /org-home rewrite locally.
   await page.goto(baseURL + '/org-home/');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Write stories Make them real');
@@ -74,5 +75,7 @@ test('English home remains readable without JavaScript and keeps native video co
     await expect(video).not.toHaveAttribute('autoplay');
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-  await context.close();
+
+});
+
 });

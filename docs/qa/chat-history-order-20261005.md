@@ -1,5 +1,7 @@
 # Agent history event order regression
 
+> 历史记录：保留当时的方案、操作和验证结论，不作为当前功能或部署状态的说明。当前入口见[仓库文档](../README.md)。
+
 New assistant turns record `display_events` in the existing message metadata. Text/thinking chunks coalesce only within one uninterrupted segment; tool entries reference the final serialized tool call by index, so result updates do not duplicate or move a card. Agent selection, router, handoff and terminal controls retain stream order. Existing model-facing content/tool data and feedback remain unchanged; no schema migration is needed.
 
 The frontend snapshots its synchronous (not throttled React-state) buffer on completion. Live and saved display sequences use one renderer; history metadata resolves each tool reference to its final state. Legacy or invalid metadata uses the previous renderer rather than inventing a past order. Old rows containing only concatenated text cannot be accurately reconstructed.

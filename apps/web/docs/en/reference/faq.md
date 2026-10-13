@@ -1,272 +1,79 @@
-# Frequently Asked Questions (FAQ)
+# Frequently asked questions
 
-This document collects the most common questions from ZenStory users to help you quickly find answers.
+New here? Start with the [interface overview](../user-guide/interface-overview.md).
 
----
+## Account and plan
 
-## Account
+### What if I forget my password?
 
-### Q: What should I do if I forget my password?
+Open Forgot Password from Login, request a six-digit code with your registered email, and set a password within 10 minutes. Contact support@zenstory.ai if reset is unavailable. See [registration and login](../getting-started/installation.md).
 
-**A:** Click "Forgot Password" on the login page, enter your registered email address, and the system will send a reset link to your inbox. Click the link in the email to set a new password. The reset link is valid for 24 hours.
+### What does Free include?
 
-If you don't receive the email in your inbox, please check your spam folder.
+10 AI messages per day, 3 projects, 3 owned custom skills, and a one-time trial of a book's first 20 chapters as offered on the page. Messages reset at 00:00 Beijing time. TXT export is included. See [Plans & Benefits](../user-guide/billing-benefits.md).
 
----
+### Why is Pro missing after payment?
 
-### Q: What login methods are supported?
+Wait for payment-return processing, then check your plan and expiration. If charged without benefits, retain order details and contact support. Do not pay again.
 
-**A:** ZenStory supports the following login methods:
+### Where are invitation rewards?
 
-- **Email + Password**: Log in using the email and password you set during registration
-- **Google Account**: One-click login via Google OAuth, no additional password setup required
+Check the points and invitation pages. The interface shows reward conditions, valid codes, and redemption options.
 
-Both methods provide full functionality. Choose whichever method you prefer.
+## Writing and files
 
----
+### Does the editor autosave?
 
-### Q: Can I change my registered email address?
+After about three seconds without typing, or sooner with manual Save. Check status; saving prose is different from adding history. See the [editor](../user-guide/editor.md) for local recovery and conflicts.
 
-**A:** Yes. After logging in, go to the "Personal Settings" page and click the edit button next to your email address to modify it.
+### Does the AI read my whole project?
 
-**Note**: After changing your email, you'll need to verify the new email address by entering a verification code sent to it. Please ensure the new email address is correct and can receive emails properly.
+It does not read every file in full each turn. Open the target, name evidence files, and quote key text. Context has a budget. See [AI assistant](../user-guide/ai-assistant.md).
 
----
+### Why is prose in chat but not in the file?
 
-### Q: What is an invitation code?
+It may be a candidate suggestion. Adopt it manually or request writing into a named file, specifying replacement or append, then check the file.
 
-**A:** An invitation code is ZenStory's user referral system. You can invite friends to register for ZenStory by sharing your invitation code:
+### Does Stop undo changes?
 
-- **Referrer Reward**: Earn 100 points for each friend who successfully registers
-- **Invitee Reward**: Earn 100 points after registering with an invitation code and completing email verification
+No. Writes already made remain. Read the current draft before continuing and fill only missing parts.
 
-Each user can create up to 3 invitation codes, and each code can be used up to 3 times. Invitation codes follow the format `XXXX-XXXX` (e.g., `A1B2-C3D4`).
+### Can I change a filename or type?
 
----
+Edit the title in the editor and save. There is no direct type-conversion interface; create a correctly typed file and copy approved text. See [file management](../user-guide/file-tree.md).
 
-## Projects and Files
+### Is there a trash for deleted work?
 
-### Q: How many files can a project contain?
+There is no user-facing file or project trash. An existing project snapshot may contain earlier files, but restoring it affects other files too. Inspect [history](../user-guide/version-history.md) first; do not test recovery by deleting work.
 
-**A:** There is no hard limit. You can create any number of files in a project, including outlines, drafts, character cards, lore entries, and more.
+### Does export include the whole project?
 
-We recommend organizing files by type using folders (e.g., "Outlines," "Characters," "Settings") for easier management and better AI context understanding.
+TXT includes saved drafts and scripts only. Keep characters, outlines, materials, chat, memory, and history separately. See [export](../user-guide/export.md).
 
----
+### Can I work offline?
 
-### Q: Are files automatically saved?
+Cloud saving and AI need a connection. Local draft recovery is not a complete offline workbench. Export prose before offline writing, then compare and copy approved changes back.
 
-**A:** Yes. ZenStory uses a real-time auto-save mechanism:
+## Skills and materials
 
-- **Draft Editor**: Every keystroke is automatically saved without manual intervention
-- **Version History**: Each save creates a version snapshot that you can revisit at any time
+### Why are official skill instructions hidden?
 
-You can view the complete version history on the file details page, and compare or restore to any version.
+Official skills show their purpose and can be used after adding. Your own skills are editable; published community instructions are readable. See [using skills](../user-guide/skills.md).
 
----
+### Are material results accurate?
 
-### Q: Can I export all my content?
+They may omit or misinterpret details. Use summaries to locate passages, then check the source. There is no universal accuracy guarantee. See [material analysis](../advanced/material-analysis.md).
 
-**A:** Yes. Click the "Export" button on the project page, and the system will merge all draft content from that project in chapter order and export it as a `.txt` file.
+### Where is the Inspirations Library?
 
-The exported file contains complete content in UTF-8 encoding, compatible with Windows Notepad.
+It is coming soon. Enter your own idea on Home or discuss directions with the AI for now.
 
----
+## Privacy and help
 
-### Q: Can deleted files be recovered?
+### Are uploaded materials public?
 
-**A:** File deletion uses a soft delete mechanism. Deleted files are moved to the trash and retained for 30 days. During this period, you can recover them from "Deleted Files."
+The library is account-scoped; uploading does not publish material to other users. AI features process the text you provide. See the [privacy policy](https://zenstory.ai/privacy-policy). Check custom skills for private content before sharing.
 
-After 30 days, files are permanently deleted and cannot be recovered. Please confirm carefully before deleting files.
+### How do I report another problem?
 
----
-
-## AI Assistant
-
-### Q: Can I modify AI-generated content?
-
-**A:** Absolutely. AI-generated content is inserted directly into the editor, where you can:
-
-- Edit the text directly in the editor
-- Select text and ask AI to refine it further
-- Use the "Rewrite" function to have AI regenerate the content
-
-AI is your writing assistant; you have complete control over the final content.
-
----
-
-### Q: Does AI know what I've written before?
-
-**A:** Yes. ZenStory's AI assistant has intelligent context understanding capabilities:
-
-- **Intra-project File Association**: AI automatically reads other files in the same project (such as outlines, character cards, settings) to understand the overall story background
-- **Conversation Memory**: Within the same conversation, AI remembers previous exchanges
-- **Smart References**: You can reference any file's content, and AI will create based on the referenced material
-
-**Tip**: For better AI understanding, we recommend saving character profiles, world-building, and other settings as separate files within the project.
-
----
-
-### Q: How can I help AI better understand my needs?
-
-**A:** Here are tips to improve AI understanding accuracy:
-
-1. **Be Specific**: Avoid vague instructions. Instead of "Help me write something," say "Write a scene where the protagonist wakes up in urban ruins and discovers there's no one around"
-2. **Reference Relevant Files**: In conversations, use @ to reference character cards and setting files so AI accurately understands character personalities and world-building
-3. **Break Down Complex Tasks**: Split complex tasks into steps, such as "First list 5 plot options" → "Select option 2 and expand on it"
-4. **Provide Examples**: If you need a specific style, paste a reference passage and tell AI "Write in this style"
-
----
-
-### Q: What should I do if AI response is slow?
-
-**A:** AI response speed is affected by the following factors:
-
-- **Network Connection**: Check if your network is stable
-- **Content Length**: If you've referenced many files or have long context, processing time will increase
-- **Server Load**: Response may be slower during peak hours (e.g., weekday evenings)
-
-**Recommendations**:
-- Keep referenced files per conversation under 5
-- If there's no response for over 30 seconds, try refreshing the page
-- For long content, generate in segments rather than requesting large amounts at once
-
----
-
-## Skills
-
-### Q: What's the difference between built-in skills and custom skills?
-
-**A:**
-
-| Feature | Built-in Skills | Custom Skills |
-|---------|-----------------|---------------|
-| **Source** | System presets | User-created |
-| **Editing** | Not editable | Can be modified anytime |
-| **Trigger** | Fixed keywords | Custom trigger words |
-| **Use Cases** | Outline generation, chapter summaries, character analysis | Specific writing styles, fixed templates, personalized needs |
-
-Custom skills are ideal for users with established creative workflows. For example, you can create a "Xianxia Battle Scene" skill with preset description patterns and styles, so AI generates content following your template every time it's triggered.
-
----
-
-### Q: Who can see shared skills?
-
-**A:** Skill sharing uses a review system:
-
-1. **Submit for Review**: After sharing a skill, it enters the pending review queue
-2. **Admin Review**: Only approved skills enter the public skill library
-3. **Public Visibility**: After approval, all users can search and add your skill in the "Skill Market"
-
-Please ensure shared skills are original and don't violate community guidelines. Reviews typically complete within 1-3 business days.
-
----
-
-## Material Library
-
-### Q: Will uploaded novels be visible to others?
-
-**A:** No. Novels uploaded to your material library are completely private:
-
-- Only you can view and manage them
-- AI-extracted character data, world-building, golden fingers, and other data are also visible only to you
-- Other users cannot access your material library
-
-The material library feature is solely for assisting your creative work and will not be published or shared with third parties in any form.
-
----
-
-### Q: Is AI extraction accurate?
-
-**A:** AI extraction accuracy depends on novel quality and type:
-
-- **Well-structured novels**: Core outputs such as characters, world-building, and main plot extraction are generally accurate (about 85%+)
-- **Complex multi-threaded narratives**: Some details may require manual verification
-- **Special types**: Works like stream-of-consciousness or non-linear narratives may not extract well
-
-**Recommendations**:
-- After extraction completes, review character cards and world-building settings to check and correct errors
-- Golden fingers, plot lines, and optional relationship-analysis outputs need special attention—AI may miss or misinterpret them
-- Extraction results serve as references but should be combined with manual adjustments
-
----
-
-## Inspirations and Plans
-
-### Q: What’s the difference between Inspirations and Materials?
-
-**A:** They serve different purposes:
-
-- **Inspirations**: reusable idea templates (genre hooks, conflicts, character dynamics) to start faster. This is an optional self-host module; it is not on the hosted app
-- **Materials**: structured references extracted from uploaded novels (characters, world-building, storylines)
-
-On deployments with Inspirations enabled, a practical flow is to pick a direction in Inspirations, then deepen details with Materials.
-
----
-
-### Q: Where can I check my plan benefits and quotas?
-
-**A:** After logging in, open **Plans & Benefits** in the dashboard sidebar. There you can review:
-
-- current plan status
-- key capabilities and quota usage
-- plan differences
-- upgrade and redeem-code entry points
-
-If you're evaluating before purchase, check the public **Pricing** page first.
-
----
-
-## Other
-
-### Q: Can I use ZenStory offline?
-
-**A:** No. ZenStory is a pure cloud application. All features (including AI assistant, file storage, and material library) require an internet connection.
-
-**Reasons**:
-- AI generation relies on cloud-based large language models
-- Real-time file synchronization requires server support
-- Cross-device access requires cloud storage
-
-If you need to write without internet access, we recommend exporting content to local documents while online, then editing offline and uploading later.
-
----
-
-### Q: Is my data secure?
-
-**A:** ZenStory employs multiple security measures to protect your data:
-
-- **Encrypted Storage**: All files are stored with AES-256 encryption
-- **Transit Encryption**: Data transmission uses HTTPS/TLS encryption
-- **Access Control**: Strict authentication ensures only you can access your content
-- **Regular Backups**: Database is automatically backed up daily to prevent data loss
-- **Privacy Protection**: Your creative content is not used to train AI models and is not shared with third parties
-
-We deeply understand the importance of your creative content to you. Data security is our top priority.
-
----
-
-### Q: Are there word limits?
-
-**A:**
-
-- **Single File**: Recommended maximum of 100,000 words (editor may slow down beyond this)
-- **Single AI Generation**: Typically 500-2,000 words (dynamically adjusted based on complexity)
-- **Material Library Upload**: Maximum 20MB per file and 300,000 characters per novel
-
-**Recommendations**:
-- Split long novels into multiple draft files by chapter
-- Keep auxiliary files like outlines and settings under 10,000 words
-- If single AI generation is too long, make multiple requests
-
----
-
-## Still Can't Find Your Answer?
-
-If your question isn't listed above, you can get help through:
-
-- **Documentation**: Check the [User Guide](../user-guide/) for detailed features
-- **Feedback**: Click the "Help" button in the bottom-right corner of the app to submit feedback
-- **Community**: Join the user community to exchange experiences with other creators
-
-Our team continuously updates this FAQ to add the most common user questions to the documentation.
+Use the in-app feedback entry or email [support@zenstory.ai](mailto:support@zenstory.ai). Include the message, steps, time, and browser version. Hide private manuscripts and account credentials in screenshots.

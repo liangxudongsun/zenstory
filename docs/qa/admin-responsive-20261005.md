@@ -1,5 +1,7 @@
 # Admin responsive browser audit — 2026-10-05
 
+> 历史记录：保留当时的方案、操作和验证结论，不作为当前功能或部署状态的说明。当前入口见[仓库文档](../README.md)。
+
 ## Scope and method
 
 - Browser: Playwright Chromium against local Vite only, with authenticated admin and populated API responses intercepted in-browser. No production authentication, payments, model calls, or backend data were used.

@@ -1,5 +1,7 @@
 # File tree refresh race fix design
 
+> 历史记录：保留当时的方案、操作和验证结论，不作为当前功能或部署状态的说明。当前入口见[仓库文档](../README.md)。
+
 ## Goal
 Fix the bug where AI-created or AI-updated chapters do not appear in the left file tree until a full page refresh, while also reducing one backend performance amplifier for large projects.
 

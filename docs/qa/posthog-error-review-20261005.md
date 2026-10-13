@@ -1,5 +1,7 @@
 # PostHog error review — 2026-10-05
 
+> 历史记录：保留当时的方案、操作和验证结论，不作为当前功能或部署状态的说明。当前入口见[仓库文档](../README.md)。
+
 ## Scope and evidence
 
 Review production issue metadata and representative exception stacks, repair confirmed application defects, and avoid treating historical or unlocalized reports as proven current bugs.

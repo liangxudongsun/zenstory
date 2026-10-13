@@ -1,70 +1,11 @@
-# ZenStory Help Documentation
+# ZenStory repository documentation
 
-Welcome to ZenStory, your AI-assisted novel writing workbench! ZenStory is your intelligent writing companion, helping you streamline the entire creative process from idea to finished draft.
+The workbench user guide has one maintained source shared with the website:
 
-## Quick Links
+- [English user guide](../../apps/web/docs/en/README.md)
+- [Chinese user guide](../../apps/web/docs/README.md)
+- [Online documentation](https://zenstory.ai/docs#en)
 
-- [5-Minute Quick Start](getting-started/quick-start.md) - Essential reading for beginners to master core features
-- [Create Your First Project](getting-started/first-project.md) - Begin your creative journey
-- [AI Writing Assistant](user-guide/ai-assistant.md) - In-depth guide to unlock AI writing potential
-- [FAQ](reference/faq.md) - Quickly find answers to common questions
+For development and operations, start at the [repository index](../README.md). It links local setup, E2E and CI, Docker Compose, release gates, writing configuration, and content maintenance.
 
-## Documentation Navigation
-
-### Getting Started
-Perfect for new users to quickly understand ZenStory's fundamental features.
-
-- [5-Minute Quick Start](getting-started/quick-start.md) - The fastest path to getting started
-- [Account Registration & Login](getting-started/installation.md) - Account setup guide
-- [Create Your First Project](getting-started/first-project.md) - Take the first step in your creative journey
-
-### User Guide
-Detailed feature explanations to help you make the most of ZenStory's capabilities.
-
-- [Interface Overview](user-guide/interface-overview.md) - Understand the three-panel workbench layout
-- [Project Management](user-guide/project-management.md) - Create and manage your writing projects
-- [File Tree & File Types](user-guide/file-tree.md) - Master outline, draft, character, and other file types
-- [Editor Usage](user-guide/editor.md) - Efficiently edit your creative content
-- [AI Writing Assistant](user-guide/ai-assistant.md) - Converse with AI to get creative inspiration and content
-- [Skills System](user-guide/skills.md) - Use preset skills to accelerate specific creative tasks
-- [Material Library](user-guide/materials.md) - Upload, inspect and selectively attach authorized reference text
-- [Inspirations Library](user-guide/inspirations.md) - Discover idea templates and copy them into projects
-- [Billing & Benefits](user-guide/billing-benefits.md) - Check plans, quotas, and upgrade paths
-- [Version History](user-guide/version-history.md) - Track changes and revert anytime
-- [Export Features](user-guide/export.md) - Export project drafts (TXT currently supported)
-
-### Advanced Tips
-Master ZenStory in depth and build an efficient, personalized writing workflow.
-
-- [AI Memory & Context](advanced/ai-memory.md) - Separate accepted settings, saved progress and open ideas within the limits of project context
-- [Advanced Custom Skills](advanced/skill-creation.md) - Create exclusive creative skills
-- [Material Analysis](advanced/material-analysis.md) - Read source evidence, understand a creative choice and design your own scene
-- [Browser Writing Workflow](advanced/workflow-tips.md) - Choose the scope, write from evidence and hand off actual saved progress
-
-### Reference
-Quick lookup tools and detailed explanations.
-
-- [Keyboard Shortcuts](reference/keyboard-shortcuts.md) - Boost operational efficiency
-- [File Types Detailed Explanation](reference/file-types.md) - Deep dive into various file types
-- [Glossary](reference/glossary.md) - Technical term definitions
-- [FAQ](reference/faq.md) - Quick answers to frequently asked questions
-
-### Troubleshooting
-Having issues? Find solutions here.
-
-- [Common Issue Diagnosis](troubleshooting/common-issues.md) - Problem diagnosis and resolution
-- [Error Message Reference](troubleshooting/error-messages.md) - Error prompt interpretation
-
-## Need Help?
-
-If you encounter issues while using ZenStory:
-
-1. **Browse Documentation** - Find the relevant user guide in the navigation above
-2. **Search FAQ** - Check the [FAQ](reference/faq.md) for quick answers
-3. **Contact Support** - For further assistance, please reach out to our support team
-
-We are committed to providing the best writing tools for creators, and your feedback is invaluable to us!
-
----
-
-*Documentation Version: 1.1 | Last Updated: March 7, 2026*
+Dated designs and QA receipts are collected in the [history index](../archive/README.md). They describe the work at that time and are not current deployment instructions.

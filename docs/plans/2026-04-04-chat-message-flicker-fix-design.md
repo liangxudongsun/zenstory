@@ -1,5 +1,7 @@
 # Chat message flicker fix design
 
+> 历史记录：保留当时的方案、操作和验证结论，不作为当前功能或部署状态的说明。当前入口见[仓库文档](../README.md)。
+
 ## Goal
 Reduce post-completion message-list flicker in AI chat, especially on long conversations where the user-visible message list keeps flashing after the agent finishes.
 

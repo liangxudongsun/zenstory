@@ -74,7 +74,7 @@ export function getPublicCanonicalUrl(href: string): string {
     if (isAppPath(url.pathname)) {
       return `${productionPair.appOrigin}${url.pathname}`
     }
-    if (matchesPrefix(url.pathname, siteRouting.sitePrefixes)) {
+    if (matchesPrefix(url.pathname, [...siteRouting.sitePrefixes, ...siteRouting.sharedPrefixes])) {
       return `${productionPair.siteOrigin}${url.pathname}`
     }
     return `${url.origin === pair.appOrigin ? productionPair.appOrigin : productionPair.siteOrigin}${url.pathname}`

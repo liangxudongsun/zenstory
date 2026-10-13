@@ -23,6 +23,7 @@ const previews = `${hosts([PREVIEW_SITE,PREVIEW_APP])}|.*\\.vercel\\.app`
 const prefixPattern = prefixes => `/:path((?:${prefixes.map(escapeRegex).join('|')})(?:/.*)?)`
 const appPaths = prefixPattern(contract.appPrefixes)
 const sitePaths = prefixPattern(contract.sitePrefixes)
+const sharedPaths = prefixPattern(contract.sharedPrefixes)
 /** Cookie the organization header's language switch sets (see site-shell.mjs langChoiceScript). */
 export const LANG_COOKIE = 'zs_lang'
 const redirect = (source,destination,has) => ({source,destination,permanent:true,...(has ? {has} : {})})
@@ -32,6 +33,7 @@ const internalAliases = {
   '/_app':`${APP}/`, '/_app/':`${APP}/`, '/_app/index.html':`${APP}/`, '/_app/home.html':`${APP}/`,
   '/_app/pricing.html':`${APP}/pricing`,
   '/_app/robots.txt':`${APP}/robots.txt`, '/_app/sitemap.xml':`${APP}/sitemap.xml`,
+  '/_site/docs/:path*':`${SITE}/docs/:path*`,
   '/_site/robots.txt':`${SITE}/robots.txt`, '/_site/sitemap.xml':`${SITE}/sitemap.xml`,
 }
 export const vercelConfig = {
@@ -48,6 +50,9 @@ export const vercelConfig = {
     redirect('/index.html',`${APP}/`,host(appHosts)),
     redirect('/index.html',`${SITE}/`,host(`${siteHosts}|www\\.zenstory\\.ai`)),
     redirect(`${prefixPattern(contract.sitePrefixes.filter(p=>p!=='llms.txt'))}/index.html`,`${SITE}/:path`),
+    redirect(`${sharedPaths}/index.html`,`${APP}/:path`,host('app\\.zenstory\\.ai')),
+    redirect(`${sharedPaths}/index.html`,`${PREVIEW_APP}/:path`,host('app-preview\\.zenstory\\.ai')),
+    redirect(`${sharedPaths}/index.html`,`${SITE}/:path`,host(`${siteHosts}|www\\.zenstory\\.ai`)),
     redirect(appPaths,`${APP}/:path`,host('zenstory\\.ai|www\\.zenstory\\.ai')),
     redirect(appPaths,`${PREVIEW_APP}/:path`,host('geo-preview\\.zenstory\\.ai')),
     redirect(sitePaths,`${SITE}/:path`,host('app\\.zenstory\\.ai')),
@@ -67,6 +72,7 @@ export const vercelConfig = {
     rewrite('/', '/org-home/index.html', `${siteHosts}|.*\\.vercel\\.app`),
     rewrite('/', '/_app/home.html', appHosts),
     rewrite('/pricing','/_app/pricing.html',`${appHosts}|.*\\.vercel\\.app`),
+    rewrite(sharedPaths,'/_site/:path',`${siteHosts}|.*\\.vercel\\.app`),
     ...['robots.txt','sitemap.xml'].flatMap(name=>[
       rewrite(`/${name}`,`/_app/${name}`,appHosts),
       rewrite(`/${name}`,`/_site/${name}`,`${siteHosts}|.*\\.vercel\\.app`),
@@ -193,6 +199,10 @@ export function finalizeSite(outDir) {
   writeFileSync(join(outDir,'_app/sitemap.xml'),sitemap(APP,['/','/pricing']))
   writeFileSync(join(outDir,'_site/robots.txt'),`# Public organization corpus and legacy redirects are crawlable.\nUser-agent: *\nAllow: /\nDisallow: /api\n\nSitemap: ${SITE}/sitemap.xml\n`)
   writeFileSync(join(outDir,'_app/robots.txt'),`User-agent: *\nAllow: /\nDisallow: /api\n${contract.appPrefixes.filter(p=>p!=='pricing').map(p=>`Disallow: /${p}`).join('\n')}\n\nSitemap: ${APP}/sitemap.xml\n`)
+  // Keep generated organization docs from shadowing the App's React reader.
+  for (const prefix of contract.sharedPrefixes) {
+    if (existsSync(join(outDir, prefix))) renameSync(join(outDir, prefix), join(outDir, '_site', prefix))
+  }
   renameSync(join(outDir,'index.html'),join(outDir,'_app/index.html'))
   for(const file of ['robots.txt','sitemap.xml']) rmSync(join(outDir,file),{force:true})
   for(const file of ['index.html','robots.txt','sitemap.xml']) assert.equal(existsSync(join(outDir,file)),false,`Root ${file} shadows host routing`)

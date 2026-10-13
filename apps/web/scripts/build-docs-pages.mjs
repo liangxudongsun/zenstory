@@ -17,7 +17,7 @@ import { join, resolve } from 'node:path'
 import assert from 'node:assert/strict'
 import { micromark } from 'micromark'
 import { gfm, gfmHtml } from 'micromark-extension-gfm'
-import { SITE, appHref, webRoot, esc, orgNode, localized, page } from './site-shell.mjs'
+import { SITE, webRoot, esc, orgNode, localized, page } from './site-shell.mjs'
 
 const outDir = resolve(process.argv[2] ?? join(webRoot, 'dist'))
 const docsDir = join(webRoot, 'docs')
@@ -28,7 +28,7 @@ const firstHeading = (md) => (md.match(/^#\s+(.+)$/m)?.[1] ?? '').trim()
 const firstParagraph = (md) => {
   const body = md.replace(/^#\s+.+$/m, '').trim()
   const para = body.split(/\n\s*\n/).find((p) => p && !p.startsWith('#') && !p.startsWith('|') && !p.startsWith('-') && !p.startsWith('!'))
-  return (para ?? '').replace(/\s+/g, ' ').replace(/[*_`\[\]]/g, '').slice(0, 300)
+  return (para ?? '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\s+/g, ' ').replace(/[*_`\[\]]/g, '').slice(0, 300)
 }
 
 /** Leaf docs routes, mirroring DocsPage's import.meta.glob over docs/**\/*.md (en/ is a translation, not a route). */
@@ -75,9 +75,9 @@ const sections = navigation()
  * current page (`/docs/` or `/docs/<group>/`); the English tree mirrors the
  * Chinese one, so the same resolution serves both articles. Unknown targets fail.
  */
-function resolveLinks(html, route) {
+function resolveLinks(html, route, language = 'zh') {
   const dir = route === '/docs' ? '/docs/' : route.slice(0, route.lastIndexOf('/') + 1)
-  return html.replace(/href="([^"]+)"/g, (m, href) => {
+  const resolved = html.replace(/href="([^"]+)"/g, (m, href) => {
     if (/^(?:https?:|mailto:|tel:|#|\/)/i.test(href)) return m
     const [pathPart, hash] = href.split('#')
     let target = new URL(pathPart, `https://zenstory.local${dir}`).pathname.replace(/\.md$/i, '').replace(/\/README$/, '').replace(/(.)\/$/, '$1')
@@ -87,6 +87,11 @@ function resolveLinks(html, route) {
     assert.ok(routes.has(target), `${route}: link to ${href} resolves to ${target}, which is not a docs page`)
     return `href="${target}${hash ? `#${hash}` : ''}"`
   })
+  // Keep English readers at the English article when following another docs page.
+  // Explicit anchors remain unchanged; both languages retain the same canonical URL.
+  return language === 'en'
+    ? resolved.replace(/href="((?:https:\/\/zenstory\.ai)?\/docs(?:\/[^"#]*)?)"/g, 'href="$1#en"')
+    : resolved
 }
 
 const sidebar = (route) => `
@@ -113,7 +118,7 @@ function writePage(route, zhMd, enMd) {
   // level so the page keeps a single <h1>.
   const enRendered = enMd ? render(enMd) : ''
   assert.ok(!/<h[56]\b/.test(enRendered), `${route}: the English doc uses h5/h6, which cannot move below the page h1`)
-  const enHtml = enMd ? focusable(resolveLinks(enRendered, route)).replace(/<(\/?)h([1-5])\b/g, (m, slash, level) => `<${slash}h${Number(level) + 1}`) : ''
+  const enHtml = enMd ? focusable(resolveLinks(enRendered, route, 'en')).replace(/<(\/?)h([1-5])\b/g, (m, slash, level) => `<${slash}h${Number(level) + 1}`) : ''
   const ld = [
     orgNode,
     {
@@ -130,10 +135,13 @@ function writePage(route, zhMd, enMd) {
   const body = `
 <article class="docs">
   <div class="wrap docs-grid">
-    ${sidebar(route)}
+    <aside class="docs-desktop-index">${sidebar(route)}</aside>
+    <details class="docs-mobile-index">
+      <summary>文档目录 · Contents</summary>
+      ${sidebar(route)}
+    </details>
     <div class="docs-body">
       <p class="crumbs"><a href="${localized(LANG, '/')}">ZenStory AI</a> <span aria-hidden="true">/</span> <a href="${localized(LANG, '/workbench')}">ZenStory Workbench</a> <span aria-hidden="true">/</span> <a href="/docs">工作台文档</a></p>
-      <p class="docs-note">本页是 <a href="${localized(LANG, '/workbench')}">ZenStory 工作台</a> 的产品文档；工作台在 <a href="${appHref(LANG, '/login', 'org_docs')}">app.zenstory.ai</a> 运行。${enHtml ? '<a href="#en" lang="en">English below</a>' : ''}</p>
       <section class="prose" id="zh" lang="zh-CN">${zhHtml}</section>
       ${enHtml ? `<hr class="lang">
       <section class="prose" id="en" lang="en">${enHtml}</section>` : ''}

@@ -1,5 +1,7 @@
 # Materials Paid Entitlements Implementation Plan
 
+> 历史记录：保留当时的方案、操作和验证结论，不作为当前功能或部署状态的说明。当前入口见[仓库文档](../README.md)。
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Turn Materials Library into a paid-member feature with free-user teaser access, paid-user full workspace access, and a 5-per-month material decomposition quota.

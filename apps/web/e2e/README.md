@@ -34,7 +34,7 @@ The browser suite is also split by **execution lane**:
 
 Canonical maintainer governance note:
 
-- `docs/advanced/e2e-lane-governance-2026-04.md`
+- `docs/archive/design/e2e-lane-governance-2026-04.md`
 
 | Lane | Suites | Owner role | Notes |
 |---|---|---|---|
