@@ -127,7 +127,7 @@ export const ReferralManagement: React.FC = () => {
           }}
           stateClassName="admin-surface flex items-center justify-center py-12"
         >
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 2xl:grid-cols-6">
             <StatsCard
               icon={<Link2 className="h-5 w-5" />}
               title={t("referrals.totalCodes")}

@@ -190,7 +190,18 @@ for (const viewport of viewports) {
       expect(billingBox.height).toBeGreaterThanOrEqual(44);
     }
     await page.screenshot({ path: `/tmp/zenstory-ui-audit/app-payment-${viewport.width}.png` });
-    if (await page.locator('a[href="/dashboard/inspirations"]').count() === 0) {
+    if (viewport.width < 768) {
+      await page.getByRole('button', { name: '打开菜单', exact: true }).click();
+      await expect(page.locator('#dashboard-mobile-navigation')).toBeVisible();
+    }
+    const inspirationEntry = page.locator('a[href="/dashboard/inspirations"]');
+    const hasInspirationEntry = await inspirationEntry.count() > 0;
+    if (hasInspirationEntry) await expect(inspirationEntry.first()).toBeVisible();
+    if (viewport.width < 768) {
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#dashboard-mobile-navigation')).not.toBeVisible();
+    }
+    if (!hasInspirationEntry) {
       await page.goto('/dashboard/inspirations');
       await expect(page).toHaveURL(/\/dashboard$/);
     }

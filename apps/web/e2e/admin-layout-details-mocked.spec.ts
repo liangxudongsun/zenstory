@@ -60,6 +60,37 @@ async function assertLocalContent(page: Page, label: string) {
 test.describe('Admin detailed responsive layout', () => {
   test.setTimeout(180_000);
   for (const language of ['zh', 'en']) {
+    test(`${language}: referral statistics contain complete numbers with wider system fonts`, async ({ page }) => {
+      await page.addInitScript(lang => localStorage.setItem('zenstory-language', lang), language);
+      await bootstrapAdminSession(page);
+      for (const width of [390, 768, 1024, 1280, 1536, 1920]) {
+        await page.setViewportSize({ width, height: 1024 });
+        await page.goto('/admin/referrals');
+        await expect(page.getByText('89,200', { exact: true })).toBeVisible();
+        // Arial reproduces the wider numeral metrics found on the Linux runner.
+        await page.addStyleTag({ content: '.admin-page .tabular-nums { font-family: Arial, sans-serif; }' });
+        const escaped = await page.locator('.admin-page .tabular-nums').evaluateAll(values => values.flatMap(value => {
+          const card = value.closest('[class~="rounded-xl"]')!;
+          const bounds = card.getBoundingClientRect();
+          const style = getComputedStyle(card);
+          const rect = value.getBoundingClientRect();
+          const left = bounds.left + parseFloat(style.paddingLeft);
+          const right = bounds.right - parseFloat(style.paddingRight);
+          return rect.left < left - 1 || rect.right > right + 1
+            ? [{ text: value.textContent?.trim(), left: rect.left, right: rect.right, cardLeft: left, cardRight: right }]
+            : [];
+        }));
+        expect(escaped, `${language} ${width}px referral statistic values`).toEqual([]);
+        await assertLocalContent(page, `${language} ${width}px referral statistics`);
+        const artifactDir = process.env.ADMIN_DETAIL_ARTIFACT_DIR;
+        if (artifactDir) {
+          await mkdir(artifactDir, { recursive: true });
+          await page.screenshot({ path: `${artifactDir}/${language}-${width}-referral-statistics.png` });
+        }
+      }
+    });
+  }
+  for (const language of ['zh', 'en']) {
     for (const width of [390, 768]) {
       test(`${language} ${width}px: feedback status remains fully readable next to a long identity`, async ({ page }) => {
         await page.setViewportSize({ width, height: 844 });
