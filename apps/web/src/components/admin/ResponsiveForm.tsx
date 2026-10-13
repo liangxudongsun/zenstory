@@ -22,12 +22,13 @@ interface FormFieldProps {
   required?: boolean;
   children: React.ReactNode;
   className?: string;
+  htmlFor?: string;
 }
 
-export function FormField({ label, required = false, children, className = "" }: FormFieldProps) {
+export function FormField({ label, required = false, children, className = "", htmlFor }: FormFieldProps) {
   return (
     <div className={className}>
-      <label className="mb-1 block text-sm font-medium text-[hsl(var(--text-primary))]">
+      <label htmlFor={htmlFor} className="mb-1 block text-sm font-medium text-[hsl(var(--text-primary))]">
         {label}
         {required && <span className="text-red-500 ml-1">*</span>}
       </label>
@@ -61,7 +62,7 @@ export function TouchCheckbox({
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
         disabled={disabled}
-        className="w-5 h-5 rounded border-[hsl(var(--separator-color))] text-[hsl(var(--accent-primary))] focus:ring-2 focus:ring-[hsl(var(--accent-primary))] disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-5 h-5 rounded border-[hsl(var(--separator-color))] text-[var(--admin-accent-text)] focus:ring-2 focus:ring-[hsl(var(--accent-primary))] disabled:opacity-50 disabled:cursor-not-allowed"
       />
       <span className="text-sm text-[hsl(var(--text-primary))]">{label}</span>
     </label>

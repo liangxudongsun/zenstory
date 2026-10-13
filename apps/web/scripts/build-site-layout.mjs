@@ -8,6 +8,7 @@ import { readFileSync, writeFileSync, mkdirSync, renameSync, rmSync, readdirSync
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
+import { page as sitePage, orgNode } from './site-shell.mjs'
 
 const web = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const contract = JSON.parse(readFileSync(join(web, 'content/site-routing.json'), 'utf8'))
@@ -22,6 +23,7 @@ const previews = `${hosts([PREVIEW_SITE,PREVIEW_APP])}|.*\\.vercel\\.app`
 const prefixPattern = prefixes => `/:path((?:${prefixes.map(escapeRegex).join('|')})(?:/.*)?)`
 const appPaths = prefixPattern(contract.appPrefixes)
 const sitePaths = prefixPattern(contract.sitePrefixes)
+const sharedPaths = prefixPattern(contract.sharedPrefixes)
 /** Cookie the organization header's language switch sets (see site-shell.mjs langChoiceScript). */
 export const LANG_COOKIE = 'zs_lang'
 const redirect = (source,destination,has) => ({source,destination,permanent:true,...(has ? {has} : {})})
@@ -31,6 +33,7 @@ const internalAliases = {
   '/_app':`${APP}/`, '/_app/':`${APP}/`, '/_app/index.html':`${APP}/`, '/_app/home.html':`${APP}/`,
   '/_app/pricing.html':`${APP}/pricing`,
   '/_app/robots.txt':`${APP}/robots.txt`, '/_app/sitemap.xml':`${APP}/sitemap.xml`,
+  '/_site/docs/:path*':`${SITE}/docs/:path*`,
   '/_site/robots.txt':`${SITE}/robots.txt`, '/_site/sitemap.xml':`${SITE}/sitemap.xml`,
 }
 export const vercelConfig = {
@@ -47,6 +50,9 @@ export const vercelConfig = {
     redirect('/index.html',`${APP}/`,host(appHosts)),
     redirect('/index.html',`${SITE}/`,host(`${siteHosts}|www\\.zenstory\\.ai`)),
     redirect(`${prefixPattern(contract.sitePrefixes.filter(p=>p!=='llms.txt'))}/index.html`,`${SITE}/:path`),
+    redirect(`${sharedPaths}/index.html`,`${APP}/:path`,host('app\\.zenstory\\.ai')),
+    redirect(`${sharedPaths}/index.html`,`${PREVIEW_APP}/:path`,host('app-preview\\.zenstory\\.ai')),
+    redirect(`${sharedPaths}/index.html`,`${SITE}/:path`,host(`${siteHosts}|www\\.zenstory\\.ai`)),
     redirect(appPaths,`${APP}/:path`,host('zenstory\\.ai|www\\.zenstory\\.ai')),
     redirect(appPaths,`${PREVIEW_APP}/:path`,host('geo-preview\\.zenstory\\.ai')),
     redirect(sitePaths,`${SITE}/:path`,host('app\\.zenstory\\.ai')),
@@ -66,6 +72,7 @@ export const vercelConfig = {
     rewrite('/', '/org-home/index.html', `${siteHosts}|.*\\.vercel\\.app`),
     rewrite('/', '/_app/home.html', appHosts),
     rewrite('/pricing','/_app/pricing.html',`${appHosts}|.*\\.vercel\\.app`),
+    rewrite(sharedPaths,'/_site/:path',`${siteHosts}|.*\\.vercel\\.app`),
     ...['robots.txt','sitemap.xml'].flatMap(name=>[
       rewrite(`/${name}`,`/_app/${name}`,appHosts),
       rewrite(`/${name}`,`/_site/${name}`,`${siteHosts}|.*\\.vercel\\.app`),
@@ -78,6 +85,7 @@ export const vercelConfig = {
 
 const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')
 const legalContent = JSON.parse(readFileSync(join(web, 'public/locales/en/privacy.json'), 'utf8'))
+const legalContentZh = JSON.parse(readFileSync(join(web, 'public/locales/zh/privacy.json'), 'utf8'))
 function pageHead(shell,route,origin,title) {
   return shell
     .replace(/<title>[^<]*<\/title>/,`<title>${esc(title)}</title>`)
@@ -91,20 +99,29 @@ function renderLegalValue(value, depth = 2) {
   if (!value || typeof value !== 'object') return ''
   const level = Math.min(depth, 6)
   const heading = value.title ? `<h${level}>${esc(String(value.title))}</h${level}>` : ''
-  const content = value.content ? `<p>${esc(String(value.content))}</p>` : ''
+  const content = typeof value.content === 'string' ? `<p>${esc(value.content)}</p>` : ''
   const children = Object.entries(value)
-    .filter(([key]) => !['title', 'content', 'lastUpdated'].includes(key))
+    .filter(([key, child]) => !['title', 'lastUpdated'].includes(key) && !(key === 'content' && typeof child === 'string'))
     .map(([key, child]) => typeof child === 'string' && ['note', 'email'].includes(key)
       ? `<p>${esc(child)}</p>`
-      : renderLegalValue(child, depth + 1))
+      : renderLegalValue(child, heading ? depth + 1 : depth))
     .join('')
   return `${heading}${content}${children}`
 }
-function legalPage(shell, route, title, document) {
-  const body = `<main><article><h1>${esc(String(document.title))}</h1>` +
-    (document.lastUpdated ? `<p>${esc(String(document.lastUpdated))}</p>` : '') +
-    `${renderLegalValue(document.sections)}</article></main>`
-  return pageHead(shell, route, SITE, title).replace('<div id="root"></div>', `<div id="root">${body}</div>`)
+function legalPage(route, title, document, documentZh) {
+  const article = (content, language) => `<article id="legal-${language}" lang="${language === 'zh' ? 'zh-CN' : 'en'}" class="prose article-body">
+    ${language === 'en' ? `<h2>${esc(content.title)}</h2>` : ''}
+    <p>${esc(content.lastUpdated ?? '')}</p>
+    ${renderLegalValue(content.sections, language === 'zh' ? 2 : 3)}
+  </article>`
+  return sitePage({
+    lang: 'zh', route, title, description: (document.sections.introduction ?? document.sections.acceptance).content,
+    switchLinks: { zh: '#legal-zh', en: '#legal-en' }, brandHref: `${APP}/`,
+    ogType: 'website',
+    ld: [orgNode, { '@type': 'WebPage', name: title, url: `${SITE}${route}`, inLanguage: ['zh-CN', 'en'], publisher: { '@id': orgNode['@id'] } }],
+    body: `<section class="page-hero"><div class="wrap"><h1>${esc(documentZh.title)}</h1></div></section>
+      <div class="wrap"><div class="docs-body page-body">${article(documentZh, 'zh')}${article(document, 'en')}</div></div>`,
+  })
 }
 /** English route of a site route (`/zh/x` → `/x`, `/zh` → `/`), or null when it is not a Chinese page. */
 const englishRoute=route=>route==='/zh' ? '/' : route.startsWith('/zh/') ? route.slice(3) : null
@@ -162,12 +179,12 @@ export function finalizeSite(outDir) {
   }
   walk(outDir)
   for(const name of ['_app','_site']) mkdirSync(join(outDir,name),{recursive:true})
-  for(const [route,title,document] of [
-    ['/privacy-policy','Privacy Policy — ZenStory',legalContent],
-    ['/terms-of-service','Terms of Service — ZenStory',legalContent.terms],
+  for(const [route,title,document,documentZh] of [
+    ['/privacy-policy','Privacy Policy — ZenStory',legalContent,legalContentZh],
+    ['/terms-of-service','Terms of Service — ZenStory',legalContent.terms,legalContentZh.terms],
   ]) {
     mkdirSync(join(outDir,route),{recursive:true})
-    writeFileSync(join(outDir,route,'index.html'),legalPage(shell,route,title,document))
+    writeFileSync(join(outDir,route,'index.html'),legalPage(route,title,document,documentZh))
     siteRoutes.push(route)
   }
   writeFileSync(join(outDir,'_app/home.html'),pageHead(shell,'/',APP,'ZenStory — AI 小说写作工作台'))
@@ -182,6 +199,10 @@ export function finalizeSite(outDir) {
   writeFileSync(join(outDir,'_app/sitemap.xml'),sitemap(APP,['/','/pricing']))
   writeFileSync(join(outDir,'_site/robots.txt'),`# Public organization corpus and legacy redirects are crawlable.\nUser-agent: *\nAllow: /\nDisallow: /api\n\nSitemap: ${SITE}/sitemap.xml\n`)
   writeFileSync(join(outDir,'_app/robots.txt'),`User-agent: *\nAllow: /\nDisallow: /api\n${contract.appPrefixes.filter(p=>p!=='pricing').map(p=>`Disallow: /${p}`).join('\n')}\n\nSitemap: ${APP}/sitemap.xml\n`)
+  // Keep generated organization docs from shadowing the App's React reader.
+  for (const prefix of contract.sharedPrefixes) {
+    if (existsSync(join(outDir, prefix))) renameSync(join(outDir, prefix), join(outDir, '_site', prefix))
+  }
   renameSync(join(outDir,'index.html'),join(outDir,'_app/index.html'))
   for(const file of ['robots.txt','sitemap.xml']) rmSync(join(outDir,file),{force:true})
   for(const file of ['index.html','robots.txt','sitemap.xml']) assert.equal(existsSync(join(outDir,file)),false,`Root ${file} shadows host routing`)

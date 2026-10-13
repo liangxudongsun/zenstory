@@ -21,6 +21,8 @@
     "versionHistory": "Undo edits with earlier versions"
   },
   "demo": {
+    "pause": "Pause demo",
+    "resume": "Resume demo",
     "projectName": "Project: Embers of the Skyfall",
     "autoSave": "Auto Save",
     "versionHistory": "Version History",
@@ -133,10 +135,7 @@
   },
   "footer": {
     "copyright": "© {{year}} ZenStory AI",
-    "tagline": "Put AI in your creative production line",
-    "projects": "All ZenStory AI projects",
-    "glossary": "Glossary",
-    "github": "GitHub"
+    "tagline": "Put AI in your creative production line"
   },
   "preview": {
     "projectFiles": "Project Files",
@@ -154,7 +153,7 @@
         "identity": "Identity",
         "identityValue": "Inner Disciple",
         "personality": "Personality",
-        "personalityDesc": "Cold as ice on the outside, but delicate on the inside, with complex feelings for Lin Yi...",
+        "personalityDesc": "Cold as ice on the outside, but delicate on the inside, with complex feelings for Lin Yi.",
         "secret": "Secret",
         "secretDesc": "True identity is a descendant of an ancient god clan"
       },
@@ -163,8 +162,8 @@
         "input": "Create a mysterious supporting female character for my fantasy novel",
         "response": "Great! I'll create a mysterious female supporting character.",
         "created": "Character Sheet Created",
-        "desc": "Inner disciple of Qingyun Sect, mysterious identity...",
-        "placeholder": "Enter your idea..."
+        "desc": "Inner disciple of Qingyun Sect, mysterious identity.",
+        "placeholder": "Enter your idea"
       }
     },
     "sceneSuggest": {
@@ -176,9 +175,9 @@
         "title": "AI Assistant",
         "input": "Help me write the opening of Chapter 1",
         "response": "Great! I'll write a suspenseful opening.",
-        "writing": "Writing...",
+        "writing": "Writing…",
         "action": "Describe Su Wan's appearance",
-        "placeholder": "Enter your idea..."
+        "placeholder": "Enter your idea"
       }
     },
     "sceneEdit": {
@@ -197,7 +196,7 @@
         "updatedFile": "Chapter 3 Outline",
         "newScenes": "Added 2 scenes",
         "undo": "One-click undo available",
-        "placeholder": "Enter your idea..."
+        "placeholder": "Enter your idea"
       }
     }
   },

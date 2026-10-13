@@ -73,8 +73,8 @@ export function DashboardPageHeader({
           <div>
             <div className="flex items-center gap-2">
               <h1
-                className={`font-bold text-[hsl(var(--text-primary))] ${
-                  isMobile ? "text-xl" : "text-2xl"
+                className={`font-semibold tracking-tight text-[hsl(var(--text-primary))] ${
+                  isMobile ? "text-2xl" : "text-[28px]"
                 }`}
               >
                 {title}

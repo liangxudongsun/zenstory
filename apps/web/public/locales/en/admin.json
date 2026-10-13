@@ -35,7 +35,7 @@
     }
   },
   "admin": {
-    "verifyingPermission": "Checking access...",
+    "verifyingPermission": "Checking access…",
     "insufficientPermission": "No access",
     "superuserRequired": "Only admins can open the admin panel.",
     "backToHome": "Back to Home"
@@ -210,7 +210,7 @@
     "none": "None",
     "metadata": "Metadata",
     "resources": "Resource files",
-    "loadingResources": "Loading resource files...",
+    "loadingResources": "Loading resource files…",
     "resourcesLoadFailed": "Couldn't load resource files. Please try again.",
     "resourceCount": "{{count}} resource files",
     "resourceCount_one": "{{count}} resource file",
@@ -332,7 +332,7 @@
     "editTitle": "Edit Inspiration",
     "description": "Description",
     "tags": "Tags",
-    "tagsPlaceholder": "Enter tags, separated by commas...",
+    "tagsPlaceholder": "Enter tags, separated by commas",
     "setFeatured": "Set as Featured",
     "deleteTitle": "Delete Inspiration",
     "deleteConfirm": "Delete this inspiration? This can't be undone.",
@@ -445,6 +445,7 @@
     }
   },
   "plans": {
+    "enablePlan": "Enable this plan",
     "title": "Subscription Plans",
     "subtitle": "Set prices and features for each plan",
     "monthly": "Monthly",
@@ -585,7 +586,7 @@
     "activeOnly": "Active Only",
     "inactiveOnly": "Inactive Only",
     "generateButton": "Generate Invite Code",
-    "generating": "Generating...",
+    "generating": "Generating…",
     "generateSuccess": "Invite code generated: {{code}}",
     "generateError": "Failed to generate invite code. Please try again.",
     "types": {
@@ -655,7 +656,7 @@
     "needsAttention": "Paid, not activated",
     "needsAttentionCount": "{{count}} paid orders are not activated yet",
     "sync": "Check payment and activate",
-    "syncing": "Checking...",
+    "syncing": "Checking…",
     "syncHint": "Checks this order with the payment provider. Pro is activated only if it is paid and the amount matches; clicking again never activates twice. The action is recorded in the audit log.",
     "syncFailed": "Check failed: {{reason}}",
     "syncOutcome": {

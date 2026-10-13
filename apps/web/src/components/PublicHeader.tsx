@@ -8,6 +8,7 @@ import { LanguageSwitcher } from "./LanguageSwitcher";
 import { useIsMobile } from "../hooks/useMediaQuery";
 import { buildUpgradeUrl } from "../config/upgradeExperience";
 import { getUserDisplayName } from "../lib/userDisplayName";
+import { getWorkbenchHomeUrl } from "../lib/site-domain";
 
 type HeaderVariant = "home" | "dashboard" | "auth";
 
@@ -183,15 +184,14 @@ export function PublicHeader({
       <header className="sticky top-0 z-50 h-12 bg-[hsl(var(--bg-secondary))] shadow-sm">
         <div className={`${maxWidth} mx-auto px-4 h-full flex items-center`}>
           {/* Logo - 固定左侧 */}
-          <button
-            type="button"
+          <Link
+            to={getWorkbenchHomeUrl(window.location.href)}
             className="flex min-h-[44px] min-w-[44px] items-center shrink-0 hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-primary)/0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-[hsl(var(--bg-secondary))] rounded"
-            onClick={() => navigate("/")}
             aria-label={t('common:nav.home', '返回首页')}
             title={t('common:nav.home', '返回首页')}
           >
             <Logo className="h-7 w-auto" />
-          </button>
+          </Link>
 
           {/* 产品下拉菜单 - logo 右侧 */}
           <div className="relative ml-2 md:ml-4" ref={productMenuRef}>
@@ -411,7 +411,7 @@ export function PublicHeader({
       {isMobile && showMobileMenu && (variant === "dashboard" || variant === "home") && (
         <div
           id={mobileMenuId}
-          className="md:hidden absolute top-12 left-0 right-0 bg-[hsl(var(--bg-secondary))] border-b border-[hsl(var(--separator-color))] shadow-lg z-40"
+          className="md:hidden fixed top-12 left-0 right-0 max-h-[calc(100dvh-3rem)] overflow-y-auto bg-[hsl(var(--bg-secondary))] border-b border-[hsl(var(--separator-color))] shadow-lg z-40"
         >
           <div className="flex flex-col p-2 gap-1" role="menu" aria-label={t("common:nav.mobileMenu", "移动端导航菜单")}>
             {variant === "home" && (

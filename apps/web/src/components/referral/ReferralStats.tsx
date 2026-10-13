@@ -62,7 +62,7 @@ export const ReferralStats: React.FC = () => {
       return t('rewardSources.referral');
     }
     if (source.length > 30) {
-      return source.substring(0, 30) + '...';
+      return source.substring(0, 30) + '…';
     }
     return source;
   };

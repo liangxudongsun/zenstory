@@ -239,6 +239,8 @@ test.describe('Admin moderation flows (mocked)', () => {
     });
 
     await page.goto('/admin/inspirations');
+    await expect.poll(async () => new URL(page.url()).pathname === '/admin' || await page.locator('.admin-page').count() > 0).toBe(true);
+    test.skip(new URL(page.url()).pathname === '/admin', 'The optional inspirations library is disabled in this build.');
     const row = page.locator('table tbody tr', { hasText: 'Urban Fantasy Hook' }).first();
     await expect(row).toBeVisible();
 
@@ -248,7 +250,7 @@ test.describe('Admin moderation flows (mocked)', () => {
 
     reviewPayload = null;
     await row.locator('button').nth(2).click();
-    await page.locator('.fixed.inset-0.z-50 input[type="text"]').first().fill('Urban Fantasy Hook Updated');
+    await page.getByRole('dialog').locator('input[type="text"]').first().fill('Urban Fantasy Hook Updated');
     await page.getByRole('button', { name: /保存|save|common:save/i }).click();
     await expect.poll(() => updatePayload).not.toBeNull();
     expect(updatePayload).toMatchObject({
@@ -256,7 +258,7 @@ test.describe('Admin moderation flows (mocked)', () => {
     });
 
     await row.locator('button').nth(3).click();
-    await page.locator('.fixed.inset-0.z-50').last().getByRole('button', { name: /^(删除灵感|Delete Inspiration)$/i }).click();
+    await page.getByRole('dialog').getByRole('button', { name: /^(删除灵感|Delete Inspiration)$/i }).click();
     await expect.poll(() => deleteCalled).toBe(1);
   });
 
@@ -304,6 +306,8 @@ test.describe('Admin moderation flows (mocked)', () => {
     });
 
     await page.goto('/admin/inspirations');
+    await expect.poll(async () => new URL(page.url()).pathname === '/admin' || await page.locator('.admin-page').count() > 0).toBe(true);
+    test.skip(new URL(page.url()).pathname === '/admin', 'The optional inspirations library is disabled in this build.');
     const row = page.locator('table tbody tr', { hasText: 'Needs Better Outline' }).first();
     await expect(row).toBeVisible();
 

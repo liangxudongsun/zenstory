@@ -1,3 +1,4 @@
+import { Modal } from "../../components/ui/Modal";
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
@@ -16,9 +17,9 @@ import {
 import { AdminUserLink } from "../../components/admin/AdminUserLink";
 
 const ACTION_TONE_CLASSES = {
-  create: "bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))]",
-  remove: "bg-[hsl(var(--error)/0.15)] text-[hsl(var(--error))]",
-  change: "bg-[hsl(var(--accent-primary)/0.15)] text-[hsl(var(--accent-primary))]",
+  create: "bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success-text))]",
+  remove: "bg-[hsl(var(--error)/0.15)] text-[hsl(var(--error-text))]",
+  change: "bg-[hsl(var(--accent-primary)/0.15)] text-[var(--admin-accent-text)]",
   neutral: "bg-[hsl(var(--bg-tertiary))] text-[hsl(var(--text-secondary))]",
 } as const;
 
@@ -92,123 +93,131 @@ const DetailModal: React.FC<{
   if (!log) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-[hsl(var(--bg-primary))] border border-[hsl(var(--separator-color))] rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))] shrink-0">
-          <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
-            {t("auditLogs.detailTitle")}
-          </h2>
-          <button
-            onClick={onClose}
-            className="p-2.5 hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
-          >
-            <X size={20} className="text-[hsl(var(--text-secondary))]" />
-          </button>
-        </div>
+    <Modal
+      open
+      ariaLabel={t("auditLogs.detailTitle")}
+      onClose={onClose}
+      closeOnEscape={true}
+      closeOnBackdropClick={false}
+      showCloseButton={false}
+      bodyClassName="p-0"
+      className="admin-shell rounded-xl!"
+      size="lg"
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))] shrink-0">
+        <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
+          {t("auditLogs.detailTitle")}
+        </h2>
+        <button aria-label={t("common:close")}
+          onClick={onClose}
+          className="p-2.5 hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
+        >
+          <X size={20} className="text-[hsl(var(--text-secondary))]" />
+        </button>
+      </div>
 
-        {/* Content */}
-        <div className="px-4 sm:px-6 py-4 space-y-4 overflow-y-auto flex-1">
-          {/* Basic info */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-1">
-                {t("auditLogs.admin")}
-              </label>
-              <p className="text-[hsl(var(--text-primary))]">{log.admin_name}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-1">
-                {t("auditLogs.timestamp")}
-              </label>
-              <p className="text-[hsl(var(--text-primary))]">{formatDate(log.created_at)}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-1">
-                {t("auditLogs.action")}
-              </label>
-              <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${getActionColor(log.action)}`}>
-                {auditActionLabel(t, log.action)}
-              </span>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-1">
-                {t("auditLogs.resourceType")}
-              </label>
-              <p className="text-[hsl(var(--text-primary))]">{auditResourceLabel(t, log.resource_type)}</p>
-            </div>
-          </div>
-
-          {/* Resource ID */}
+      {/* Content */}
+      <div tabIndex={0} className="px-4 sm:px-6 py-4 space-y-4 overflow-y-auto flex-1">
+        {/* Basic info */}
+        <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-1">
-              {t("auditLogs.resourceId")}
+              {t("auditLogs.admin")}
             </label>
-            <p className="font-mono text-sm text-[hsl(var(--text-primary))] bg-[hsl(var(--bg-secondary))] px-3 py-2 rounded">
-              <ResourceIdCell log={log} />
+            <p className="text-[hsl(var(--text-primary))]">{log.admin_name}</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-1">
+              {t("auditLogs.timestamp")}
+            </label>
+            <p className="text-[hsl(var(--text-primary))]">{formatDate(log.created_at)}</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-1">
+              {t("auditLogs.action")}
+            </label>
+            <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${getActionColor(log.action)}`}>
+              {auditActionLabel(t, log.action)}
+            </span>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-1">
+              {t("auditLogs.resourceType")}
+            </label>
+            <p className="text-[hsl(var(--text-primary))]">{auditResourceLabel(t, log.resource_type)}</p>
+          </div>
+        </div>
+
+        {/* Resource ID */}
+        <div>
+          <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-1">
+            {t("auditLogs.resourceId")}
+          </label>
+          <p className="font-mono text-sm text-[hsl(var(--text-primary))] bg-[hsl(var(--bg-secondary))] px-3 py-2 rounded">
+            <ResourceIdCell log={log} />
+          </p>
+        </div>
+
+        {/* Old Value */}
+        {log.old_value && Object.keys(log.old_value).length > 0 && (
+          <div>
+            <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-1">
+              {t("auditLogs.oldValue")}
+            </label>
+            <pre className="text-sm text-[hsl(var(--text-primary))] bg-[hsl(var(--bg-secondary))] px-3 py-2 rounded overflow-x-auto whitespace-pre-wrap break-words">
+              {JSON.stringify(log.old_value, null, 2)}
+            </pre>
+          </div>
+        )}
+
+        {/* New Value */}
+        {log.new_value && Object.keys(log.new_value).length > 0 && (
+          <div>
+            <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-1">
+              {t("auditLogs.newValue")}
+            </label>
+            <pre className="text-sm text-[hsl(var(--text-primary))] bg-[hsl(var(--bg-secondary))] px-3 py-2 rounded overflow-x-auto whitespace-pre-wrap break-words">
+              {JSON.stringify(log.new_value, null, 2)}
+            </pre>
+          </div>
+        )}
+
+        {/* Details (fallback) */}
+        {log.details && !log.old_value && !log.new_value && (
+          <div>
+            <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-1">
+              {t("auditLogs.details")}
+            </label>
+            <p className="text-sm text-[hsl(var(--text-primary))] bg-[hsl(var(--bg-secondary))] px-3 py-2 rounded">
+              {log.details}
             </p>
           </div>
+        )}
 
-          {/* Old Value */}
-          {log.old_value && Object.keys(log.old_value).length > 0 && (
-            <div>
-              <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-1">
-                {t("auditLogs.oldValue")}
-              </label>
-              <pre className="text-sm text-[hsl(var(--text-primary))] bg-[hsl(var(--bg-secondary))] px-3 py-2 rounded overflow-x-auto whitespace-pre-wrap break-words">
-                {JSON.stringify(log.old_value, null, 2)}
-              </pre>
-            </div>
-          )}
-
-          {/* New Value */}
-          {log.new_value && Object.keys(log.new_value).length > 0 && (
-            <div>
-              <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-1">
-                {t("auditLogs.newValue")}
-              </label>
-              <pre className="text-sm text-[hsl(var(--text-primary))] bg-[hsl(var(--bg-secondary))] px-3 py-2 rounded overflow-x-auto whitespace-pre-wrap break-words">
-                {JSON.stringify(log.new_value, null, 2)}
-              </pre>
-            </div>
-          )}
-
-          {/* Details (fallback) */}
-          {log.details && !log.old_value && !log.new_value && (
-            <div>
-              <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-1">
-                {t("auditLogs.details")}
-              </label>
-              <p className="text-sm text-[hsl(var(--text-primary))] bg-[hsl(var(--bg-secondary))] px-3 py-2 rounded">
-                {log.details}
-              </p>
-            </div>
-          )}
-
-          {/* IP Address */}
-          {log.ip_address && (
-            <div>
-              <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-1">
-                {t("auditLogs.ipAddress")}
-              </label>
-              <p className="font-mono text-sm text-[hsl(var(--text-primary))] bg-[hsl(var(--bg-secondary))] px-3 py-2 rounded">
-                {log.ip_address}
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex justify-end px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))] shrink-0">
-          <button
-            onClick={onClose}
-            className="px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm"
-          >
-            {t("common:close")}
-          </button>
-        </div>
+        {/* IP Address */}
+        {log.ip_address && (
+          <div>
+            <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-1">
+              {t("auditLogs.ipAddress")}
+            </label>
+            <p className="font-mono text-sm text-[hsl(var(--text-primary))] bg-[hsl(var(--bg-secondary))] px-3 py-2 rounded">
+              {log.ip_address}
+            </p>
+          </div>
+        )}
       </div>
-    </div>
+
+      {/* Footer */}
+      <div className="flex justify-end px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))] shrink-0">
+        <button
+          onClick={onClose}
+          className="px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm"
+        >
+          {t("common:close")}
+        </button>
+      </div>
+    </Modal>
   );
 };
 

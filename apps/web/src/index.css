@@ -13,18 +13,18 @@
     --font-mono: "Fira Code", "JetBrains Mono", Consolas, Monaco, monospace;
 
     /* Theme variables (set by ThemeContext) */
-    --bg-primary: 30 10% 11%; /* #1e1e1e - Main background */
-    --bg-secondary: 30 10% 16%; /* #252526 - Sidebar/header */
-    --bg-tertiary: 30 10% 20%; /* #2d2d2d - Hover state */
-    --bg-card: 30 10% 18%; /* #2e2e2e - Card background */
+    --bg-primary: 225 14% 9%;
+    --bg-secondary: 225 12% 12%;
+    --bg-tertiary: 225 10% 17%;
+    --bg-card: 225 12% 12%;
 
-    --text-primary: 0 0% 88%; /* #e0e0e0 - Primary text */
-    --text-secondary: 0 0% 58%; /* #949494 - Secondary text (WCAG AA: 5.12:1) */
+    --text-primary: 220 15% 93%;
+    --text-secondary: 220 8% 68%;
     --text-tertiary: var(--text-secondary); /* Alias: low-emphasis body text */
 
-    --border-color: 0 0% 100% / 0.06; /* Subtle white overlay border */
+    --border-color: 220 10% 23%;
     --border-primary: var(--border-color); /* Alias: primary border token */
-    --separator-color: 0 0% 100% / 0.04; /* Panel separators (barely visible) */
+    --separator-color: 220 10% 19%;
     --border-subtle: 0 0% 100% / 0.03; /* Very subtle borders */
 
     /* 主色调：深沉典雅的墨蓝 - 更有文学气质 */
@@ -62,8 +62,8 @@
     /* NOTE: keep these as raw HSL parts (no nested hsl()) */
     --foreground: var(--text-primary);
     --foreground-muted: var(--text-secondary);
-    --foreground-subtle: 0 0% 80%; /* #cccccc - Label text */
-    --foreground-faint: 0 0% 67%; /* #aaaaaa - Auxiliary text */
+    --foreground-subtle: var(--text-primary); /* #cccccc - Label text */
+    --foreground-faint: var(--text-secondary); /* #aaaaaa - Auxiliary text */
 
     /* Border colors */
     --border: var(--border-color);
@@ -81,11 +81,17 @@
     --success-dark: var(--success); /* Alias: success hover token */
     --warning: 43 96% 56%; /* #fbbf24 - Warning */
     --error: 0 91% 71%; /* #f87171 - Error/destructive */
+    --danger-solid: 0 72% 42%;
+    --danger-hover: 0 72% 36%;
+    --success-solid: 142 72% 27%;
     /* Small status text (badges) on a 15% tint of its own color: AA contrast in both themes */
     --success-text: var(--success-light);
     --warning-text: var(--warning);
     --error-text: var(--error);
     --info: 220 65% 50%; /* 墨蓝 - Info (same as accent-primary) */
+    --info-text: 220 75% 75%;
+    --purple-text: 270 60% 75%;
+    --cyan-text: 180 60% 65%;
     --info-light: 220 65% 60%; /* 墨蓝浅色 - Info light */
     --purple: 270 60% 60%; /* #9966e8 - Purple */
     --purple-light: 270 60% 65%; /* #a678f0 - Purple light */
@@ -137,19 +143,22 @@
     --radius-full: 9999px; /* fully rounded - pills, avatars */
 }
 
+:root.dark { color-scheme: dark; }
+
 /* Light theme */
 :root.light {
-    --bg-primary: 210 20% 98%; /* #fafafa */
-    --bg-secondary: 210 20% 96%; /* #f5f5f5 */
-    --bg-tertiary: 210 20% 94%; /* #f0f0f0 */
+    color-scheme: light;
+    --bg-primary: 220 18% 98%;
+    --bg-secondary: 0 0% 100%;
+    --bg-tertiary: 220 16% 96%;
     --bg-card: 0 0% 100%; /* #ffffff */
 
-    --text-primary: 210 15% 15%; /* #262626 */
-    --text-secondary: 210 15% 40%; /* #5c7280 - Secondary text (WCAG AA: 5.21:1) */
-    --foreground-subtle: 210 15% 30%; /* #414d58 - 深色的 #cccccc 在浅底上看不清（版本历史标签、次要按钮）；在 8% 叠底上仍过 WCAG AA */
+    --text-primary: 225 18% 16%;
+    --text-secondary: 220 9% 42%;
+    --foreground-subtle: 225 18% 30%;
 
-    --border-color: 210 15% 0% / 0.08; /* Subtle dark overlay border */
-    --separator-color: 210 15% 0% / 0.05; /* Panel separators */
+    --border-color: 220 14% 90%;
+    --separator-color: 220 14% 93%; /* Panel separators */
     --border-subtle: 210 15% 0% / 0.03; /* Very subtle borders */
 
     /* 浅色主题下主色调调整 */
@@ -163,7 +172,7 @@
     --accent-secondary-light: 38 85% 65%; /* 琥珀金浅色 */
 
     --selection: 220 65% 90%; /* 墨蓝浅色选中 */
-    --scrollbar-track: 210 20% 96%; /* #f5f5f5 */
+    --scrollbar-track: 210 20% 96%;
     --scrollbar-thumb: 210 15% 75%; /* #5a5a5a */
 
     --result-bg: 142 71% 94%; /* #f0fdf4 */
@@ -172,7 +181,10 @@
     /* Status text on light tints: the dark-theme hues are ~1.6–2.5:1 on near-white */
     --success-text: 142 72% 27%; /* #137333 */
     --warning-text: 30 90% 30%; /* #924a08 */
-    --error-text: 0 72% 42%; /* #b91d1d */
+    --error-text: 0 72% 42%;
+    --info-text: 220 65% 38%;
+    --purple-text: 270 60% 38%;
+    --cyan-text: 180 65% 23%; /* #b91d1d */
     --user-message-bg: 220 47% 94%; /* 墨蓝浅色背景 - Lighter user message */
 
     --ref-tag-bg: 220 40% 96%; /* 墨蓝标签背景 */
@@ -237,6 +249,7 @@
    ======================================== */
 
 /* Remove default focus outline for mouse users */
+@layer base {
 :focus:not(:focus-visible) {
     outline: none;
 }
@@ -293,9 +306,36 @@ textarea:focus-visible,
     outline: 2px solid hsl(var(--accent-primary));
     outline-offset: 2px;
 }
+}
 
-* {
-    border-color: hsl(var(--border-color));
+/* Public pages need readable small labels and white-on-blue actions, even
+   when ThemeProvider supplies the lighter workbench accent inline. */
+.public-page {
+    --text-tertiary: var(--text-secondary);
+    --primary: var(--accent-primary);
+    --primary-hover: var(--accent-dark);
+}
+
+.light .public-page {
+    --text-secondary: 210 15% 38%;
+    --accent-primary: 217 75% 44%;
+    --accent-dark: 217 75% 38%;
+    --purple-light: 270 55% 40%;
+}
+
+.dark .public-page {
+    --text-secondary: 0 0% 70%;
+    --accent-primary: 217 85% 72%;
+    --accent-dark: 217 75% 64%;
+    --primary-foreground: var(--bg-primary);
+}
+
+.dark .public-page .text-white {
+    color: hsl(var(--bg-primary));
+}
+
+@layer base {
+    * { border-color: hsl(var(--border-color)); }
 }
 
 * {
@@ -328,10 +368,13 @@ html {
         font-family: var(--font-display);
     }
 
-    /* Control surfaces (dashboard pages, settings, dialogs): only the page H1 stays serif.
-       Section, card and dialog titles are labels for controls and use the UI sans. */
-    .ui-sans-headings :is(h2, h3, h4, h5, h6),
-    .ui-sans-headings:is(h2, h3, h4, h5, h6) {
+    /* Control surfaces use UI sans; manuscript headings below keep their reading font. */
+    .ui-sans-headings :is(h1, h2, h3, h4, h5, h6),
+    .ui-sans-headings:is(h1, h2, h3, h4, h5, h6) {
+        font-family: var(--font-sans);
+    }
+
+    .public-page :is(h1, h2, h3) {
         font-family: var(--font-sans);
     }
 
@@ -385,6 +428,62 @@ code, pre, .font-mono {
    ======================================== */
 
 @layer components {
+    .dashboard-shell {
+        color: hsl(var(--text-primary));
+    }
+
+    .dashboard-shell nav a {
+        border: 0;
+    }
+
+    .dashboard-start {
+        max-width: 900px;
+        margin-inline: auto;
+        padding-top: 12px;
+    }
+
+    .dashboard-composer {
+        background: hsl(var(--bg-secondary));
+        border: 1px solid hsl(var(--border-color));
+        border-radius: 20px;
+        padding: 20px;
+        box-shadow: 0 2px 8px hsl(0 0% 0% / 0.025);
+        transition: border-color 150ms, box-shadow 150ms;
+    }
+
+    .dashboard-composer:focus-within {
+        border-color: hsl(var(--accent-primary) / 0.6);
+        box-shadow: 0 0 0 3px hsl(var(--accent-primary) / 0.12);
+    }
+
+    .dashboard-idea {
+        display: block;
+        min-height: 136px;
+        padding: 4px;
+        border: 0;
+    }
+
+    .dashboard-idea:focus {
+        outline: none;
+    }
+
+    .dashboard-composer-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding-top: 12px;
+        border-top: 1px solid hsl(var(--separator-color));
+    }
+
+    @media (max-width: 767px) {
+        .dashboard-start { padding-top: 0; }
+        .dashboard-composer { padding: 16px; border-radius: 16px; }
+        .dashboard-idea { min-height: 168px; }
+        .dashboard-composer-footer { flex-wrap: wrap; }
+        .dashboard-create-action { width: 100%; }
+    }
+
     /* Button base */
     .btn,
     .btn-primary,
@@ -404,27 +503,28 @@ code, pre, .font-mono {
     }
 
     .btn-secondary {
-        background-color: hsl(var(--border));
-        color: hsl(var(--foreground-subtle));
+        background-color: hsl(var(--bg-secondary));
+        border: 1px solid hsl(var(--border-color));
+        color: hsl(var(--text-primary));
     }
     .btn-secondary:hover:not(:disabled) {
-        background-color: hsl(var(--border-hover));
+        background-color: hsl(var(--bg-tertiary));
     }
 
     .btn-success {
-        background-color: hsl(var(--success));
+        background-color: hsl(var(--success-solid));
         color: hsl(var(--primary-foreground));
     }
     .btn-success:hover:not(:disabled) {
-        background-color: hsl(142 71% 40%);
+        background-color: color-mix(in srgb, hsl(var(--success-solid)) 85%, #000);
     }
 
     .btn-danger {
-        background-color: hsl(var(--error));
+        background-color: hsl(var(--danger-solid));
         color: hsl(var(--primary-foreground));
     }
     .btn-danger:hover:not(:disabled) {
-        background-color: hsl(0 91% 65%);
+        background-color: hsl(var(--danger-hover));
     }
 
     .btn-ghost {
@@ -461,11 +561,11 @@ code, pre, .font-mono {
 
     /* Input */
     .input {
-        background-color: hsl(var(--bg-primary));
+        background-color: hsl(var(--bg-secondary));
         border: 1px solid hsl(var(--border-color));
-        @apply rounded-lg px-3 py-2 text-sm outline-none transition-all w-full;
+        @apply rounded-xl px-3 py-2 text-sm outline-none transition-all w-full;
         color: hsl(var(--foreground));
-        box-shadow: inset 0 1px 2px hsl(0 0% 0% / 0.1);
+        box-shadow: none;
     }
     .input::placeholder {
         color: hsl(var(--foreground-muted));
@@ -475,26 +575,50 @@ code, pre, .font-mono {
     }
     .input:focus {
         border-color: hsl(var(--accent-primary) / 0.5);
-        box-shadow: inset 0 1px 2px hsl(0 0% 0% / 0.1), 0 0 0 2px hsl(var(--accent-primary) / 0.15);
+        box-shadow: 0 0 0 3px hsl(var(--accent-primary) / 0.12);
     }
 
     /* Textarea */
     .textarea {
-        background-color: hsl(var(--bg-tertiary));
-        border: 1px solid transparent;
-        @apply rounded-lg px-3 py-2 text-sm outline-none transition-all w-full resize-none;
+        background-color: hsl(var(--bg-secondary));
+        border: 1px solid hsl(var(--border-color));
+        @apply rounded-xl px-3 py-2 text-sm outline-none transition-all w-full resize-none;
         color: hsl(var(--foreground));
-        box-shadow: inset 0 1px 2px hsl(0 0% 0% / 0.1);
+        box-shadow: none;
     }
     .textarea::placeholder {
         color: hsl(var(--foreground-muted));
     }
     .textarea:focus {
         border-color: hsl(var(--accent-primary) / 0.5);
-        box-shadow: inset 0 1px 2px hsl(0 0% 0% / 0.1), 0 0 0 2px hsl(var(--accent-primary) / 0.15);
+        box-shadow: 0 0 0 3px hsl(var(--accent-primary) / 0.12);
     }
 
     /* Admin primitives */
+    .admin-shell {
+        --text-secondary: 0 0% 65%;
+        --text-tertiary: var(--text-secondary);
+        --admin-accent-text: hsl(var(--accent-light));
+    }
+
+    .light .admin-shell {
+        --text-secondary: 215 20% 40%;
+        --admin-accent-text: color-mix(in srgb, hsl(var(--accent-dark)) 85%, #000);
+    }
+
+    .admin-shell :is(button.btn-primary, button[class*="bg-[hsl(var(--accent-primary))]"]) {
+        background-color: hsl(var(--primary)) !important;
+    }
+
+    .admin-shell :is(button.btn-danger, button[class*="bg-[hsl(var(--error))]"]) {
+        background-color: hsl(var(--danger-solid)) !important;
+    }
+
+    .admin-shell button[class~="p-2.5"] {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
     .admin-page {
         @apply mx-auto w-full space-y-6;
         max-width: 1280px;
@@ -506,6 +630,7 @@ code, pre, .font-mono {
 
     .admin-page-title {
         @apply text-xl font-semibold tracking-tight sm:text-2xl;
+        font-family: var(--font-sans);
         color: hsl(var(--text-primary));
     }
 
@@ -516,10 +641,10 @@ code, pre, .font-mono {
 
     .admin-surface,
     .admin-table-shell {
-        @apply rounded-xl border;
-        border-color: hsl(var(--separator-color));
+        @apply rounded-2xl border;
+        border-color: hsl(var(--border-color));
         background-color: hsl(var(--bg-secondary));
-        box-shadow: 0 1px 2px hsl(0 0% 0% / 0.08), 0 8px 20px hsl(0 0% 0% / 0.08);
+        box-shadow: 0 1px 2px hsl(0 0% 0% / 0.05);
     }
 
     .admin-surface {
@@ -528,6 +653,23 @@ code, pre, .font-mono {
 
     .admin-table-shell {
         overflow: hidden;
+    }
+
+    .admin-table-shell th {
+        white-space: nowrap;
+    }
+
+    .admin-table-shell td > span[class*="rounded"] {
+        display: inline-flex;
+        white-space: nowrap;
+    }
+
+    @media (max-width: 767px) {
+        .admin-shell input:not([type="checkbox"]):not([type="radio"]),
+        .admin-shell select,
+        .admin-shell textarea {
+            font-size: 16px !important;
+        }
     }
 
     /* Range Input */

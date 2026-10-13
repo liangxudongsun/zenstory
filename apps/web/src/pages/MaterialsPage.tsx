@@ -576,7 +576,7 @@ export default function MaterialsPage() {
                     })}
               </p>
               {isMaterialsQuotaExhausted && (
-                <p className="mt-2 text-sm text-[hsl(var(--warning))]">
+                <p className="mt-2 text-sm text-[hsl(var(--warning-text))]">
                   {exhaustedMessage}
                 </p>
               )}
@@ -627,7 +627,7 @@ export default function MaterialsPage() {
                     })}
               </p>
               {isMaterialsQuotaExhausted && (
-                <p className="mt-2 text-sm text-[hsl(var(--warning))]">
+                <p className="mt-2 text-sm text-[hsl(var(--warning-text))]">
                   {exhaustedMessage}
                 </p>
               )}
@@ -783,7 +783,7 @@ export default function MaterialsPage() {
         {/* Error Message */}
         {error && (
           <div className="mt-4 p-3 rounded-lg bg-[hsl(var(--error)/0.1)] border border-[hsl(var(--error)/0.3)]">
-            <p className="text-sm text-[hsl(var(--error))]">{error}</p>
+            <p className="text-sm text-[hsl(var(--error-text))]">{error}</p>
           </div>
         )}
       </Modal>
@@ -847,13 +847,13 @@ function MaterialCard({
   const getStatusIcon = () => {
     switch (material.status) {
       case "completed":
-        return <CheckCircle className="w-4 h-4 text-[hsl(var(--success))]" />;
+        return <CheckCircle className="w-4 h-4 text-[hsl(var(--success-text))]" />;
       case "completed_with_errors":
-        return <AlertCircle className="w-4 h-4 text-[hsl(var(--warning))]" />;
+        return <AlertCircle className="w-4 h-4 text-[hsl(var(--warning-text))]" />;
       case "processing":
-        return <RefreshCw className="w-4 h-4 text-[hsl(var(--info))] animate-spin" />;
+        return <RefreshCw className="w-4 h-4 text-[hsl(var(--info-text))] animate-spin" />;
       case "failed":
-        return <AlertCircle className="w-4 h-4 text-[hsl(var(--error))]" />;
+        return <AlertCircle className="w-4 h-4 text-[hsl(var(--error-text))]" />;
       default:
         return <Clock className="w-4 h-4 text-[hsl(var(--text-tertiary))]" />;
     }
@@ -879,13 +879,13 @@ function MaterialCard({
   const getStatusColor = () => {
     switch (material.status) {
       case "completed":
-        return "text-[hsl(var(--success))] bg-[hsl(var(--success)/0.1)]";
+        return "text-[hsl(var(--success-text))] bg-[hsl(var(--success)/0.1)]";
       case "completed_with_errors":
-        return "text-[hsl(var(--warning))] bg-[hsl(var(--warning)/0.1)]";
+        return "text-[hsl(var(--warning-text))] bg-[hsl(var(--warning)/0.1)]";
       case "processing":
-        return "text-[hsl(var(--info))] bg-[hsl(var(--info)/0.1)]";
+        return "text-[hsl(var(--info-text))] bg-[hsl(var(--info)/0.1)]";
       case "failed":
-        return "text-[hsl(var(--error))] bg-[hsl(var(--error)/0.1)]";
+        return "text-[hsl(var(--error-text))] bg-[hsl(var(--error)/0.1)]";
       default:
         return "text-[hsl(var(--text-tertiary))] bg-[hsl(var(--bg-tertiary))]";
     }
@@ -893,7 +893,7 @@ function MaterialCard({
 
   return (
     <div
-      className={`group relative bg-[hsl(var(--bg-secondary))] rounded-xl border border-[hsl(var(--border-color))] hover:border-[hsl(var(--accent-primary)/0.3)] hover:shadow-lg transition-all ${isMobile ? "p-3" : "p-4"}`}
+      className={`group relative bg-[hsl(var(--bg-secondary))] rounded-2xl border border-[hsl(var(--border-color))] hover:border-[hsl(var(--accent-primary)/0.3)] transition-colors ${isMobile ? "p-3" : "p-4"}`}
     >
       <div
         role="button"
@@ -941,7 +941,7 @@ function MaterialCard({
 
         {/* Error Message */}
         {(material.status === "failed" || material.status === "completed_with_errors") && material.error_message && (
-          <p className="text-xs text-[hsl(var(--error))] mt-2 line-clamp-2">
+          <p className="text-xs text-[hsl(var(--error-text))] mt-2 line-clamp-2">
             {materialJobErrorText(material.error_message)}
           </p>
         )}

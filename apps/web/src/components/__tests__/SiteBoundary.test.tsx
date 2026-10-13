@@ -52,6 +52,13 @@ describe('SiteBoundary', () => {
     expect(replace).not.toHaveBeenCalled()
   })
 
+  it.each(['https://app.zenstory.ai', 'https://app-preview.zenstory.ai'])('keeps the App docs reader on %s', origin => {
+    const replace = vi.fn()
+    renderBoundary(`${origin}/docs/user-guide/editor`, replace, <div>App documentation reader</div>)
+    expect(screen.getByText('App documentation reader')).toBeInTheDocument()
+    expect(replace).not.toHaveBeenCalled()
+  })
+
   it('intercepts a hydrated apex Link to the static root before the SPA router handles it', () => {
     const replace = vi.fn()
     renderBoundary(

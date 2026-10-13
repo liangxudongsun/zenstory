@@ -70,7 +70,7 @@ async function openProjectSwitcher(page: Page): Promise<{
   await trigger.click()
 
   const searchInput = page
-    .locator('input[placeholder="搜索项目..."], input[placeholder="Search projects..."]')
+    .locator('input[placeholder="搜索项目"], input[placeholder="Search projects"]')
     .first()
   await expect(searchInput).toBeVisible({ timeout: 5000 })
 

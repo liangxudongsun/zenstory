@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate, useLocation, Outlet } from "react-router-dom";
+import { useNavigate, useLocation, Outlet, Link } from "react-router-dom";
 import {
   Home, LogOut, Menu, X, Zap, Library, FolderOpen, Compass
 } from "../components/icons";
@@ -68,14 +68,18 @@ const NAV_ITEMS = [
 const SEGMENT_CLASS =
   "inline-flex h-7 min-w-7 items-center justify-center px-2 rounded text-xs transition-colors";
 
-/** Same selected state as the sidebar navigation (blue 15% background, blue text). */
-const NAV_ACTIVE_CLASS = "bg-[hsl(var(--accent-primary)/0.15)] text-[hsl(var(--accent-primary))]";
+/** The selected destination gets a pale tint in the chosen accent hue. */
+const NAV_ACTIVE_CLASS = "bg-[hsl(var(--accent-primary)/0.08)] text-[hsl(var(--accent-primary))]";
 
 // Inner Dashboard component that uses mobile context
 function DashboardContent() {
   const { t, i18n } = useTranslation(['dashboard', 'settings']);
   const navigate = useNavigate();
   const location = useLocation();
+  const mainRef = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    if (mainRef.current) mainRef.current.scrollTop = 0;
+  }, [location.pathname]);
   const { user, logout } = useAuth();
   const displayName = getUserDisplayName(user);
   const { theme, setTheme } = useTheme();
@@ -132,12 +136,6 @@ function DashboardContent() {
     setShowUserPanel(false);
     setShowMobileMenu(false);
     navigate("/");
-  };
-
-  const handleNavItemClick = (item: typeof NAV_ITEMS[0]) => {
-    navigate(item.path);
-    setShowMobileMenu(false);
-    setShowUserPanel(false);
   };
 
   const handleThemeSwitch = (nextTheme: 'dark' | 'light') => {
@@ -197,7 +195,7 @@ function DashboardContent() {
     if (!showMobileMenu) return;
 
     const menuTrigger = mobileMenuTriggerRef.current;
-    mobileMenuRef.current?.querySelector<HTMLElement>('button')?.focus();
+    mobileMenuRef.current?.querySelector<HTMLElement>('[aria-current="page"]')?.focus();
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setShowMobileMenu(false);
     };
@@ -373,21 +371,24 @@ function DashboardContent() {
   );
 
   return (
-    <div className="h-dvh min-h-0 overflow-hidden bg-[hsl(var(--bg-primary))] flex">
+    <div className="dashboard-shell h-dvh min-h-0 overflow-hidden bg-[hsl(var(--bg-primary))] flex">
       {/* Tablet: Collapsed Sidebar (icons only) */}
       {isTablet && (
         <aside className="w-20 flex-shrink-0 bg-[hsl(var(--bg-secondary))] border-r border-[hsl(var(--border-color))] flex flex-col h-full min-h-0 z-40">
           {/* Logo */}
-          <div className="h-12 flex items-center justify-center border-b border-[hsl(var(--border-color))]">
+          <div className="h-16 flex items-center justify-center">
             <LogoMark className="w-7 h-7" />
           </div>
 
           {/* Navigation */}
           <nav className="flex-1 p-2 space-y-1">
             {navItems.map((item) => (
-              <button
+              <Link
                 key={item.id}
-                onClick={() => handleNavItemClick(item)}
+                to={item.path}
+                aria-label={t(item.labelKey)}
+                aria-current={activeNav === item.id ? "page" : undefined}
+                onClick={() => { setShowMobileMenu(false); setShowUserPanel(false); }}
                 className={`w-full flex items-center justify-center gap-2 px-2 py-3 rounded-lg transition-all touch-target ${
                   activeNav === item.id
                     ? NAV_ACTIVE_CLASS
@@ -396,7 +397,7 @@ function DashboardContent() {
                 title={t(item.labelKey)}
               >
                 <item.icon className="w-5 h-5" />
-              </button>
+              </Link>
             ))}
 
           </nav>
@@ -431,18 +432,21 @@ function DashboardContent() {
 
       {/* Desktop: Full Sidebar */}
       {isDesktop && (
-        <aside className="w-56 flex-shrink-0 bg-[hsl(var(--bg-secondary))] border-r border-[hsl(var(--border-color))] flex flex-col h-full min-h-0 z-40">
+        <aside className="w-60 flex-shrink-0 bg-[hsl(var(--bg-secondary))] border-r border-[hsl(var(--border-color))] flex flex-col h-full min-h-0 z-40">
           {/* Logo */}
-          <div className="h-12 px-4 flex items-center border-b border-[hsl(var(--border-color))]">
-            <Logo className="h-7 w-auto" />
+          <div className="h-16 px-5 flex items-center">
+            <Logo className="h-8 w-auto" />
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 p-3 space-y-1">
+          <nav className="flex-1 px-3 py-4 space-y-1">
             {navItems.map((item) => (
-              <button
+              <Link
                 key={item.id}
-                onClick={() => handleNavItemClick(item)}
+                to={item.path}
+                aria-label={t(item.labelKey)}
+                aria-current={activeNav === item.id ? "page" : undefined}
+                onClick={() => { setShowMobileMenu(false); setShowUserPanel(false); }}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                   activeNav === item.id
                     ? NAV_ACTIVE_CLASS
@@ -451,7 +455,7 @@ function DashboardContent() {
               >
                 <item.icon className="w-4 h-4" />
                 {t(item.labelKey)}
-              </button>
+              </Link>
             ))}
 
           </nav>
@@ -462,7 +466,7 @@ function DashboardContent() {
             ref={userPanelTriggerRef}
             onClick={() => setShowUserPanel((prev) => !prev)}
             data-testid="dashboard-user-panel-toggle"
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-xl border border-transparent hover:border-[hsl(var(--border-color))] hover:bg-[hsl(var(--bg-tertiary)/0.45)] transition-all"
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-xl border-transparent! border hover:bg-[hsl(var(--bg-tertiary)/0.45)] transition-all"
             title={openUserPanelLabel}
             aria-label={openUserPanelLabel}
           >
@@ -487,7 +491,7 @@ function DashboardContent() {
       )}
 
       {/* Main Content */}
-      <main className="ui-sans-headings flex-1 min-w-0 min-h-0 overflow-auto" style={{ contain: 'layout style paint', scrollbarGutter: 'stable' }}>
+      <main ref={mainRef} className={`ui-sans-headings flex-1 min-w-0 min-h-0 ${isMobile && showMobileMenu ? "overflow-hidden" : "overflow-auto"}`} style={{ scrollbarGutter: 'stable' }}>
         {/* Mobile Header */}
         {isMobile && (
           <header className="h-12 bg-[hsl(var(--bg-secondary))] flex items-center px-4 justify-between shrink-0 shadow-sm sticky top-0 z-30">
@@ -520,19 +524,17 @@ function DashboardContent() {
             ref={mobileMenuRef}
             id="dashboard-mobile-navigation"
             aria-label={t('common:nav.mobileMenu')}
-            className="absolute top-12 left-0 right-0 bg-[hsl(var(--bg-secondary))] border-b border-[hsl(var(--separator-color))] shadow-lg z-40"
+            className="fixed top-12 left-0 right-0 max-h-[calc(100dvh-48px)] overflow-y-auto bg-[hsl(var(--bg-secondary))] border-b border-[hsl(var(--separator-color))] shadow-lg z-40"
           >
             <div className="flex flex-col p-2 gap-1">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeNav === item.id;
                 return (
-                  <button
+                  <Link
                     key={item.id}
-                    onClick={() => {
-                      handleNavItemClick(item);
-                      setShowMobileMenu(false);
-                    }}
+                    to={item.path}
+                    onClick={() => { setShowMobileMenu(false); setShowUserPanel(false); }}
                     aria-current={isActive ? "page" : undefined}
                     data-testid={`dashboard-mobile-nav-${item.id}`}
                     className={`flex min-h-11 items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-left ${
@@ -543,7 +545,7 @@ function DashboardContent() {
                   >
                     <Icon size={18} />
                     {t(item.labelKey)}
-                  </button>
+                  </Link>
                 );
               })}
 
@@ -637,7 +639,7 @@ function DashboardContent() {
           </nav>
         )}
 
-        <div className={`max-w-5xl mx-auto ${isMobile ? "px-4 py-6" : "px-6 py-8"}`}>
+        <div inert={isMobile && showMobileMenu ? true : undefined} className="dashboard-content mx-auto w-full max-w-6xl px-4 py-6 md:px-8 md:py-10 lg:px-10">
           <Outlet />
         </div>
       </main>

@@ -18,8 +18,8 @@
   "discover": "发现技能",
   "discoverMore": "发现更多",
   "discoverDescription": "浏览和添加社区分享的写作技能",
-  "searchPlaceholder": "搜索技能...",
-  "searchMySkillsPlaceholder": "搜索我的技能...",
+  "searchPlaceholder": "搜索技能",
+  "searchMySkillsPlaceholder": "搜索我的技能",
   "noSearchResults": "没有找到匹配的技能，换个关键词试试",
   "allCategories": "全部",
   "categories": {
@@ -31,6 +31,7 @@
   },
   "noSkillsFound": "没有找到匹配的技能，换个关键词或分类试试",
   "official": "官方",
+  "officialUsageHint": "官方技能添加后即可使用，AI 会在合适的时候调用。",
   "community": "社区",
   "addCount": "人添加",
   "addToMine": "添加到我的技能",
@@ -61,7 +62,7 @@
     "triggersPlaceholder": "比如：角色, 开篇",
     "triggersHint": "只用于整理技能，不影响 AI 何时使用；多个用逗号分隔",
     "instructions": "指令内容",
-    "instructionsPlaceholder": "写下具体做法，AI 使用这个技能时会照着执行...",
+    "instructionsPlaceholder": "写下具体做法，AI 使用这个技能时会照着执行",
     "instructionsHint": "可以用标题、列表分条写清楚（支持 Markdown）",
     "triggersTooLong": "标签最多 {{count}} 个，每个不超过 {{max}} 个字"
   },
@@ -131,7 +132,7 @@
     "pathPlaceholder": "references/example.md",
     "content": "文件内容",
     "saveFile": "保存文件",
-    "saving": "保存中...",
+    "saving": "保存中…",
     "saveFirst": "先保存技能，才能添加资源文件。",
     "errors": {
       "prefix": "路径必须以 references/ 或 assets/ 开头",

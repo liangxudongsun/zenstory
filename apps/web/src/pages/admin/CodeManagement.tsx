@@ -1,3 +1,4 @@
+import { Modal } from "../../components/ui/Modal";
 import React, { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -97,7 +98,7 @@ const CodeCard: React.FC<{
         <span
           className={`px-2 py-1 rounded text-xs font-medium ${
             code.is_active
-              ? "bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))]"
+              ? "bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success-text))]"
               : "bg-[hsl(var(--bg-tertiary))] text-[hsl(var(--text-secondary))]"
           }`}
         >
@@ -499,7 +500,7 @@ export const CodeManagement: React.FC = () => {
                         <span
                           className={`px-2 py-1 rounded text-xs font-medium ${
                             code.is_active
-                              ? "bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))]"
+                              ? "bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success-text))]"
                               : "bg-[hsl(var(--bg-tertiary))] text-[hsl(var(--text-secondary))]"
                           }`}
                         >
@@ -585,306 +586,325 @@ export const CodeManagement: React.FC = () => {
 
       {/* Create Single Code Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-[hsl(var(--bg-primary))] border border-[hsl(var(--separator-color))] rounded-lg shadow-xl w-full max-w-md">
-            <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
-              <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
-                {t("codes.createTitle")}
-              </h2>
-              <button
-                onClick={() => setShowCreateModal(false)}
-                disabled={createMutation.isPending}
-                aria-label={t("common:close")}
-                className="p-2.5 hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
+        <Modal
+          open
+          ariaLabel={t("codes.createTitle")}
+          onClose={() => setShowCreateModal(false)}
+          closeOnEscape={!(createMutation.isPending)}
+          closeOnBackdropClick={false}
+          showCloseButton={false}
+          bodyClassName="p-0"
+          className="admin-shell rounded-xl!"
+          size="md"
+        >
+          <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
+            <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
+              {t("codes.createTitle")}
+            </h2>
+            <button
+              onClick={() => setShowCreateModal(false)}
+              disabled={createMutation.isPending}
+              aria-label={t("common:close")}
+              className="p-2.5 hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
+            >
+              <X size={20} className="text-[hsl(var(--text-secondary))]" />
+            </button>
+          </div>
+
+          <div className="px-4 sm:px-6 py-4 space-y-4 max-h-[60vh] overflow-y-auto">
+            <div>
+              <label htmlFor="admin-codes-tier" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                {t("codes.tier")}
+              </label>
+              <AdminSelect id="admin-codes-tier"
+                fullWidth
+                value={createFormData.tier}
+                onChange={(e) => setCreateFormData({ ...createFormData, tier: e.target.value })}
+                className="text-[hsl(var(--text-primary))]"
               >
-                <X size={20} className="text-[hsl(var(--text-secondary))]" />
-              </button>
+                {renderTierOptions(createFormData.tier)}
+              </AdminSelect>
             </div>
 
-            <div className="px-4 sm:px-6 py-4 space-y-4 max-h-[60vh] overflow-y-auto">
-              <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                  {t("codes.tier")}
-                </label>
-                <AdminSelect
-                  fullWidth
-                  value={createFormData.tier}
-                  onChange={(e) => setCreateFormData({ ...createFormData, tier: e.target.value })}
-                  className="text-[hsl(var(--text-primary))]"
-                >
-                  {renderTierOptions(createFormData.tier)}
-                </AdminSelect>
-              </div>
+            <div>
+              <label htmlFor="admin-codes-duration" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                {t("codes.duration")}
+              </label>
+              <input id="admin-codes-duration"
+                type="number"
+                min={1}
+                value={createFormData.duration_days}
+                onChange={(e) => setCreateFormData({ ...createFormData, duration_days: parseInt(e.target.value) || 30 })}
+                className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))]"
+              />
+            </div>
 
+            <div>
+              <label htmlFor="admin-codes-type" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                {t("codes.type")}
+              </label>
+              <AdminSelect id="admin-codes-type"
+                fullWidth
+                value={createFormData.code_type}
+                onChange={(e) =>
+                  setCreateFormData({
+                    ...createFormData,
+                    code_type: e.target.value as CodeType,
+                  })
+                }
+                className="text-[hsl(var(--text-primary))]"
+              >
+                <option value="single_use">{t("codes.typeSingle")}</option>
+                <option value="multi_use">{t("codes.typeMulti")}</option>
+              </AdminSelect>
+            </div>
+
+            {createFormData.code_type === "multi_use" && (
               <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                  {t("codes.duration")}
+                <label htmlFor="code-max-uses" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                  {t("codes.maxUses")}
                 </label>
                 <input
+                  id="code-max-uses"
                   type="number"
                   min={1}
-                  value={createFormData.duration_days}
-                  onChange={(e) => setCreateFormData({ ...createFormData, duration_days: parseInt(e.target.value) || 30 })}
+                  value={createFormData.max_uses}
+                  onChange={(e) => setCreateFormData({ ...createFormData, max_uses: Math.max(1, parseInt(e.target.value) || 1) })}
                   className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))]"
                 />
+                <p className="mt-1 text-xs text-[hsl(var(--text-secondary))]">{t("codes.maxUsesHint")}</p>
               </div>
+            )}
 
-              <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                  {t("codes.type")}
-                </label>
-                <AdminSelect
-                  fullWidth
-                  value={createFormData.code_type}
-                  onChange={(e) =>
-                    setCreateFormData({
-                      ...createFormData,
-                      code_type: e.target.value as CodeType,
-                    })
-                  }
-                  className="text-[hsl(var(--text-primary))]"
-                >
-                  <option value="single_use">{t("codes.typeSingle")}</option>
-                  <option value="multi_use">{t("codes.typeMulti")}</option>
-                </AdminSelect>
-              </div>
-
-              {createFormData.code_type === "multi_use" && (
-                <div>
-                  <label htmlFor="code-max-uses" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                    {t("codes.maxUses")}
-                  </label>
-                  <input
-                    id="code-max-uses"
-                    type="number"
-                    min={1}
-                    value={createFormData.max_uses}
-                    onChange={(e) => setCreateFormData({ ...createFormData, max_uses: Math.max(1, parseInt(e.target.value) || 1) })}
-                    className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))]"
-                  />
-                  <p className="mt-1 text-xs text-[hsl(var(--text-secondary))]">{t("codes.maxUsesHint")}</p>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                  {t("codes.notes")}
-                </label>
-                <textarea
-                  value={createFormData.notes}
-                  onChange={(e) => setCreateFormData({ ...createFormData, notes: e.target.value })}
-                  rows={2}
-                  className="w-full px-3 py-2.5 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))] resize-none"
-                  placeholder={t("codes.notesPlaceholder")}
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
-              <button
-                onClick={() => setShowCreateModal(false)}
-                disabled={createMutation.isPending}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))] disabled:opacity-50"
-              >
-                {t("common:cancel")}
-              </button>
-              <button
-                onClick={handleCreateSingle}
-                disabled={createMutation.isPending}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--accent-primary))] text-white rounded-lg hover:opacity-90 active:scale-95 transition-all text-sm disabled:opacity-50"
-              >
-                {createMutation.isPending ? t("common:loading") : t("codes.create")}
-              </button>
+            <div>
+              <label htmlFor="admin-codes-notes" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                {t("codes.notes")}
+              </label>
+              <textarea id="admin-codes-notes"
+                value={createFormData.notes}
+                onChange={(e) => setCreateFormData({ ...createFormData, notes: e.target.value })}
+                rows={2}
+                className="w-full px-3 py-2.5 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))] resize-none"
+                placeholder={t("codes.notesPlaceholder")}
+              />
             </div>
           </div>
-        </div>
+
+          <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
+            <button
+              onClick={() => setShowCreateModal(false)}
+              disabled={createMutation.isPending}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))] disabled:opacity-50"
+            >
+              {t("common:cancel")}
+            </button>
+            <button
+              onClick={handleCreateSingle}
+              disabled={createMutation.isPending}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--accent-primary))] text-white rounded-lg hover:opacity-90 active:scale-95 transition-all text-sm disabled:opacity-50"
+            >
+              {createMutation.isPending ? t("common:loading") : t("codes.create")}
+            </button>
+          </div>
+        </Modal>
       )}
 
       {/* Batch Create Modal */}
       {showBatchModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-[hsl(var(--bg-primary))] border border-[hsl(var(--separator-color))] rounded-lg shadow-xl w-full max-w-md">
-            <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
-              <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
-                {t("codes.batchCreateTitle")}
-              </h2>
-              <button
-                onClick={() => setShowBatchModal(false)}
-                disabled={batchCreateMutation.isPending}
-                aria-label={t("common:close")}
-                className="p-2.5 hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
+        <Modal
+          open
+          ariaLabel={t("codes.batchCreateTitle")}
+          onClose={() => setShowBatchModal(false)}
+          closeOnEscape={!(batchCreateMutation.isPending)}
+          closeOnBackdropClick={false}
+          showCloseButton={false}
+          bodyClassName="p-0"
+          className="admin-shell rounded-xl!"
+          size="md"
+        >
+          <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
+            <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
+              {t("codes.batchCreateTitle")}
+            </h2>
+            <button
+              onClick={() => setShowBatchModal(false)}
+              disabled={batchCreateMutation.isPending}
+              aria-label={t("common:close")}
+              className="p-2.5 hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
+            >
+              <X size={20} className="text-[hsl(var(--text-secondary))]" />
+            </button>
+          </div>
+
+          <div className="px-4 sm:px-6 py-4 space-y-4 max-h-[60vh] overflow-y-auto">
+            <div>
+              <label htmlFor="admin-codes-tier" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                {t("codes.tier")}
+              </label>
+              <AdminSelect id="admin-codes-tier"
+                fullWidth
+                value={batchFormData.tier}
+                onChange={(e) => setBatchFormData({ ...batchFormData, tier: e.target.value })}
+                className="text-[hsl(var(--text-primary))]"
               >
-                <X size={20} className="text-[hsl(var(--text-secondary))]" />
-              </button>
+                {renderTierOptions(batchFormData.tier)}
+              </AdminSelect>
             </div>
 
-            <div className="px-4 sm:px-6 py-4 space-y-4 max-h-[60vh] overflow-y-auto">
-              <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                  {t("codes.tier")}
-                </label>
-                <AdminSelect
-                  fullWidth
-                  value={batchFormData.tier}
-                  onChange={(e) => setBatchFormData({ ...batchFormData, tier: e.target.value })}
-                  className="text-[hsl(var(--text-primary))]"
-                >
-                  {renderTierOptions(batchFormData.tier)}
-                </AdminSelect>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                  {t("codes.duration")}
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  value={batchFormData.duration_days}
-                  onChange={(e) => setBatchFormData({ ...batchFormData, duration_days: parseInt(e.target.value) || 30 })}
-                  className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                  {t("codes.batchCount")}
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={batchFormData.count}
-                  onChange={(e) => setBatchFormData({ ...batchFormData, count: parseInt(e.target.value) || 10 })}
-                  className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                  {t("codes.type")}
-                </label>
-                <AdminSelect
-                  fullWidth
-                  value={batchFormData.code_type}
-                  onChange={(e) =>
-                    setBatchFormData({
-                      ...batchFormData,
-                      code_type: e.target.value as CodeType,
-                    })
-                  }
-                  className="text-[hsl(var(--text-primary))]"
-                >
-                  <option value="single_use">{t("codes.typeSingle")}</option>
-                  <option value="multi_use">{t("codes.typeMulti")}</option>
-                </AdminSelect>
-              </div>
-
-              {batchFormData.code_type === "multi_use" && (
-                <div>
-                  <label htmlFor="batch-max-uses" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                    {t("codes.maxUsesPerCode")}
-                  </label>
-                  <input
-                    id="batch-max-uses"
-                    type="number"
-                    min={1}
-                    value={batchFormData.max_uses}
-                    onChange={(e) => setBatchFormData({ ...batchFormData, max_uses: Math.max(1, parseInt(e.target.value) || 1) })}
-                    className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))]"
-                  />
-                  <p className="mt-1 text-xs text-[hsl(var(--text-secondary))]">{t("codes.maxUsesHint")}</p>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                  {t("codes.notes")}
-                </label>
-                <textarea
-                  value={batchFormData.notes}
-                  onChange={(e) => setBatchFormData({ ...batchFormData, notes: e.target.value })}
-                  rows={2}
-                  className="w-full px-3 py-2.5 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))] resize-none"
-                  placeholder={t("codes.notesPlaceholder")}
-                />
-              </div>
+            <div>
+              <label htmlFor="admin-codes-duration" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                {t("codes.duration")}
+              </label>
+              <input id="admin-codes-duration"
+                type="number"
+                min={1}
+                value={batchFormData.duration_days}
+                onChange={(e) => setBatchFormData({ ...batchFormData, duration_days: parseInt(e.target.value) || 30 })}
+                className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))]"
+              />
             </div>
 
-            <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
-              <button
-                onClick={() => setShowBatchModal(false)}
-                disabled={batchCreateMutation.isPending}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))] disabled:opacity-50"
+            <div>
+              <label htmlFor="admin-codes-batchCount" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                {t("codes.batchCount")}
+              </label>
+              <input id="admin-codes-batchCount"
+                type="number"
+                min={1}
+                max={100}
+                value={batchFormData.count}
+                onChange={(e) => setBatchFormData({ ...batchFormData, count: parseInt(e.target.value) || 10 })}
+                className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))]"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="admin-codes-type" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                {t("codes.type")}
+              </label>
+              <AdminSelect id="admin-codes-type"
+                fullWidth
+                value={batchFormData.code_type}
+                onChange={(e) =>
+                  setBatchFormData({
+                    ...batchFormData,
+                    code_type: e.target.value as CodeType,
+                  })
+                }
+                className="text-[hsl(var(--text-primary))]"
               >
-                {t("common:cancel")}
-              </button>
-              <button
-                onClick={handleCreateBatch}
-                disabled={batchCreateMutation.isPending}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--accent-primary))] text-white rounded-lg hover:opacity-90 active:scale-95 transition-all text-sm disabled:opacity-50"
-              >
-                {batchCreateMutation.isPending ? t("common:loading") : t("codes.batchCreate")}
-              </button>
+                <option value="single_use">{t("codes.typeSingle")}</option>
+                <option value="multi_use">{t("codes.typeMulti")}</option>
+              </AdminSelect>
+            </div>
+
+            {batchFormData.code_type === "multi_use" && (
+              <div>
+                <label htmlFor="batch-max-uses" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                  {t("codes.maxUsesPerCode")}
+                </label>
+                <input
+                  id="batch-max-uses"
+                  type="number"
+                  min={1}
+                  value={batchFormData.max_uses}
+                  onChange={(e) => setBatchFormData({ ...batchFormData, max_uses: Math.max(1, parseInt(e.target.value) || 1) })}
+                  className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))]"
+                />
+                <p className="mt-1 text-xs text-[hsl(var(--text-secondary))]">{t("codes.maxUsesHint")}</p>
+              </div>
+            )}
+
+            <div>
+              <label htmlFor="admin-codes-notes" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                {t("codes.notes")}
+              </label>
+              <textarea id="admin-codes-notes"
+                value={batchFormData.notes}
+                onChange={(e) => setBatchFormData({ ...batchFormData, notes: e.target.value })}
+                rows={2}
+                className="w-full px-3 py-2.5 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))] resize-none"
+                placeholder={t("codes.notesPlaceholder")}
+              />
             </div>
           </div>
-        </div>
+
+          <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
+            <button
+              onClick={() => setShowBatchModal(false)}
+              disabled={batchCreateMutation.isPending}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))] disabled:opacity-50"
+            >
+              {t("common:cancel")}
+            </button>
+            <button
+              onClick={handleCreateBatch}
+              disabled={batchCreateMutation.isPending}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--accent-primary))] text-white rounded-lg hover:opacity-90 active:scale-95 transition-all text-sm disabled:opacity-50"
+            >
+              {batchCreateMutation.isPending ? t("common:loading") : t("codes.batchCreate")}
+            </button>
+          </div>
+        </Modal>
       )}
 
       {/* Batch result: the only place the new codes are shown in full */}
       {batchResult && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="batch-result-title"
-            className="bg-[hsl(var(--bg-primary))] border border-[hsl(var(--separator-color))] rounded-lg shadow-xl w-full max-w-lg"
-          >
-            <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
-              <h2 id="batch-result-title" className="text-lg font-semibold text-[hsl(var(--text-primary))]">
-                {t("codes.batchResultTitle", { count: batchResult.codes.length })}
-              </h2>
-              <button
-                onClick={() => setBatchResult(null)}
-                aria-label={t("common:close")}
-                className="p-2.5 hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
-              >
-                <X size={20} className="text-[hsl(var(--text-secondary))]" />
-              </button>
-            </div>
-            <div className="px-4 sm:px-6 py-4 space-y-2">
-              <p className="text-sm text-[hsl(var(--text-secondary))]">
-                {tierLabel(batchResult.tier)} · {batchResult.duration_days}{t("codes.days")} ·{" "}
-                {batchResult.code_type === "multi_use"
-                  ? t("codes.multiUseSummary", { count: batchResult.max_uses })
-                  : t("codes.typeSingle")}
-              </p>
-              <textarea
-                readOnly
-                aria-label={t("codes.batchResultTitle", { count: batchResult.codes.length })}
-                value={batchResult.codes.join("\n")}
-                rows={Math.min(12, Math.max(4, batchResult.codes.length))}
-                className="w-full px-3 py-2 font-mono text-sm bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg text-[hsl(var(--text-primary))] resize-none"
-              />
-            </div>
-            <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
-              <button
-                onClick={handleDownloadCsv}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] transition-all text-sm text-[hsl(var(--text-primary))]"
-              >
-                <Download size={16} />
-                {t("codes.downloadCsv")}
-              </button>
-              <button
-                onClick={handleCopyAll}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 min-h-11 bg-[hsl(var(--accent-primary))] text-white rounded-lg hover:opacity-90 transition-all text-sm"
-              >
-                <Copy size={16} />
-                {t("codes.copyAll")}
-              </button>
-            </div>
+        <Modal
+          open
+          ariaLabel={t("codes.batchResultTitle", { count: batchResult.codes.length })}
+          onClose={() => setBatchResult(null)}
+          closeOnEscape={true}
+          closeOnBackdropClick={false}
+          showCloseButton={false}
+          bodyClassName="p-0"
+          className="admin-shell rounded-xl!"
+          size="lg"
+        >
+          <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
+            <h2 id="batch-result-title" className="text-lg font-semibold text-[hsl(var(--text-primary))]">
+              {t("codes.batchResultTitle", { count: batchResult.codes.length })}
+            </h2>
+            <button
+              onClick={() => setBatchResult(null)}
+              aria-label={t("common:close")}
+              className="p-2.5 hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
+            >
+              <X size={20} className="text-[hsl(var(--text-secondary))]" />
+            </button>
           </div>
-        </div>
+          <div className="px-4 sm:px-6 py-4 space-y-2">
+            <p className="text-sm text-[hsl(var(--text-secondary))]">
+              {tierLabel(batchResult.tier)} · {batchResult.duration_days}{t("codes.days")} ·{" "}
+              {batchResult.code_type === "multi_use"
+                ? t("codes.multiUseSummary", { count: batchResult.max_uses })
+                : t("codes.typeSingle")}
+            </p>
+            <textarea
+              readOnly
+              aria-label={t("codes.batchResultTitle", { count: batchResult.codes.length })}
+              value={batchResult.codes.join("\n")}
+              rows={Math.min(12, Math.max(4, batchResult.codes.length))}
+              className="w-full px-3 py-2 font-mono text-sm bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg text-[hsl(var(--text-primary))] resize-none"
+            />
+          </div>
+          <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
+            <button
+              onClick={handleDownloadCsv}
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] transition-all text-sm text-[hsl(var(--text-primary))]"
+            >
+              <Download size={16} />
+              {t("codes.downloadCsv")}
+            </button>
+            <button
+              onClick={handleCopyAll}
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 min-h-11 bg-[hsl(var(--accent-primary))] text-white rounded-lg hover:opacity-90 transition-all text-sm"
+            >
+              <Copy size={16} />
+              {t("codes.copyAll")}
+            </button>
+          </div>
+        </Modal>
       )}
 
     </div>

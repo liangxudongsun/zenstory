@@ -40,7 +40,7 @@ export function StatsCard({
         borderColor="separator"
         rounded="xl"
         padding="responsive"
-        className="h-full bg-[hsl(var(--bg-secondary)/0.9)]"
+        className="h-full border bg-[hsl(var(--bg-secondary))]"
       >
         <div className="flex items-center gap-4">
           {/* Icon skeleton */}
@@ -62,8 +62,7 @@ export function StatsCard({
       borderColor="separator"
       rounded="xl"
       padding="responsive"
-      hoverable
-      className="h-full bg-[hsl(var(--bg-secondary)/0.9)]"
+      className="h-full border bg-[hsl(var(--bg-secondary))]"
     >
       <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:gap-4">
         <IconWrapper size="2xl" variant="primary" rounded="md">
@@ -72,7 +71,7 @@ export function StatsCard({
         <div className="w-full min-w-0 sm:flex-1">
           <p className="text-sm text-[hsl(var(--text-secondary))] break-words">{title}</p>
           <div className="flex flex-wrap items-baseline gap-2">
-            <p className="text-xl sm:text-2xl leading-tight font-bold text-[hsl(var(--text-primary))] whitespace-nowrap">
+            <p className="text-xl sm:text-2xl leading-tight font-semibold tabular-nums text-[hsl(var(--text-primary))] whitespace-nowrap">
               {typeof value === 'number' ? value.toLocaleString() : value}
             </p>
             {trend && trendValue && (

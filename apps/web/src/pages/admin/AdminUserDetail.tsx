@@ -230,7 +230,7 @@ export const AdminUserDetail: React.FC = () => {
               <Field label={t("users.email")}>
                 {user.email}
                 {!user.email_verified && (
-                  <span className="ml-2 text-xs text-[hsl(var(--warning))]">{t("userDetail.emailUnverified")}</span>
+                  <span className="ml-2 text-xs text-[hsl(var(--warning-text))]">{t("userDetail.emailUnverified")}</span>
                 )}
               </Field>
               <Field label={t("users.isActive")}>
@@ -379,7 +379,7 @@ export const AdminUserDetail: React.FC = () => {
                   )}
                 </span>
                 <span className="flex items-center gap-4">
-                  <span className={tx.amount > 0 ? "text-[hsl(var(--success))]" : "text-[hsl(var(--error))]"}>
+                  <span className={tx.amount > 0 ? "text-[hsl(var(--success-text))]" : "text-[hsl(var(--error-text))]"}>
                     {tx.amount > 0 ? "+" : ""}{tx.amount.toLocaleString()}
                   </span>
                   <span className="text-xs text-[hsl(var(--text-secondary))]">{formatAdminDateTime(tx.created_at)}</span>
@@ -425,6 +425,7 @@ export const AdminUserDetail: React.FC = () => {
       </Section>
 
       <Modal
+        className="admin-shell"
         open={editingSubscription}
         onClose={() => setEditingSubscription(false)}
         title={t("subscriptions.modifyTitle")}

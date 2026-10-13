@@ -79,9 +79,9 @@ const getVariantClasses = (variant: BadgeProps['variant']): string => {
     success: 'bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success-text))]',
     warning: 'bg-[hsl(var(--warning)/0.15)] text-[hsl(var(--warning-text))]',
     error: 'bg-[hsl(var(--error)/0.15)] text-[hsl(var(--error-text))]',
-    info: 'bg-[hsl(var(--info)/0.15)] text-[hsl(var(--info))]',
-    purple: 'bg-[hsl(var(--purple)/0.15)] text-[hsl(var(--purple-light))]',
-    cyan: 'bg-[hsl(var(--cyan)/0.15)] text-[hsl(var(--cyan-light))]',
+    info: 'bg-[hsl(var(--info)/0.15)] text-[hsl(var(--info-text))]',
+    purple: 'bg-[hsl(var(--purple)/0.15)] text-[hsl(var(--purple-text))]',
+    cyan: 'bg-[hsl(var(--cyan)/0.15)] text-[hsl(var(--cyan-text))]',
   };
   return variants[variant || 'neutral'];
 };

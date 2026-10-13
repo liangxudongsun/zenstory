@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { login } from './helpers/common';
 
-const EDITOR_PLACEHOLDER = '开始你的创作...';
+const EDITOR_PLACEHOLDER = "开始你的创作";
 const NATURAL_POLISH_BUTTON = '去AI味';
 
 async function getAccessToken(page: Page): Promise<string> {

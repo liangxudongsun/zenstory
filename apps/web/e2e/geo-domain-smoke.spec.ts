@@ -211,7 +211,7 @@ test.describe('organization site', () => {
 
     // 10-03 首页改版后 h1 是口号，品牌名在 <title>。
     await expect(page).toHaveTitle(/^ZenStory AI — /)
-    await expect(page.getByRole('heading', { level: 1 })).toContainText('Write stories.')
+    await expect(page.getByRole('heading', { level: 1 })).toContainText('Write stories')
     await expect(page.locator('article.home .lede').first()).toContainText(/novels with AI|story|open-source/i)
     await expect(page.locator('html')).toHaveAttribute('lang', 'en')
     await expect(page.locator('link[rel="alternate"][hreflang="zh-CN"]')).toHaveAttribute('href', `${CANONICAL_SITE}/zh`)
@@ -237,7 +237,7 @@ test.describe('organization site', () => {
 
     await expect(page.locator('html')).toHaveAttribute('lang', 'zh-CN')
     await expect(page).toHaveTitle(/^ZenStory AI — /)
-    await expect(page.getByRole('heading', { level: 1 })).toContainText('写下故事。')
+    await expect(page.getByRole('heading', { level: 1 })).toContainText('写下故事，')
     await expect(page.locator('article.home .lede').first()).toContainText(/用 AI 写小说|故事|创作/)
     await expect(page.locator('article.home .lede').first()).not.toContainText(/open-source tools/)
     await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', `${CANONICAL_SITE}/zh`)
@@ -383,13 +383,13 @@ test.describe('organization site', () => {
       await page.goto(`${SITE}${ACCOUNT_DOC_PATH}`, { waitUntil: 'domcontentloaded' })
       const article = page.locator('article.docs')
       await expect(page.locator('header.top')).toBeVisible()
-      await expect(page.locator('nav.docs-side a[aria-current="page"]')).toHaveAttribute('href', ACCOUNT_DOC_PATH)
-      // #158 把账号文档改写为面向用户的说明，去掉了「源码核对日期」「不是线上账号验收」这类内部说明。
+      await expect(page.locator('aside.docs-desktop-index nav.docs-side a[aria-current="page"]')).toHaveAttribute('href', ACCOUNT_DOC_PATH)
       await expect(article).toContainText('账号注册与登录')
       for (const route of ['register', 'login', 'forgot-password']) {
         await expect(article.locator(`a[href="${CANONICAL_APP}/${route}"]`)).toHaveCount(2)
       }
-      await expect(article.locator('a[href^="https://github.com/zenstory-ai/zenstory/blob/76b8ab84ce73ca309083f0c1a90f3c9d7ce8d72b/"]')).toHaveCount(24)
+      await expect(article.locator('section.prose#zh')).toHaveAttribute('lang', 'zh-CN')
+      await expect(article.locator('section.prose#en')).toHaveAttribute('lang', 'en')
       await expect(article).not.toContainText('https://zenstory.ai/register')
     } finally {
       await context.close()
@@ -402,7 +402,7 @@ test.describe('organization site', () => {
       const section = page.locator(`section.prose#${language}`)
       await expect(section).toHaveAttribute('lang', language === 'zh' ? 'zh-CN' : 'en')
       await expect(section.locator(`a[href="${CANONICAL_APP}/register"]`)).toHaveCount(1)
-      await expect(section.locator('a[href^="https://github.com/zenstory-ai/zenstory/blob/76b8ab84ce73ca309083f0c1a90f3c9d7ce8d72b/"]')).toHaveCount(12)
+      await expect(section).toContainText(language === 'zh' ? '六位验证码' : 'six-digit code')
       await expect(section).not.toContainText('https://zenstory.ai/register')
       await expect(page.locator(`header .lang-switch a[hreflang="${language === 'zh' ? 'zh-CN' : 'en'}"]`)).toHaveAttribute('href', `#${language}`)
       await expectPublicDocumentHead(page, `${CANONICAL_SITE}${ACCOUNT_DOC_PATH}`, 'TechArticle')
@@ -522,9 +522,9 @@ test.describe('platform routing', () => {
     }
   })
 
-  test('redirects an app-host docs index alias directly to its clean production canonical', async ({ request }) => {
+  test('redirects an app-host docs index alias to the same app reader', async ({ request }) => {
     const source = `${APP}/docs/getting-started/quick-start/index.html`
-    const destination = `${CANONICAL_SITE}/docs/getting-started/quick-start`
+    const destination = `${APP}/docs/getting-started/quick-start`
     const redirect = await getWithoutRedirects(request, source)
 
     expect(redirect.status()).toBe(308)

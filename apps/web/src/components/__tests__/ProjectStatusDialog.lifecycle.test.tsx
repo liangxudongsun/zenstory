@@ -206,14 +206,14 @@ for (const strict of [false, true]) {
         return // The above soft assertions keep this case RED; no skip/PASS claim.
       }
       expect(bWrite.body).toEqual({ notes: 'B pending save' })
-      expect(screen.getByRole('button', { name: 'Saving...' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: "Saving…" })).toBeDisabled()
       const logs = errorLogSpy.mock.calls.length
       const toastCount = toasts.length
       await finish([aWrite], aOutcome === 'success' ? { ...project('A'), notes: 'A pending save' } : { detail: 'Old A save rejected' }, aOutcome === 'success' ? 200 : 503)
       observe(`A-${aOutcome}-while-B-save-active`, strict, { overlapReached: true, bOutcome })
       expect(state()).toMatchObject({ selected: 'B', open: true, closeCount: 0 })
       expect(screen.getByPlaceholderText(placeholders.notes)).toHaveValue('B pending save')
-      expect(screen.getByRole('button', { name: 'Saving...' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: "Saving…" })).toBeDisabled()
       expect(errorLogSpy.mock.calls).toHaveLength(logs)
       expect(toasts).toHaveLength(toastCount)
       await finish([bWrite], bOutcome === 'success' ? { ...project('B'), notes: 'B pending save' } : { detail: 'Current B save rejected' }, bOutcome === 'success' ? 200 : 503)
@@ -366,7 +366,7 @@ for (const strict of [false, true]) {
       await click(user, save)
       expect(writes()).toHaveLength(1)
       expect(writes()[0]).toMatchObject({ projectId: 'A', body: { summary: 'current summary', writing_style: 'current style', current_phase: 'current phase', notes: 'current notes' } })
-      expect(screen.getByRole('button', { name: 'Saving...' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: "Saving…" })).toBeDisabled()
       await finish(writes(), { ...project('A'), summary: 'current summary', writing_style: 'current style', current_phase: 'current phase', notes: 'current notes' })
       observe('current-save-control', strict)
       expect(state()).toMatchObject({ selected: 'A', open: false, closeCount: 1, pathname: '/project/A' })

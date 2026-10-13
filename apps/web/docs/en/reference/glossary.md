@@ -1,79 +1,47 @@
 # Glossary
 
-This document lists all the terminology used in the ZenStory novel writing workbench to help you better understand the product features and related concepts.
+These terms describe workbench content and actions. Follow the related guides for unfamiliar labels.
 
-## Core Concepts
+## Projects and evidence
 
-| Term | Description |
-|------|-------------|
-| Project | A container for a single work, containing all related outlines, drafts, character cards, lore, and other files |
-| File Tree | Hierarchical display of files in a project, supporting nested folder organization |
-| Outline | Files for chapter structure and plot planning |
-| Draft | Content files for the actual text - your creative content |
-| Character | Documents for character settings, recording appearance, personality, background, and other information |
-| Lore | Documents for world settings, including power systems, faction distributions, special rules, etc. |
-| Snippet | Text snippet files for storing inspiration fragments, reference materials, etc. |
-| Script | Script content files specifically for short drama formats |
+| Term | Meaning |
+| --- | --- |
+| Project | A work's files, chat, and project memory |
+| File tree | A hierarchical list of files and folders |
+| Draft / Script | Text types included in manuscript TXT export |
+| Outline | Chosen direction and chapter or scene plan |
+| Character / Lore | Character evidence and story rules |
+| Project material | Reference text in the tree, attachable to chat |
+| Materials Library | Your account's reference novels and breakdown results |
 
-## AI-Related
+See [file types](file-types.md) and [Materials](../user-guide/materials.md).
 
-| Term | Description |
-|------|-------------|
-| AI Assistant | Your intelligent writing partner that can help generate content, optimize text, build settings, etc. |
-| Skill | Preset AI instruction templates that can be quickly invoked via trigger words |
-| Trigger Word | Keywords that activate skills - typing them in conversation automatically matches the corresponding skill |
-| AI Memory | Project-level persistent information including project summary, writing style, current phase, etc., referenced in all conversations |
-| Context | Background information referenced during AI conversations, including current file, attached materials, quoted text, etc. |
-| Focus File | The file currently open in the editor - the AI automatically retrieves its content as context |
-| Thinking | The AI's reasoning logic when processing complex tasks, transparently displayed to the user |
-| Tool Call | Specific operations performed by the AI, such as creating files, editing content, querying information, etc. |
+## AI chat
 
-## Version Management
+| Term | Meaning |
+| --- | --- |
+| Focused file | The open file identified with the request |
+| Text quote | Selected text with its source file |
+| Material attachment | Reference items explicitly attached for this turn |
+| Context | Messages, files, and references used for the task, within a length budget |
+| Skill | A reusable writing method and reference resources |
+| AI Memory | Short project summary, style, progress, and notes |
+| Tool operation | An AI action such as reading, creating, or editing a file |
+| Streaming | Replies and progress appear during generation |
 
-| Term | Description |
-|------|-------------|
-| Version History | Complete modification records of files - each save automatically creates a new version |
-| Snapshot | Complete file content record at a specific point in time |
-| Diff | Comparison of content differences between two versions - additions shown in green, deletions in red |
-| Rollback | Operation to restore to a historical version - current content is automatically saved as a new version |
-| Auto Save | System automatically saves edited content without manual intervention |
+See [AI assistant](../user-guide/ai-assistant.md) and [AI Memory](../advanced/ai-memory.md).
 
-## Materials Library
+## Saving and recovery
 
-| Term | Description |
-|------|-------------|
-| Materials Library | Feature for uploading reference novels and using AI for intelligent analysis and breakdown |
-| AI Analysis | System automatically identifies and extracts chapter structure, character information, storylines, world elements, etc. |
-| Chapter Structure | AI-identified chapter divisions, titles, summaries, and plot points |
-| Storyline | Main plot threads in the novel, including core objectives, conflicts, and plot types |
-| Cheat/Power | Special abilities, systems, or advantages possessed by the protagonist or important characters |
-| Timeline | Chronological ordering of events in the novel |
+| Term | Meaning |
+| --- | --- |
+| Save | Submit the current title and content to the server |
+| Local draft | Unsaved text retained in the browser, separate from cloud saving |
+| Save conflict | Server content changed; compare and merge before submitting |
+| File version | A retained historical state of one file |
+| Project snapshot | Project file state and version references at a moment |
+| Diff review | Accept or reject changes between old and proposed text |
+| Restore / Rollback | Replace a file or project with a selected historical state |
+| Export | Download saved drafts and scripts as an independent TXT |
 
-## Interface & Interaction
-
-| Term | Description |
-|------|-------------|
-| Three-Panel Layout | Desktop interface structure: file tree on the left, editor in the center, AI assistant on the right |
-| Left Sidebar | Project resources area with Files, Skills, and Materials tabs |
-| Editor | Core creative area in the center, supporting rich text editing |
-| Review Mode | Mode for reviewing AI modifications one by one after the AI edits a file |
-| Quote Text | Selected text in the editor attached to a conversation for AI to process specifically |
-| Attach Material | Selecting relevant files in a conversation as reference context for the AI |
-| Suggestion | Quick command suggestions dynamically generated by the AI based on project status |
-| Voice Input | Input method that converts microphone recordings to text |
-| Streaming | Output method where the AI generates content character by character and displays it in real-time |
-
-## Other
-
-| Term | Description |
-|------|-------------|
-| Export | Export project drafts as plain text (.txt) files (current version) |
-| Auto Backup | System automatically and periodically saves all content to the database |
-| Soft Delete | Deleted files are not immediately permanently removed and can be recovered through special methods |
-| Dark Mode | Dark interface theme suitable for nighttime writing |
-| Theme Color | Accent color of the interface that can be personalized |
-| Responsive Design | Interface automatically adjusts layout based on device screen size |
-
----
-
-Mastering these terms will help you make better use of the ZenStory novel writing workbench. If you have any questions, please refer to the related detailed documentation or contact customer support for assistance.
+See the [editor](../user-guide/editor.md), [version history](../user-guide/version-history.md), and [export](../user-guide/export.md).

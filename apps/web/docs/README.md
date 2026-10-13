@@ -1,78 +1,46 @@
-# ZenStory 工作台帮助文档
+# ZenStory 工作台文档
 
-ZenStory 工作台围绕项目文件写作：先定想法和场景提纲，再按需要请 AI 起草和修订。
+从第一份提纲到正文与改稿，按你现在要做的事选择指南。
 
-在 [app.zenstory.ai](https://app.zenstory.ai/dashboard) 操作，在本站阅读指南。
+在[工作台](https://app.zenstory.ai/dashboard)写作，在这里查操作。
 
-**核心特点**：
-- 三栏工作台：文件树、编辑器、AI 对话
-- 写作上下文：打开目标文件，引用关键文字，附加素材
-- 历史版本：每个文件都能对比、回滚，整个项目也能拍快照
-- 工作台首页：项目、素材库、技能、订阅权益都从这里进入
+## 开始写作
 
-## 快速链接
+- [网页写作快速入门](getting-started/quick-start.md)
+- [账号注册与登录](getting-started/installation.md)
+- [写第一篇短篇](getting-started/first-project.md)
 
-- [网页写作快速入门](https://zenstory.ai/docs/getting-started/quick-start) - 新手必读，快速上手核心功能
-- [写第一篇短篇](https://zenstory.ai/docs/getting-started/first-project) - 开始你的创作之旅
-- [AI创作助手](https://zenstory.ai/docs/user-guide/ai-assistant) - 焦点文件、引用、分步请求与中断后接续
-- [常见问题](reference/faq.md) - 快速找到答案，解决常见疑惑
+## 使用工作台
 
-## 文档导航
+- [界面总览](user-guide/interface-overview.md)
+- [项目管理](user-guide/project-management.md)
+- [文件树与文件类型](user-guide/file-tree.md)
+- [编辑器使用](user-guide/editor.md)
+- [AI 创作助手](user-guide/ai-assistant.md)
+- [技能系统](user-guide/skills.md)
+- [素材库](user-guide/materials.md)
+- [灵感库（待开放）](user-guide/inspirations.md)
+- [订阅权益](user-guide/billing-benefits.md)
+- [版本历史](user-guide/version-history.md)
+- [导出正文](user-guide/export.md)
 
-### 快速入门
-适合新用户，帮你快速了解 ZenStory 的基础功能。
+## 形成自己的方法
 
-| 文档 | 说明 |
-|------|------|
-| [网页写作快速入门](https://zenstory.ai/docs/getting-started/quick-start) | 最快上手路径，掌握核心功能 |
-| [账号注册与登录](getting-started/installation.md) | 邮箱注册、Google 登录、邀请码系统 |
-| [写第一篇短篇](https://zenstory.ai/docs/getting-started/first-project) | 原创故事实例、文件安排、局部修改与正文导出 |
+- [AI 记忆与上下文](advanced/ai-memory.md)
+- [自定义技能进阶](advanced/skill-creation.md)
+- [素材深度分析](advanced/material-analysis.md)
+- [高效写作工作流](advanced/workflow-tips.md)
 
-### 用户指南
-详细的功能说明，帮你用好 ZenStory 的各项功能。
+## 快速查询
 
-| 文档 | 说明 |
-|------|------|
-| [界面总览](user-guide/interface-overview.md) | 三栏式工作台布局详解 |
-| [项目管理](user-guide/project-management.md) | 创建、管理你的写作项目 |
-| [文件树与文件类型](user-guide/file-tree.md) | 大纲、正文、角色卡等文件类型 |
-| [编辑器使用](https://zenstory.ai/docs/user-guide/editor) | 手写、引用与局部改稿前后对照 |
-| [AI创作助手](https://zenstory.ai/docs/user-guide/ai-assistant) | 给对上下文，限定写作与修改范围 |
-| [技能系统](user-guide/skills.md) | 预设技能加速特定创作任务 |
-| [素材库](user-guide/materials.md) | 上传参考小说（TXT），拆出章节摘要、人物和设定，写作时附到对话里（Pro） |
-| [灵感库](user-guide/inspirations.md) | 自托管可选模块，在线版未开放 |
-| [订阅权益](user-guide/billing-benefits.md) | 查看套餐、今日 AI 消息和其他用量，开通或续费 Pro |
-| [版本历史](https://zenstory.ai/docs/user-guide/version-history) | 单文件与项目快照，先比较再选择恢复范围 |
-| [导出功能](https://zenstory.ai/docs/user-guide/export) | 正文与剧本 TXT、另存送审副本，非完整项目备份 |
+- [快捷键参考](reference/keyboard-shortcuts.md)
+- [文件类型详细说明](reference/file-types.md)
+- [术语表](reference/glossary.md)
+- [常见问题](reference/faq.md)
 
-### 进阶技巧
-深入了解 ZenStory，整理出适合自己的写作流程。
+## 解决问题
 
-| 文档 | 说明 |
-|------|------|
-| [AI记忆与上下文](advanced/ai-memory.md) | 理解 AI 如何记住你的设定 |
-| [自定义技能进阶](advanced/skill-creation.md) | 创建专属创作技能 |
-| [素材深度分析](advanced/material-analysis.md) | 让 AI 深度理解你的素材 |
-| [高效写作工作流](advanced/workflow-tips.md) | 专业作者的工作流实践 |
+- [常见问题排查](troubleshooting/common-issues.md)
+- [错误信息说明](troubleshooting/error-messages.md)
 
-### 参考资料
-快速查询工具与详细说明。
-
-| 文档 | 说明 |
-|------|------|
-| [快捷键参考](reference/keyboard-shortcuts.md) | 提升操作效率 |
-| [文件类型详细说明](reference/file-types.md) | 深入了解各类文件 |
-| [术语表](reference/glossary.md) | 专业术语解释 |
-| [常见问题](reference/faq.md) | FAQ 快速解答 |
-
-### 故障排除
-遇到问题？在这里找到解决方案。
-
-| 文档 | 说明 |
-|------|------|
-| [常见问题排查](troubleshooting/common-issues.md) | 问题诊断与解决 |
-| [错误信息说明](troubleshooting/error-messages.md) | 错误提示解读 |
-
-## 需要帮助？
-
-先看[常见问题](reference/faq.md)；还有问题，请写信到 support@zenstory.ai。
+遇到未保存或生成中断，先保留稿件，再按问题排查。仍需帮助时，联系 [support@zenstory.ai](mailto:support@zenstory.ai)。

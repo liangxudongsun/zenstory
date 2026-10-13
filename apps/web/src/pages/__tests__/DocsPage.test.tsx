@@ -21,7 +21,7 @@ let mockLanguage = 'en'
 let mockTranslations: Record<string, string> = {}
 
 const englishTranslations: Record<string, string> = {
-  loading: 'Loading...',
+  loading: "Loading…",
   menu: 'Menu',
   notFound: 'Document Not Found',
   loadError: 'Failed to Load Document',
@@ -87,7 +87,7 @@ describe('DocsPage', () => {
     render(<DocsPage />)
 
     expect(screen.getByTestId('public-header')).toBeInTheDocument()
-    expect(await screen.findByTestId('lazy-markdown')).toHaveTextContent('Quick Start')
+    expect(await screen.findByTestId('lazy-markdown')).toHaveTextContent('Web writing quick start')
   })
 
   it('redirects category routes to the first child document', async () => {
@@ -170,10 +170,10 @@ describe('DocsPage', () => {
     expect(resolveCategoryToFirstDoc('/docs/getting-started')).toBe('/docs/getting-started/quick-start')
     expect(resolveCategoryToFirstDoc('/docs/reference/faq')).toBeNull()
     expect(findDocItem('/docs/reference/faq')?.title).toBe('FAQ')
-    expect(await loadMarkdownContent('', 'zh')).toContain('ZenStory 工作台帮助文档')
-    expect(await loadMarkdownContent('', 'en')).toContain('ZenStory Workbench Documentation')
-    expect(await loadMarkdownContent('getting-started/quick-start', 'en')).toContain('Quick Start')
-    expect(await loadMarkdownContent('reference/faq', 'zh')).toContain('FAQ')
+    expect(await loadMarkdownContent('', 'zh')).toContain('ZenStory 工作台文档')
+    expect(await loadMarkdownContent('', 'en')).toContain('ZenStory workbench documentation')
+    expect(await loadMarkdownContent('getting-started/quick-start', 'en')).toContain('Web writing quick start')
+    expect(await loadMarkdownContent('reference/faq', 'zh')).toContain('常见问题')
     expect(await loadMarkdownContent('missing/doc', 'zh')).toBeNull()
   })
 

@@ -100,7 +100,7 @@ E2E_SUITE=release ./scripts/ci/ci.sh e2e --lite
 
 维护者治理说明见：
 
-- `docs/advanced/e2e-lane-governance-2026-04.md`
+- `docs/archive/design/e2e-lane-governance-2026-04.md`
 
 ### Default required
 - `auth.spec.ts`

@@ -20,11 +20,11 @@ vi.mock('react-i18next', () => ({
       const translations: Record<string, string> = {
         title: 'AI 记忆',
         shareAsInspiration: '投稿到灵感库',
-        sharingInspiration: '投稿中...',
+        sharingInspiration: "投稿中…",
         viewInspirationLibrary: '查看灵感库',
         cancel: '取消',
         save: '保存',
-        saving: '保存中...',
+        saving: "保存中…",
         infoBanner: 'info',
         projectSummary: '项目简介',
         writingStyle: '写作风格',

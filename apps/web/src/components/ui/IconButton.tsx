@@ -44,7 +44,7 @@ const TONE_CLASSES: Record<NonNullable<IconButtonProps['tone']>, string> = {
     'text-[hsl(var(--text-secondary))] hover:bg-[hsl(var(--bg-tertiary))] hover:text-[hsl(var(--text-primary))]',
   strong: 'text-[hsl(var(--text-primary))] hover:bg-[hsl(var(--bg-tertiary))]',
   danger:
-    'text-[hsl(var(--text-secondary))] hover:bg-[hsl(var(--error)/0.1)] hover:text-[hsl(var(--error))]',
+    'text-[hsl(var(--text-secondary))] hover:bg-[hsl(var(--error)/0.1)] hover:text-[hsl(var(--error-text))]',
   plain: 'hover:bg-[hsl(var(--bg-tertiary))]',
 };
 

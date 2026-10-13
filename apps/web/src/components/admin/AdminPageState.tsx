@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
-import { Loader2 } from "lucide-react";
+import { AlertCircle, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Button } from "../ui/Button";
 
 interface AdminPageStateProps {
   isLoading?: boolean;
@@ -40,9 +41,9 @@ export function AdminPageState({
 
   if (isLoading || (isFetching && isEmpty)) {
     return (
-      <div className={stateClassName}>
+      <div className={stateClassName} role="status" aria-live="polite">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-5 w-5 animate-spin text-[hsl(var(--accent-primary))]" />
+          <Loader2 aria-hidden="true" className="h-5 w-5 animate-spin text-[var(--admin-accent-text)]" />
           <div className="text-[hsl(var(--text-secondary))]">{resolvedLoadingText}</div>
         </div>
       </div>
@@ -52,16 +53,17 @@ export function AdminPageState({
   if (isError) {
     return (
       <div className={stateClassName}>
-        <div className="flex flex-col items-center gap-3 text-center">
-          <div className="text-[hsl(var(--error))]">{resolvedErrorText}</div>
+        <div className="flex max-w-lg flex-col items-center gap-3 text-center">
+          <div role="alert" className="flex flex-col items-center gap-3 text-[hsl(var(--error-text))]"><AlertCircle size={24} aria-hidden="true" />{resolvedErrorText}</div>
           {onRetry && (
-            <button
+            <Button
               type="button"
               onClick={onRetry}
-              className="rounded-lg border border-[hsl(var(--separator-color))] px-3 py-1.5 text-sm text-[hsl(var(--text-primary))] hover:bg-[hsl(var(--bg-tertiary))] transition-colors"
+              variant="secondary"
+              size="touch"
             >
               {resolvedRetryText}
-            </button>
+            </Button>
           )}
         </div>
       </div>

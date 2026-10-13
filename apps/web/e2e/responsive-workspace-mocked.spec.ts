@@ -119,7 +119,7 @@ test('a long project name never covers the mobile menu and its switcher stays on
   expect(box.x + box.width).toBeLessThanOrEqual(390);
 
   await switcherTitle.click();
-  const search = page.getByPlaceholder('搜索项目...');
+  const search = page.getByPlaceholder("搜索项目");
   await expect(search).toBeVisible();
   const panel = await search.evaluate(element => {
     const rect = element.closest('div.rounded-xl')!.getBoundingClientRect();

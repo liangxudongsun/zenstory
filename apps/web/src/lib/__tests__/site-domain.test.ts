@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { getBoundaryDestination, getPublicCanonicalUrl } from '../site-domain'
+import { getBoundaryDestination, getPublicCanonicalUrl, getWorkbenchHomeUrl } from '../site-domain'
+
+describe('getWorkbenchHomeUrl', () => {
+  it('returns the matching workbench home from legal pages on both managed hosts', () => {
+    expect(getWorkbenchHomeUrl('https://zenstory.ai/privacy-policy')).toBe('https://app.zenstory.ai/')
+    expect(getWorkbenchHomeUrl('https://app.zenstory.ai/terms-of-service')).toBe('https://app.zenstory.ai/')
+    expect(getWorkbenchHomeUrl('https://geo-preview.zenstory.ai/privacy-policy')).toBe('https://app-preview.zenstory.ai/')
+    expect(getWorkbenchHomeUrl('https://app-preview.zenstory.ai/terms-of-service')).toBe('https://app-preview.zenstory.ai/')
+    expect(getWorkbenchHomeUrl('http://127.0.0.1:5183/privacy-policy')).toBe('/')
+  })
+})
 
 describe('getBoundaryDestination', () => {
   it('moves exact app route prefixes from the production site to the app', () => {
@@ -14,9 +24,8 @@ describe('getBoundaryDestination', () => {
   })
 
   it('moves public site routes from the app to the matching site host', () => {
-    expect(getBoundaryDestination('https://app.zenstory.ai/docs/guide?q=one#install')).toBe(
-      'https://zenstory.ai/docs/guide?q=one#install',
-    )
+    expect(getBoundaryDestination('https://app.zenstory.ai/docs/guide?q=one#install')).toBeNull()
+    expect(getBoundaryDestination('https://zenstory.ai/docs/guide?q=one#install')).toBeNull()
     expect(getBoundaryDestination('https://app.zenstory.ai/privacy-policy')).toBe(
       'https://zenstory.ai/privacy-policy',
     )
@@ -27,9 +36,8 @@ describe('getBoundaryDestination', () => {
     expect(getBoundaryDestination('https://geo-preview.zenstory.ai/pricing?plan=pro#checkout')).toBe(
       'https://app-preview.zenstory.ai/pricing?plan=pro#checkout',
     )
-    expect(getBoundaryDestination('https://app-preview.zenstory.ai/docs')).toBe(
-      'https://geo-preview.zenstory.ai/docs',
-    )
+    expect(getBoundaryDestination('https://app-preview.zenstory.ai/docs')).toBeNull()
+    expect(getBoundaryDestination('https://geo-preview.zenstory.ai/docs')).toBeNull()
   })
 
   it('does not redirect localhost or foreign origins', () => {

@@ -21,6 +21,24 @@ describe('AdminLayout mobile navigation', () => {
     expect(zh.header.openMenu).toBe('打开管理菜单');
     expect(zh.header.closeMenu).toBe('关闭管理菜单');
   });
+  it('lets the operator close the drawer from inside and return to the app on phones', () => {
+    render(<MemoryRouter><AdminLayout /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: '打开管理菜单' }));
+    expect(screen.getByRole('link', { name: '返回应用' })).toHaveAttribute('href', '/dashboard');
+    fireEvent.click(screen.getByRole('button', { name: '关闭管理菜单' }));
+    expect(screen.getByRole('button', { name: '打开管理菜单' })).toHaveFocus();
+  });
+
+  it('starts the next admin page at the top of its independent scroll container', () => {
+    render(<MemoryRouter initialEntries={['/admin']}><Routes><Route path='/admin' element={<AdminLayout />}><Route index element={<div>Overview</div>} /><Route path='users' element={<div>Users page</div>} /></Route></Routes></MemoryRouter>);
+    const main = screen.getByRole('main');
+    main.scrollTop = 450;
+    fireEvent.click(screen.getByRole('button', { name: '打开管理菜单' }));
+    fireEvent.click(screen.getByRole('link', { name: '用户管理' }));
+    expect(screen.getByText('Users page')).toBeInTheDocument();
+    expect(main.scrollTop).toBe(0);
+  });
+
   it('announces state, contains focus, closes on Escape, and makes the closed drawer inert', () => {
     render(
       <MemoryRouter initialEntries={['/admin']}>
@@ -42,11 +60,11 @@ describe('AdminLayout mobile navigation', () => {
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
     expect(drawer).not.toHaveAttribute('inert');
     expect(drawer).toHaveAttribute('role', 'dialog');
-    expect(screen.getByRole('button', { name: '仪表盘' })).toHaveFocus();
+    expect(screen.getByRole('link', { name: '仪表盘' })).toHaveFocus();
 
-    screen.getByRole('button', { name: '审计日志' }).focus();
+    screen.getByRole('link', { name: '返回应用' }).focus();
     fireEvent.keyDown(document, { key: 'Tab' });
-    expect(screen.getByRole('button', { name: '仪表盘' })).toHaveFocus();
+    expect(screen.getByRole('button', { name: '关闭管理菜单' })).toHaveFocus();
 
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(trigger).toHaveAttribute('aria-expanded', 'false');

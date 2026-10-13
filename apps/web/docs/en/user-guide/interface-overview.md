@@ -1,277 +1,40 @@
-# Interface Overview
+# Interface overview
 
-Welcome to ZenStory Novel Writing Workbench. This document provides a quick overview of the interface layout to help you start your creative journey efficiently.
+The workbench home starts and manages projects. The project page is where you write. Knowing this distinction makes the common controls easier to find.
 
-## Three-Panel Layout Introduction
+## Workbench home
 
-[Screenshot: Complete desktop interface with three main areas highlighted]
+Enter an idea, select a format, create a project, or reopen recent work. The navigation includes **My Projects**, **Materials**, **Skills**, and **Plans & Benefits**. On a phone, open the menu to see navigation.
 
-ZenStory employs a classic three-panel layout design that maximizes screen space, allowing you to simultaneously access project resources, edit content, and interact with the AI assistant. From left to right:
+- My Projects: search, filter, open, or delete projects.
+- Materials: upload reference text and read breakdown results.
+- Skills: add official or community skills and manage your own methods.
+- Plans & Benefits: inspect your plan, usage, and expiration.
 
-- **Left Panel**: Project resources area, containing files, skills, and materials
-- **Center Panel**: Content editor, your creative workspace
-- **Right Panel**: AI assistant, your intelligent writing partner
+The Inspirations Library is coming soon. You can already start from your own idea on the home page.
 
-The panels can be resized by dragging the dividers between them to suit your workflow preferences.
+## The three project areas
 
----
+| Area | Common actions |
+| --- | --- |
+| Files | Open, create, and search files; switch to skills or materials |
+| Editor | Write, edit titles, quote selections, save, and inspect file history |
+| AI chat | Describe tasks, choose skills and references, read replies and file-operation results |
 
-## Dashboard Navigation (2026)
+Desktop and tablet show the areas side by side, with draggable dividers. On phones, use **Files**, **Edit**, and **AI** at the bottom. Switching panels retains current editing and chat state.
 
-After login, the dashboard sidebar includes these primary entries:
+## Project header
 
-- **Home**: quick project creation and recent projects
-- **My Projects**: full project list and search management
-- **Materials**: upload reference novels and review AI decomposition
-- **Inspirations**: browse and reuse idea templates (optional self-host module; not on the hosted app)
-- **Skills**: manage and use skills
-- **Plans & Benefits**: check your plan, today's AI messages and other usage; get or renew Pro
+Click the project name to switch, create, or rename a project. The header provides manuscript export, project history, settings, and the user menu. On phones, open these through the menu.
 
----
+File history is inside the editor; project history is in the header. They restore different scopes. See [version history](version-history.md).
 
-## Left Panel: Project Resources
+## Settings and input
 
-[Screenshot: Complete left panel with three tab labels highlighted]
+Settings offer light, dark, or system appearance, Chinese and English, and accent colors. The editor is a plain-text writing area. Selection tools quote a passage or **Humanize** it.
 
-The left panel serves as your project resource management center. Switch between different functions using the three tabs at the top:
+You can resize the chat input. When voice input is available, allow microphone access, record, then check the transcription before sending.
 
-### Files Tab
+Use `Command/Ctrl + K` to search files and `Command/Ctrl + S` to save. See [keyboard shortcuts](../reference/keyboard-shortcuts.md) for the complete list.
 
-[Screenshot: Files tab showing file tree structure]
-
-The Files tab displays the complete file tree structure of the current project, supporting the following file types:
-
-- **Outlines** - Structural planning for stories and chapters
-- **Drafts** - Actual novel content
-- **Characters** - Character profiles and settings
-- **Lore** - World-building and background materials
-
-**Operation Tips**:
-- Click a file to open it in the editor
-- Right-click a file or folder to rename, delete, or perform other actions
-- Use the top buttons to create new files or folders
-- Press `Cmd+K` (Mac) or `Ctrl+K` (Windows/Linux) to quickly search for files
-
-### Skills Tab
-
-[Screenshot: Skills tab showing available skills list]
-
-The Skills tab provides a series of AI writing assistance features to help you:
-
-- Generate new content
-- Expand and polish existing paragraphs
-- Create character dialogues
-- Build scene descriptions
-
-Click a skill card to quickly invoke the corresponding AI capability.
-
-### Materials Tab
-
-[Screenshot: Materials tab showing materials library]
-
-The Materials tab is your reference library where you can:
-
-- Manage reference materials imported from the materials library
-- Attach relevant materials when conversing with the AI
-- Preview material content
-
----
-
-## Center Panel: Editor
-
-[Screenshot: Center editor with title bar and content area highlighted]
-
-The editor is your core creative workspace, providing the following features:
-
-### Content Editing
-
-- Rich text editing support
-- Real-time auto-save, never worry about losing content
-- Clear title bar displaying the current file name
-
-### Status Indicators
-
-[Screenshot: Word count and save status at bottom or top of editor]
-
-- Real-time word count display
-- Save status indicator
-- Real-time display during streaming content generation
-
-### Editing Modes
-
-The editor supports two content display modes:
-
-1. **Normal Mode** - Standard text editing experience
-2. **Diff Review Mode** - After the AI edits a file, you can review each change individually and choose to accept or reject it
-
----
-
-## Right Panel: AI Assistant
-
-[Screenshot: Right AI assistant panel with chat area and input area highlighted]
-
-The AI assistant is your intelligent writing partner, ready to assist with your creative work at any time.
-
-### Chat Area
-
-[Screenshot: Message list area]
-
-The chat area displays your complete conversation history with the AI, including:
-
-- Your messages
-- AI responses
-- AI thinking process (expandable)
-- Tool execution results (such as file creation, editing, etc.)
-
-**Key Features**:
-- Transparent display of AI thinking process
-- Tool execution results presented as cards
-- Support for undoing AI edit operations
-
-### Input Area
-
-[Screenshot: Bottom input box with button functions highlighted]
-
-The input area provides multiple interaction methods:
-
-- **Text Input Box** - Enter your creative needs or questions
-- **Voice Input** - Click the microphone button to use speech-to-text
-- **AI Suggestions** - Quick buttons providing common command suggestions
-- **Attach Materials** - Select relevant files as context before sending
-
-**The input box can be resized by dragging**. Double-click the divider to reset to default height.
-
-### Top Actions
-
-[Screenshot: AI assistant top toolbar]
-
-- **AI Memory** - View the AI's understanding and memory of the current project
-- **New Chat** - Start a new conversation session
-
----
-
-## Top Toolbar
-
-[Screenshot: Top toolbar with elements highlighted]
-
-The top toolbar is always visible, providing global action entry points:
-
-### Left Side
-
-- **Logo** - Click to return to the project dashboard
-- **Project Switcher** - Quickly switch between different projects
-
-### Right Side (Desktop)
-
-- **Export** - Export project drafts as `.txt` (current version)
-- **Version History** - View and restore historical versions
-- **Settings** - Open the settings panel
-- **User Menu** - Account information, theme switching, and logout
-
-### Right Side (Mobile)
-
-[Screenshot: Mobile hamburger menu expanded state]
-
-On mobile, access the above features through the hamburger menu (three horizontal lines icon).
-
----
-
-## Bottom Navigation (Mobile)
-
-[Screenshot: Mobile bottom three tab icons]
-
-Mobile employs a single-panel design, switching between the three main areas via bottom navigation:
-
-- **Files** - Project file tree
-- **Edit** - Content editor
-- **AI** - AI assistant conversation
-
-This design ensures comfortable use of all features even on small screens.
-
----
-
-## Responsive Design
-
-ZenStory's interface automatically adjusts its layout based on your device:
-
-### Desktop (width >= 768px)
-
-[Screenshot: Desktop three-panel side-by-side layout]
-
-- Three panels displayed side by side
-- Panels can be resized by dragging
-- All features visible simultaneously
-
-### Tablet
-
-- Main panel occupies most space
-- Side panels can be collapsed and expanded
-- Adapts to portrait and landscape orientation
-
-### Mobile (width < 768px)
-
-[Screenshot: Mobile single panel + bottom navigation]
-
-- Single panel design, showing one area at a time
-- Bottom tab navigation for switching
-- Scroll position automatically remembered
-
----
-
-## Themes and Personalization
-
-### Theme Switching
-
-[Screenshot: Theme options in settings panel]
-
-ZenStory supports multiple theme modes:
-
-- **Light Mode** - Suitable for daytime use
-- **Dark Mode** - Reduces eye strain, ideal for nighttime writing
-
-You can switch themes at any time in the settings panel (click the gear icon in the top toolbar).
-
-### Theme Color
-
-[Screenshot: Color picker in settings panel]
-
-You can also choose your preferred theme color to match your personal style. Available colors include:
-
-- Sky Blue (default)
-- Emerald Green
-- Amber
-- Coral Red
-- Rose
-- Violet
-
-### Language Settings
-
-[Screenshot: Language options in settings panel]
-
-ZenStory supports switching between Chinese and English. You can change the interface language at any time in the settings panel.
-
----
-
-## Keyboard Shortcuts
-
-To improve your creative efficiency, ZenStory provides the following global keyboard shortcuts:
-
-| Shortcut | Function |
-|----------|----------|
-| `Cmd/Ctrl + K` | Open file search |
-| `Cmd/Ctrl + S` | Save current file (also triggers manual save during auto-save) |
-
----
-
-## Next Steps
-
-Now that you understand ZenStory's interface layout, you can continue reading the following documents to learn more about each feature:
-
-- [Create Your First Project](../getting-started/first-project.md)
-- [Chat with AI](./ai-assistant.md)
-- [File Management](./file-tree.md)
-- [Inspirations Library](./inspirations.md)
-- [Plans & Benefits](./billing-benefits.md)
-- [Version History](./version-history.md)
-
-Happy writing!
+Next: [manage projects](project-management.md) or [organize files](file-tree.md).

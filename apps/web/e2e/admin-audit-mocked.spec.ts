@@ -193,11 +193,11 @@ test.describe('Admin audit logs (mocked)', () => {
       .first()
       .click();
 
-    const detailModal = page.locator('.fixed.inset-0.z-50').last();
+    const detailModal = page.getByRole('dialog');
     await expect(detailModal).toBeVisible();
     await expect(detailModal.getByText(/3900/)).toBeVisible();
 
     await detailModal.getByRole('button', { name: /^关闭$|^close$|^common:close$/i }).first().click();
-    await expect(page.locator('.fixed.inset-0.z-50')).toHaveCount(0);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 });

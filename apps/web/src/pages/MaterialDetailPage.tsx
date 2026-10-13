@@ -390,7 +390,7 @@ function MaterialDetailContent({ novelId }: { novelId?: string }) {
       children: plots.map((plot) => ({
         id: String(plot.id),
         type: "plot",
-        title: plot.description.substring(0, 50) + (plot.description.length > 50 ? "..." : ""),
+        title: plot.description.substring(0, 50) + (plot.description.length > 50 ? "…" : ""),
         data: plot,
       })),
     });

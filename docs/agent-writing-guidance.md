@@ -42,4 +42,6 @@ Regression checks cover missing/inactive/other-type configurations, primary DB r
 
 The three candidate DB configurations and thirteen actual official skill identities are also rendered/read back in an isolated database before rollout. Shared-role guidance removes fixed craft quotas and prioritizes intent/canon/causality. Policy assertions and mocked routing tests protect contracts; they do **not** prove generated prose quality or guarantee a literary score. Review cases include planning-only, one-chapter scope, quiet endings, fair reveals/local payoff, POV/state continuity, one-format screenplay, preserve-set polishing and original source transformation.
 
-Billing uses the existing redemption capability, not a nonexistent checkout: billing Upgrade opens redemption in place; pricing Pro carries `plan=pro` into the same activation flow. The pages explicitly explain how to get a code and that online checkout is unavailable. Desktop/mobile browser checks include source attribution, cancel/back, anonymous login/registration and paid-tier behavior.
+## Billing integration
+
+Pricing and billing use the existing payment-order flow when checkout is enabled, with redemption codes and points as additional activation paths. Payment processing and benefit fulfillment are distinct states; the browser must not turn a pending return into a new payment. Current author-facing instructions live in [Plans & Benefits](../apps/web/docs/user-guide/billing-benefits.md). Preserve quota and refund accounting when changing writing configuration.

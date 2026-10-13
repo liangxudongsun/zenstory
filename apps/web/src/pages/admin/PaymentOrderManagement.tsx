@@ -157,9 +157,9 @@ export default function PaymentOrderManagement() {
                 <td className={`${columnClass} whitespace-nowrap`}>{formatAmount(order.amount_cents)}</td>
                 <td className={columnClass}>{order.payment_method === "alipay" ? t("paymentOrders.alipay") : order.payment_method}</td>
                 <td className={columnClass}>{paymentStatus(order)}</td>
-                <td className={columnClass}><span className={isPaidNotFulfilled(order) ? "text-[hsl(var(--error))]" : ""}>{fulfillmentStatus(order)}</span></td>
+                <td className={columnClass}><span className={isPaidNotFulfilled(order) ? "text-[hsl(var(--error-text))]" : ""}>{fulfillmentStatus(order)}</span></td>
                 <td className={`${columnClass} whitespace-nowrap`}>{formatDate(order.created_at)}</td>
-                <td className={columnClass}><button type="button" className="text-[hsl(var(--accent-primary))] hover:underline" onClick={() => openDetails(order)}>{t("paymentOrders.details")}</button></td>
+                <td className={columnClass}><button type="button" className="text-[var(--admin-accent-text)] hover:underline" onClick={() => openDetails(order)}>{t("paymentOrders.details")}</button></td>
               </tr>
             ))}</tbody>
           </table>
@@ -210,7 +210,7 @@ export default function PaymentOrderManagement() {
             </div>
           )}
           {syncMessage && (
-            <p role="status" className={`text-sm ${syncMessage.tone === "error" ? "text-[hsl(var(--error))]" : "text-[hsl(var(--success))]"}`}>
+            <p role="status" className={`text-sm ${syncMessage.tone === "error" ? "text-[hsl(var(--error-text))]" : "text-[hsl(var(--success-text))]"}`}>
               {syncMessage.text}
             </p>
           )}

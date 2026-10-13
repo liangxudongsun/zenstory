@@ -184,7 +184,7 @@ export function FeedbackDialog({
             disabled={!canSubmit}
           >
             {isSubmitting
-              ? t("feedback.submitting", "提交中...")
+              ? t("feedback.submitting", "提交中…")
               : t("feedback.submit", "提交反馈")}
           </button>
         </>

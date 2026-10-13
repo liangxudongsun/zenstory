@@ -21,6 +21,8 @@
     "versionHistory": "改错了可退回旧版本"
   },
   "demo": {
+    "pause": "暂停演示",
+    "resume": "继续演示",
     "projectName": "《天阙余烬》项目",
     "autoSave": "自动保存",
     "versionHistory": "版本历史",
@@ -133,10 +135,7 @@
   },
   "footer": {
     "copyright": "© {{year}} ZenStory AI",
-    "tagline": "把 AI 放进你的创作生产线",
-    "projects": "ZenStory AI 全部项目",
-    "glossary": "术语表",
-    "github": "GitHub"
+    "tagline": "把 AI 放进你的创作生产线"
   },
   "preview": {
     "projectFiles": "项目文件",
@@ -154,7 +153,7 @@
         "identity": "身份",
         "identityValue": "内门弟子",
         "personality": "性格",
-        "personalityDesc": "外表冷若冰霜，实则内心细腻，对林逸有着复杂的情感...",
+        "personalityDesc": "外表冷若冰霜，实则内心细腻，对林逸有着复杂的情感。",
         "secret": "秘密",
         "secretDesc": "真实身份是上古神族后裔"
       },
@@ -163,8 +162,8 @@
         "input": "帮我的玄幻小说创建一个神秘的女配角",
         "response": "好的！我来创建一个神秘女配角。",
         "created": "已创建角色",
-        "desc": "青云宗内门弟子，身份神秘...",
-        "placeholder": "输入想法..."
+        "desc": "青云宗内门弟子，身份神秘。",
+        "placeholder": "输入想法"
       }
     },
     "sceneSuggest": {
@@ -176,9 +175,9 @@
         "title": "AI 助手",
         "input": "帮我写第一章的开头",
         "response": "好的！我来写一个悬念十足的开篇。",
-        "writing": "正在写入...",
+        "writing": "正在写入…",
         "action": "描写苏婉出场",
-        "placeholder": "输入想法..."
+        "placeholder": "输入想法"
       }
     },
     "sceneEdit": {
@@ -197,7 +196,7 @@
         "updatedFile": "第三章大纲",
         "newScenes": "新增 2 个场景",
         "undo": "可一键撤销",
-        "placeholder": "输入想法..."
+        "placeholder": "输入想法"
       }
     }
   },

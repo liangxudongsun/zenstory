@@ -445,7 +445,7 @@ export const MobileChatInput: React.FC<MobileChatInputProps> = ({
             >
               <Quote size={12} />
               <span className="max-w-[100px] truncate">
-                {quote.text.length > 30 ? `${quote.text.slice(0, 30)}...` : quote.text}
+                {quote.text.length > 30 ? `${quote.text.slice(0, 30)}…` : quote.text}
               </span>
               <button
                 onClick={() => removeQuote(quote.id)}

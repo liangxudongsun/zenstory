@@ -14,7 +14,7 @@
   "lastUpdated": "Last Updated",
   "onThisPage": "On This Page",
   "search": "Search Documentation",
-  "searchPlaceholder": "Search documentation...",
+  "searchPlaceholder": "Search documentation",
   "noResults": "No matching documents",
   "previous": "Previous",
   "next": "Next",
@@ -49,6 +49,6 @@
     "commonIssues": "Common Issues",
     "errorMessages": "Error Messages"
   },
-  "loading": "Loading...",
+  "loading": "Loading…",
   "loadErrorDesc": "Check your connection and refresh the page."
 }

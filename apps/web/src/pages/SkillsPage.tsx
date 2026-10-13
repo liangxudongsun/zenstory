@@ -753,7 +753,7 @@ export default function SkillsPage() {
             </p>
             {importResult.warnings.length > 0 && (
               <div className="rounded-lg border border-[hsl(var(--warning)/0.4)] bg-[hsl(var(--warning)/0.08)] p-3">
-                <div className="flex items-center gap-2 mb-2 text-sm font-medium text-[hsl(var(--warning))]">
+                <div className="flex items-center gap-2 mb-2 text-sm font-medium text-[hsl(var(--warning-text))]">
                   <AlertTriangle className="w-4 h-4 shrink-0" />
                   {t("skills:import.warningsTitle", { count: importResult.warnings.length })}
                 </div>
@@ -911,7 +911,7 @@ function SkillCard({
   );
 
   return (
-    <div className={`group relative bg-[hsl(var(--bg-secondary))] rounded-lg border ${isSelected ? "border-[hsl(var(--accent-primary))]" : "border-[hsl(var(--border-color))]"} hover:border-[hsl(var(--accent-primary)/0.3)] hover:shadow-lg transition-all ${isMobile ? "p-3" : "p-4"}`}>
+    <div className={`group relative bg-[hsl(var(--bg-secondary))] rounded-2xl border ${isSelected ? "border-[hsl(var(--accent-primary))]" : "border-[hsl(var(--border-color))]"} hover:border-[hsl(var(--accent-primary)/0.3)] transition-colors ${isMobile ? "p-3" : "p-4"}`}>
       <div className="flex items-start justify-between gap-3">
         {/* Checkbox */}
         {onToggleSelect && (
@@ -1089,7 +1089,7 @@ function MySkillsContent({
               </button>
               <button
                 onClick={onBatchDelete}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-[hsl(var(--error)/0.1)] text-[hsl(var(--error))] hover:bg-[hsl(var(--error)/0.2)] transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-[hsl(var(--error)/0.1)] text-[hsl(var(--error-text))] hover:bg-[hsl(var(--error)/0.2)] transition-colors"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 {t("batch.delete")}
@@ -1250,7 +1250,7 @@ function AddedSkillCard({
       {onExport && !hidden && (
         <ExportButton onExport={onExport} exporting={exporting} isMobile={isMobile} />
       )}
-      <IconButton
+      {!hidden && Boolean(skill.instructions.trim()) && <IconButton
         onClick={() => setExpanded(!expanded)}
         label={
           hidden
@@ -1259,13 +1259,13 @@ function AddedSkillCard({
         }
         aria-expanded={expanded}
         icon={expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-      />
+      />}
     </div>
   );
   const localizedCategory = getLocalizedSkillCategory(skill.category, t);
 
   return (
-    <div className={`group relative bg-[hsl(var(--bg-secondary))] rounded-lg border ${isSelected ? "border-[hsl(var(--accent-primary))]" : "border-[hsl(var(--border-color))]"} hover:border-[hsl(var(--accent-primary)/0.3)] hover:shadow-lg transition-all ${isMobile ? "p-3" : "p-4"}`}>
+    <div className={`group relative bg-[hsl(var(--bg-secondary))] rounded-2xl border ${isSelected ? "border-[hsl(var(--accent-primary))]" : "border-[hsl(var(--border-color))]"} hover:border-[hsl(var(--accent-primary)/0.3)] transition-colors ${isMobile ? "p-3" : "p-4"}`}>
       <div className="flex items-start justify-between gap-3">
         {/* Checkbox */}
         {onToggleSelect && (
@@ -1295,7 +1295,7 @@ function AddedSkillCard({
             </span>
           </div>
           {skill.description && (
-            <p className={`text-xs text-[hsl(var(--text-secondary))] mb-2.5 ${hidden && expanded ? "" : "line-clamp-2"}`}>
+            <p className={`text-xs text-[hsl(var(--text-secondary))] mb-2.5 ${hidden ? "" : "line-clamp-2"}`}>
               {skill.description}
             </p>
           )}
@@ -1310,11 +1310,7 @@ function AddedSkillCard({
       </div>
       {isMobile && actions}
 
-      {expanded && hidden && (
-        <p className="mt-3 pt-3 border-t border-[hsl(var(--border-color))] text-xs text-[hsl(var(--text-tertiary))]">
-          {t("skills:instructionsHidden")}
-        </p>
-      )}
+
 
       {/* Instructions - Markdown rendered */}
       {expanded && !hidden && skill.instructions && (
@@ -1430,6 +1426,7 @@ function DiscoverContent({
               setSearchQuery(e.currentTarget.value);
             }}
             placeholder={t("searchPlaceholder")}
+            aria-label={t("searchPlaceholder")}
             className="input pl-10 w-full"
             data-testid="public-skill-search"
           />
@@ -1467,18 +1464,23 @@ function DiscoverContent({
           />
         )
       ) : (
-        <div className={`grid gap-4 ${isMobile ? "grid-cols-1" : "grid-cols-2 lg:grid-cols-3"}`}>
-          {publicSkills.map((skill) => (
-            <PublicSkillCard
-              key={skill.id}
-              skill={skill}
-              isAdded={addedPublicIds.has(skill.id) || !!skill.is_added}
-              adding={addingId === skill.id}
-              onAdd={() => onAdd(skill.id)}
-              isMobile={isMobile}
-            />
-          ))}
-        </div>
+        <>
+          {publicSkills.some(skill => skill.source === "official") && (
+            <p className="mb-4 text-sm text-[hsl(var(--text-secondary))]">{t("officialUsageHint")}</p>
+          )}
+          <div className={`grid gap-4 ${isMobile ? "grid-cols-1" : "grid-cols-2 lg:grid-cols-3"}`}>
+            {publicSkills.map((skill) => (
+              <PublicSkillCard
+                key={skill.id}
+                skill={skill}
+                isAdded={addedPublicIds.has(skill.id) || !!skill.is_added}
+                adding={addingId === skill.id}
+                onAdd={() => onAdd(skill.id)}
+                isMobile={isMobile}
+              />
+            ))}
+          </div>
+        </>
       )}
 
       {!loading && hasMore && (
@@ -1510,8 +1512,9 @@ function PublicSkillCard({
   const [expanded, setExpanded] = useState(false);
   const [fullInstructions, setFullInstructions] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const canExpand = skill.source !== "official" && !skill.instructions_hidden && (Boolean(skill.instructions.trim()) || Boolean(skill.instructions_truncated));
 
-  // 官方技能的正文不对用户返回：展开只显示完整描述和说明
+  // 官方技能的正文不对用户返回，卡片只显示用途说明
   const hidden = !!skill.instructions_hidden;
   const handleToggleExpanded = async () => {
     const next = !expanded;
@@ -1532,7 +1535,7 @@ function PublicSkillCard({
   const instructions = fullInstructions ?? skill.instructions;
 
   return (
-    <div className={`flex flex-col h-full bg-[hsl(var(--bg-primary))] rounded-xl border border-[hsl(var(--border-color))] hover:border-[hsl(var(--border-color)/0.8)] hover:shadow-sm transition-all ${isMobile ? "p-3" : "p-5"}`}>
+    <div className={`flex flex-col h-full bg-[hsl(var(--bg-secondary))] rounded-2xl border border-[hsl(var(--border-color))] transition-colors ${isMobile ? "p-3" : "p-5"}`}>
       {/* Header */}
       <div className="flex items-center gap-3 mb-3">
         <div className="w-8 h-8 rounded-lg bg-[hsl(var(--accent-primary)/0.08)] flex items-center justify-center shrink-0">
@@ -1549,30 +1552,29 @@ function PublicSkillCard({
       </div>
 
       {/* Description - fixed 2-line height for alignment */}
-      <p className={`text-xs leading-relaxed text-[hsl(var(--text-secondary))] min-h-[2.6em] mb-4 ${hidden && expanded ? "" : "line-clamp-2"}`}>
+      <p className="text-sm leading-relaxed text-[hsl(var(--text-secondary))] line-clamp-2 min-h-[2.6em] mb-4">
         {skill.description || "\u00A0"}
       </p>
 
       {/* Footer - pushed to bottom */}
       <div className="flex items-center justify-between mt-auto pt-3 border-t border-[hsl(var(--border-color)/0.5)]">
-        <button
+        {canExpand && <button
           onClick={() => void handleToggleExpanded()}
-          className="text-xs text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-secondary))] flex items-center gap-1 transition-colors"
+          aria-expanded={expanded}
+          className="min-h-11 text-xs text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))] flex items-center gap-1 transition-colors"
         >
           {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-          <span>{hidden
-            ? expanded ? t("collapseDetails") : t("expandDetails")
-            : expanded ? t("collapse") : t("expand")}</span>
-        </button>
+          <span>{expanded ? t("collapse") : t("expand")}</span>
+        </button>}
 
-        <div className="flex items-center gap-3">
+        <div className={`flex items-center gap-3 ${canExpand ? "" : "w-full justify-between"}`}>
           <span className="text-xs text-[hsl(var(--text-tertiary))]">
             {skill.add_count} {t("addCount")}
           </span>
           <button
             onClick={onAdd}
             disabled={isAdded || adding}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            className={`min-h-11 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
               isAdded
                 ? "text-[hsl(var(--text-tertiary))] cursor-default"
                 : "text-[hsl(var(--accent-primary))] hover:bg-[hsl(var(--accent-primary)/0.08)]"
@@ -1596,7 +1598,7 @@ function PublicSkillCard({
       )}
 
       {/* Expanded instructions */}
-      {expanded && !hidden && instructions && (
+      {canExpand && expanded && instructions && (
         <div className="mt-3 pt-3 border-t border-[hsl(var(--border-color)/0.5)]">
           <div className="markdown-content bg-[hsl(var(--bg-secondary))] rounded-lg p-3 text-xs max-h-48 overflow-y-auto">
             {loadingDetail ? (
@@ -1619,7 +1621,7 @@ function CharCount({ value, max, inline }: { value: string; max: number; inline?
   return (
     <p
       className={`text-xs shrink-0 ${inline ? "" : "mt-1 text-right"} ${
-        nearLimit ? "text-[hsl(var(--warning))]" : "text-[hsl(var(--text-tertiary))]"
+        nearLimit ? "text-[hsl(var(--warning-text))]" : "text-[hsl(var(--text-tertiary))]"
       }`}
     >
       {value.length.toLocaleString()} / {max.toLocaleString()}
@@ -1628,9 +1630,9 @@ function CharCount({ value, max, inline }: { value: string; max: number; inline?
 }
 
 const SHARE_STATUS_STYLES: Record<SkillShareStatus, string> = {
-  pending: "bg-[hsl(var(--warning)/0.12)] text-[hsl(var(--warning))]",
-  approved: "bg-[hsl(var(--success)/0.12)] text-[hsl(var(--success))]",
-  unpublished: "bg-[hsl(var(--error)/0.1)] text-[hsl(var(--error))]",
+  pending: "bg-[hsl(var(--warning)/0.12)] text-[hsl(var(--warning-text))]",
+  approved: "bg-[hsl(var(--success)/0.12)] text-[hsl(var(--success-text))]",
+  unpublished: "bg-[hsl(var(--error)/0.1)] text-[hsl(var(--error-text))]",
 };
 
 // Review status of a skill the user shared to the public library

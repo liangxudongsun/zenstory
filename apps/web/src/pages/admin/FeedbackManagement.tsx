@@ -463,6 +463,7 @@ export default function FeedbackManagement() {
       </div>
 
       <Modal
+        className="admin-shell"
         open={Boolean(previewFeedback)}
         onClose={closePreview}
         title={t("feedback.screenshotPreviewTitle", "反馈截图预览")}
@@ -500,12 +501,12 @@ export default function FeedbackManagement() {
 
           {previewLoading && (
             <div className="flex h-80 items-center justify-center text-[hsl(var(--text-secondary))]">
-              {t("common:loading", "加载中...")}
+              {t("common:loading", "加载中…")}
             </div>
           )}
 
           {!previewLoading && previewError && (
-            <div className="flex items-center gap-2 rounded-lg border border-[hsl(var(--error)/0.25)] bg-[hsl(var(--error)/0.1)] p-3 text-sm text-[hsl(var(--error))]">
+            <div className="flex items-center gap-2 rounded-lg border border-[hsl(var(--error)/0.25)] bg-[hsl(var(--error)/0.1)] p-3 text-sm text-[hsl(var(--error-text))]">
               <AlertCircle size={16} />
               <span>{previewError}</span>
             </div>

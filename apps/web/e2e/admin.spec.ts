@@ -24,16 +24,16 @@ const USER_PASSWORD = process.env.E2E_TEST_PASSWORD || TEST_USERS.standard.passw
 const ADMIN = {
   layout: '.h-screen.w-screen.overflow-hidden',
   sidebar: '.w-64, nav',
-  header: '.h-12',
+  header: 'header',
   mainContent: 'main.overflow-y-auto, main',
 };
 
 const ADMIN_SIDEBAR = {
   title: 'h2:has-text("管理后台"), h2:has-text("Admin Panel")',
-  dashboardLink: 'button:has-text("仪表盘"), button:has-text("Dashboard")',
-  usersLink: 'button:has-text("用户管理"), button:has-text("用户"), button:has-text("User Management")',
-  promptsLink: 'button:has-text("Prompt 管理"), button:has-text("Prompt Management"), button:has-text("Prompt")',
-  skillsLink: 'button:has-text("技能审核"), button:has-text("Skill Review")',
+  dashboardLink: 'a[href="/admin"]',
+  usersLink: 'a[href="/admin/users"]',
+  promptsLink: 'a[href="/admin/prompts"]',
+  skillsLink: 'a[href="/admin/skills"]',
 };
 
 const USER_MANAGEMENT = {
@@ -50,16 +50,16 @@ const USER_MANAGEMENT = {
 };
 
 const USER_EDIT_DIALOG = {
-  overlay: '.fixed.inset-0.z-50',
+  overlay: '[role="dialog"]:not([aria-hidden="true"])',
   title: 'h2:has-text("编辑"), h2:has-text("Edit User"), h2:has-text("Edit")',
-  usernameInput: '.fixed.inset-0.z-50 input[type="text"]',
-  emailInput: '.fixed.inset-0.z-50 input[type="email"]',
+  usernameInput: '[role="dialog"]:not([aria-hidden="true"]) input[type="text"]',
+  emailInput: '[role="dialog"]:not([aria-hidden="true"]) input[type="email"]',
   saveButton: 'button:has-text("保存"), button:has-text("Save")',
   cancelButton: 'button:has-text("取消"), button:has-text("Cancel")',
 };
 
 const DEACTIVATE_DIALOG = {
-  overlay: '.fixed.inset-0.z-50',
+  overlay: '[role="dialog"]:not([aria-hidden="true"])',
   confirmButton: 'button:has-text("停用"), button:has-text("Deactivate")',
   cancelButton: 'button:has-text("取消"), button:has-text("Cancel")',
 };
@@ -85,7 +85,7 @@ const SKILL_REVIEW = {
 };
 
 const REJECT_MODAL = {
-  overlay: '.modal-overlay, .fixed.inset-0.z-50',
+  overlay: '[role="dialog"]:not([aria-hidden="true"])',
   textarea: 'textarea',
   confirmButton: 'button:has-text("确认拒绝"), button:has-text("Confirm Reject"), button:has-text("Confirm")',
   cancelButton: 'button:has-text("取消"), button:has-text("Cancel")',

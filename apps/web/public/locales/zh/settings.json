@@ -48,7 +48,7 @@
   "actions": {
     "resetDefault": "恢复默认偏好",
     "cancel": "取消",
-    "saving": "正在保存...",
+    "saving": "正在保存…",
     "save": "保存偏好",
     "saved": "偏好已保存",
     "confirmReset": "恢复默认偏好？你的作品内容不受影响。"
@@ -63,11 +63,11 @@
     "regenerate": "重新生成",
     "regenerateTitle": "重新生成 API 密钥",
     "regenerateConfirm": "旧密钥会立即失效，用它登录的工具需要换新密钥重新登录。",
-    "regenerating": "正在重新生成...",
+    "regenerating": "正在重新生成…",
     "createdTitle": "API 密钥已创建",
     "copyWarning": "请现在复制密钥，关闭后将无法再次查看。",
     "done": "完成",
-    "loading": "加载中...",
+    "loading": "加载中…",
     "noKeys": "还没有 API 密钥",
     "created": "创建于",
     "lastUsed": "最后使用",
@@ -104,7 +104,7 @@
     },
     "emptyState": "创建一个密钥，再按上面的步骤接入你的 AI 助手。",
     "testConnection": "测试连接",
-    "testing": "测试中...",
+    "testing": "测试中…",
     "testSuccess": "连接正常，这个密钥可以使用。",
     "testFailed": "连接失败：{{error}}",
     "hintBar": "密钥只在终端里粘贴，不要发到 AI 对话里。密钥泄露时可随时禁用或重新生成。",
@@ -155,8 +155,8 @@
   "common": {
     "previous": "上一页",
     "next": "下一页",
-    "loading": "加载中...",
+    "loading": "加载中…",
     "cancel": "取消",
-    "processing": "处理中..."
+    "processing": "处理中…"
   }
 }

@@ -52,7 +52,7 @@ export function AgentApiSection() {
             {/* Text block */}
             <div className="flex-1 text-center sm:text-left">
               <div className="flex items-center gap-2 justify-center sm:justify-start mb-1.5">
-                <span className="px-2 py-0.5 rounded-md text-[10px] md:text-xs font-semibold tracking-wide uppercase bg-[hsl(var(--accent-primary)/0.12)] text-[hsl(var(--accent-primary))] border border-[hsl(var(--accent-primary)/0.15)]">
+                <span className="shrink-0 whitespace-nowrap px-2 py-0.5 rounded-md text-[10px] md:text-xs font-semibold tracking-wide uppercase bg-[hsl(var(--accent-primary)/0.12)] text-[hsl(var(--accent-primary))] border border-[hsl(var(--accent-primary)/0.15)]">
                   {t('agentApi.badge', { defaultValue: '新功能' })}
                 </span>
                 <h3 className="text-base md:text-lg font-semibold text-[hsl(var(--text-primary))] leading-snug">
@@ -83,7 +83,7 @@ export function AgentApiSection() {
             {/* CTA button */}
             <button
               onClick={handleGetStarted}
-              className="flex-shrink-0 group/btn relative h-10 md:h-11 px-5 md:px-6 rounded-xl text-sm font-semibold text-white bg-[hsl(var(--accent-primary))] inline-flex items-center gap-2 overflow-hidden transition-all duration-200 hover:shadow-[0_0_24px_hsl(var(--accent-primary)/0.35)] hover:scale-[1.02] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-primary)/0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-[hsl(var(--bg-primary))]"
+              className="flex-shrink-0 group/btn relative h-11 px-5 md:px-6 rounded-xl text-sm font-semibold text-white bg-[hsl(var(--accent-primary))] inline-flex items-center gap-2 overflow-hidden transition-all duration-200 hover:shadow-[0_0_24px_hsl(var(--accent-primary)/0.35)] hover:scale-[1.02] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-primary)/0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-[hsl(var(--bg-primary))]"
               aria-label={t('agentApi.ctaAriaLabel', { defaultValue: '去设置创建 API 密钥' })}
             >
               <span className="relative z-10">{t('agentApi.cta', { defaultValue: '创建 API 密钥' })}</span>

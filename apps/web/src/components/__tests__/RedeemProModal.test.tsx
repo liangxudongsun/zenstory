@@ -111,7 +111,7 @@ describe('RedeemProModal', () => {
     const redeem=await screen.findByRole('button',{name:'兑换'})
     await waitFor(()=>expect(redeem).toBeEnabled())
     fireEvent.click(redeem)
-    await screen.findByRole('button',{name:'处理中...'})
+    await screen.findByRole('button',{name:"处理中…"})
     fireEvent.click(screen.getByRole('button',{name:'取消'}))
     fireEvent.click(document.querySelector('[role="presentation"]')!)
     fireEvent.keyDown(document,{key:'Escape'})
@@ -423,11 +423,11 @@ describe('RedeemProModal', () => {
       })
 
       const redeemButton = await screen.findByRole('button', { name: '兑换' })
-      expect(redeemButton).toHaveClass('bg-[hsl(var(--accent-primary))]', 'min-h-[40px]')
+      expect(redeemButton).toHaveClass('bg-[hsl(var(--primary))]', 'min-h-[40px]')
       expect(redeemButton.className).not.toMatch(/gradient/)
       const cancelButton = screen.getByRole('button', { name: '取消' })
       expect(cancelButton).toHaveClass('min-h-[40px]')
-      expect(cancelButton).not.toHaveClass('bg-[hsl(var(--accent-primary))]')
+      expect(cancelButton).not.toHaveClass('bg-[hsl(var(--primary))]')
     })
 
     it('updates button state when selecting more expensive option', async () => {
@@ -541,7 +541,7 @@ describe('RedeemProModal', () => {
       fireEvent.click(redeemButton)
 
       await waitFor(() => {
-        expect(screen.getByText('处理中...')).toBeInTheDocument()
+        expect(screen.getByText("处理中…")).toBeInTheDocument()
       })
     })
 

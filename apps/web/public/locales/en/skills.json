@@ -18,8 +18,8 @@
   "discover": "Discover Skills",
   "discoverMore": "Discover more",
   "discoverDescription": "Browse and add community-shared writing skills",
-  "searchPlaceholder": "Search skills...",
-  "searchMySkillsPlaceholder": "Search my skills...",
+  "searchPlaceholder": "Search skills",
+  "searchMySkillsPlaceholder": "Search my skills",
   "noSearchResults": "No matching skills. Try a different keyword.",
   "allCategories": "All",
   "categories": {
@@ -31,6 +31,7 @@
   },
   "noSkillsFound": "No matching skills. Try a different keyword or category.",
   "official": "Official",
+  "officialUsageHint": "Add official skills to use them. The AI calls them when they fit.",
   "community": "Community",
   "addCount": "added",
   "addToMine": "Add to My Skills",
@@ -61,7 +62,7 @@
     "triggersPlaceholder": "e.g. character, opening",
     "triggersHint": "For organizing your skills only; they don’t change when the AI uses it. Separate with commas",
     "instructions": "Instructions",
-    "instructionsPlaceholder": "Write out the method. The AI follows it when using this skill...",
+    "instructionsPlaceholder": "Write out the method. The AI follows it when using this skill.",
     "instructionsHint": "Use headings and lists (Markdown supported)",
     "triggersTooLong": "Up to {{count}} tags, each at most {{max}} characters"
   },
@@ -131,7 +132,7 @@
     "pathPlaceholder": "references/example.md",
     "content": "File content",
     "saveFile": "Save file",
-    "saving": "Saving...",
+    "saving": "Saving…",
     "saveFirst": "Save the skill first to add resource files.",
     "errors": {
       "prefix": "Path must start with references/ or assets/",

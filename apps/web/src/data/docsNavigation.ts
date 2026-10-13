@@ -12,7 +12,7 @@ export const docsNavigation: DocNavItem[] = [
     path: "/docs/getting-started",
     children: [
       { title: "Quick Start", titleZh: "网页写作快速入门", path: "/docs/getting-started/quick-start" },
-      { title: "Installation", titleZh: "账号注册与登录", path: "/docs/getting-started/installation" },
+      { title: "Account Registration and Login", titleZh: "账号注册与登录", path: "/docs/getting-started/installation" },
       { title: "First Story", titleZh: "写第一篇短篇", path: "/docs/getting-started/first-project" },
     ]
   },
@@ -25,13 +25,13 @@ export const docsNavigation: DocNavItem[] = [
       { title: "Project Management", titleZh: "项目管理", path: "/docs/user-guide/project-management" },
       { title: "File Tree", titleZh: "文件树与文件类型", path: "/docs/user-guide/file-tree" },
       { title: "Editor", titleZh: "编辑器使用", path: "/docs/user-guide/editor" },
-      { title: "AI Assistant", titleZh: "AI创作助手", path: "/docs/user-guide/ai-assistant" },
+      { title: "AI Assistant", titleZh: "AI 创作助手", path: "/docs/user-guide/ai-assistant" },
       { title: "Skills", titleZh: "技能系统", path: "/docs/user-guide/skills" },
       { title: "Materials", titleZh: "素材库", path: "/docs/user-guide/materials" },
-      { title: "Inspirations (self-host only)", titleZh: "灵感库（仅自托管）", path: "/docs/user-guide/inspirations" },
+      { title: "Inspirations (coming soon)", titleZh: "灵感库（待开放）", path: "/docs/user-guide/inspirations" },
       { title: "Plans & Benefits", titleZh: "订阅权益", path: "/docs/user-guide/billing-benefits" },
       { title: "Version History", titleZh: "版本历史", path: "/docs/user-guide/version-history" },
-      { title: "Export", titleZh: "导出功能", path: "/docs/user-guide/export" },
+      { title: "Export", titleZh: "导出正文", path: "/docs/user-guide/export" },
     ]
   },
   {
@@ -39,7 +39,7 @@ export const docsNavigation: DocNavItem[] = [
     titleZh: "进阶技巧",
     path: "/docs/advanced",
     children: [
-      { title: "AI Memory", titleZh: "AI记忆与上下文", path: "/docs/advanced/ai-memory" },
+      { title: "AI Memory", titleZh: "AI 记忆与上下文", path: "/docs/advanced/ai-memory" },
       { title: "Skill Creation", titleZh: "自定义技能进阶", path: "/docs/advanced/skill-creation" },
       { title: "Material Analysis", titleZh: "素材深度分析", path: "/docs/advanced/material-analysis" },
       { title: "Workflow Tips", titleZh: "高效写作工作流", path: "/docs/advanced/workflow-tips" },

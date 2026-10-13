@@ -1,3 +1,4 @@
+import { Modal } from "../../components/ui/Modal";
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -27,7 +28,7 @@ const InspirationCard: React.FC<{
 }> = ({ inspiration, onReview, onEdit, onDelete, t }) => {
   const statusColors = {
     pending: "bg-yellow-500/15 text-yellow-600 dark:text-yellow-400",
-    approved: "bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))]",
+    approved: "bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success-text))]",
     rejected: "bg-red-500/15 text-red-600 dark:text-red-400",
   };
 
@@ -278,7 +279,7 @@ export const InspirationManagement: React.FC = () => {
 
   const statusColors = {
     pending: "bg-yellow-500/15 text-yellow-600 dark:text-yellow-400",
-    approved: "bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))]",
+    approved: "bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success-text))]",
     rejected: "bg-red-500/15 text-red-600 dark:text-red-400",
   };
 
@@ -515,187 +516,214 @@ export const InspirationManagement: React.FC = () => {
 
       {/* Edit Modal */}
       {editingInspiration && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-[hsl(var(--bg-primary))] border border-[hsl(var(--separator-color))] rounded-lg shadow-xl w-full max-w-md">
-            <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
-              <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
-                {t("inspirations.editTitle")}
-              </h2>
-              <button
-                onClick={() => setEditingInspiration(null)}
-                disabled={updateMutation.isPending}
-                aria-label={t("common:close")}
-                className="p-2.5 hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
-              >
-                <X size={20} className="text-[hsl(var(--text-secondary))]" />
-              </button>
-            </div>
+        <Modal
+          open
+          ariaLabel={t("inspirations.editTitle")}
+          onClose={() => setEditingInspiration(null)}
+          closeOnEscape={!(updateMutation.isPending)}
+          closeOnBackdropClick={false}
+          showCloseButton={false}
+          bodyClassName="p-0"
+          className="admin-shell rounded-xl!"
+          size="md"
+        >
+          <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
+            <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
+              {t("inspirations.editTitle")}
+            </h2>
+            <button
+              onClick={() => setEditingInspiration(null)}
+              disabled={updateMutation.isPending}
+              aria-label={t("common:close")}
+              className="p-2.5 hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
+            >
+              <X size={20} className="text-[hsl(var(--text-secondary))]" />
+            </button>
+          </div>
 
-            <div className="px-4 sm:px-6 py-4 space-y-4 max-h-[60vh] overflow-y-auto">
-              <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                  {t("inspirations.name")}
-                </label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                  {t("inspirations.description")}
-                </label>
-                <textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  rows={3}
-                  className="w-full px-3 py-2.5 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))] resize-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                  {t("inspirations.tags")}
-                </label>
-                <input
-                  type="text"
-                  value={formData.tags}
-                  onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
-                  placeholder={t("inspirations.tagsPlaceholder")}
-                  className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))] placeholder-[hsl(var(--text-secondary))]"
-                />
-              </div>
-
-              <TouchCheckbox
-                checked={formData.is_featured}
-                onChange={(checked) => setFormData({ ...formData, is_featured: checked })}
-                label={t("inspirations.setFeatured")}
+          <div className="px-4 sm:px-6 py-4 space-y-4 max-h-[60vh] overflow-y-auto">
+            <div>
+              <label htmlFor="admin-inspirations-name" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                {t("inspirations.name")}
+              </label>
+              <input id="admin-inspirations-name"
+                type="text"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))]"
               />
             </div>
 
-            <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
-              <button
-                onClick={() => setEditingInspiration(null)}
-                disabled={updateMutation.isPending}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))] disabled:opacity-50"
-              >
-                {t("common:cancel")}
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={updateMutation.isPending}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--accent-primary))] text-white rounded-lg hover:opacity-90 active:scale-95 transition-all text-sm disabled:opacity-50"
-              >
-                {updateMutation.isPending ? t("common:loading") : t("common:save")}
-              </button>
+            <div>
+              <label htmlFor="admin-inspirations-description" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                {t("inspirations.description")}
+              </label>
+              <textarea id="admin-inspirations-description"
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                rows={3}
+                className="w-full px-3 py-2.5 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))] resize-none"
+              />
             </div>
+
+            <div>
+              <label htmlFor="admin-inspirations-tags" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                {t("inspirations.tags")}
+              </label>
+              <input id="admin-inspirations-tags"
+                type="text"
+                value={formData.tags}
+                onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
+                placeholder={t("inspirations.tagsPlaceholder")}
+                className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))] placeholder-[hsl(var(--text-secondary))]"
+              />
+            </div>
+
+            <TouchCheckbox
+              checked={formData.is_featured}
+              onChange={(checked) => setFormData({ ...formData, is_featured: checked })}
+              label={t("inspirations.setFeatured")}
+            />
           </div>
-        </div>
+
+          <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
+            <button
+              onClick={() => setEditingInspiration(null)}
+              disabled={updateMutation.isPending}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))] disabled:opacity-50"
+            >
+              {t("common:cancel")}
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={updateMutation.isPending}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--accent-primary))] text-white rounded-lg hover:opacity-90 active:scale-95 transition-all text-sm disabled:opacity-50"
+            >
+              {updateMutation.isPending ? t("common:loading") : t("common:save")}
+            </button>
+          </div>
+        </Modal>
       )}
 
       {/* Delete Confirmation Modal */}
       {deletingInspiration && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-[hsl(var(--bg-primary))] border border-[hsl(var(--separator-color))] rounded-lg shadow-xl w-full max-w-md">
-            <div className="flex items-center gap-3 px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
-              <AlertTriangle size={24} className="text-red-500" />
-              <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
-                {t("inspirations.deleteTitle")}
-              </h2>
-            </div>
-
-            <div className="px-4 sm:px-6 py-4">
-              <p className="text-[hsl(var(--text-secondary))]">
-                {t("inspirations.deleteConfirm")}
-              </p>
-              <p className="mt-2 text-sm text-[hsl(var(--text-primary))] font-medium">
-                {deletingInspiration.name}
-              </p>
-            </div>
-
-            <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
-              <button
-                onClick={() => setDeletingInspiration(null)}
-                disabled={deleteMutation.isPending}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))] disabled:opacity-50"
-              >
-                {t("common:cancel")}
-              </button>
-              <button
-                onClick={handleDeleteConfirm}
-                disabled={deleteMutation.isPending}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--error))] text-white rounded-lg hover:bg-[hsl(var(--error)/0.9)] active:scale-95 transition-all text-sm disabled:opacity-50"
-              >
-                {deleteMutation.isPending ? t("common:loading") : t("inspirations.deleteTitle")}
-              </button>
-            </div>
+        <Modal
+          open
+          ariaLabel={t("inspirations.deleteTitle")}
+          onClose={() => setDeletingInspiration(null)}
+          closeOnEscape={!(deleteMutation.isPending)}
+          closeOnBackdropClick={false}
+          showCloseButton={false}
+          bodyClassName="p-0"
+          className="admin-shell rounded-xl!"
+          size="md"
+        >
+          <div className="flex items-center gap-3 px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
+            <AlertTriangle size={24} className="text-red-500" />
+            <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
+              {t("inspirations.deleteTitle")}
+            </h2>
           </div>
-        </div>
+
+          <div className="px-4 sm:px-6 py-4">
+            <p className="text-[hsl(var(--text-secondary))]">
+              {t("inspirations.deleteConfirm")}
+            </p>
+            <p className="mt-2 text-sm text-[hsl(var(--text-primary))] font-medium">
+              {deletingInspiration.name}
+            </p>
+          </div>
+
+          <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
+            <button
+              onClick={() => setDeletingInspiration(null)}
+              disabled={deleteMutation.isPending}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))] disabled:opacity-50"
+            >
+              {t("common:cancel")}
+            </button>
+            <button
+              onClick={handleDeleteConfirm}
+              disabled={deleteMutation.isPending}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--error))] text-white rounded-lg hover:bg-[hsl(var(--error)/0.9)] active:scale-95 transition-all text-sm disabled:opacity-50"
+            >
+              {deleteMutation.isPending ? t("common:loading") : t("inspirations.deleteTitle")}
+            </button>
+          </div>
+        </Modal>
       )}
 
       {/* Reject Reason Modal */}
       {rejectingInspiration && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-[hsl(var(--bg-primary))] border border-[hsl(var(--separator-color))] rounded-lg shadow-xl w-full max-w-md">
-            <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
-              <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
-                {t("inspirations.rejectTitle")}
-              </h2>
-              <button
-                onClick={() => {
+        <Modal
+          open
+          ariaLabel={t("inspirations.rejectTitle")}
+          onClose={() => {
                   setRejectingInspiration(null);
                   setRejectionReason("");
                 }}
-                disabled={reviewMutation.isPending}
-                aria-label={t("common:close")}
-                className="p-2.5 hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
-              >
-                <X size={20} className="text-[hsl(var(--text-secondary))]" />
-              </button>
-            </div>
+          closeOnEscape={!(reviewMutation.isPending)}
+          closeOnBackdropClick={false}
+          showCloseButton={false}
+          bodyClassName="p-0"
+          className="admin-shell rounded-xl!"
+          size="md"
+        >
+          <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
+            <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
+              {t("inspirations.rejectTitle")}
+            </h2>
+            <button
+              onClick={() => {
+                setRejectingInspiration(null);
+                setRejectionReason("");
+              }}
+              disabled={reviewMutation.isPending}
+              aria-label={t("common:close")}
+              className="p-2.5 hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
+            >
+              <X size={20} className="text-[hsl(var(--text-secondary))]" />
+            </button>
+          </div>
 
-            <div className="px-4 sm:px-6 py-4 space-y-4">
-              <p className="text-[hsl(var(--text-secondary))]">
-                {t("inspirations.rejecting")}: <span className="text-[hsl(var(--text-primary))] font-medium">{rejectingInspiration.name}</span>
-              </p>
-              <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                  {t("inspirations.rejectReason")}
-                </label>
-                <textarea
-                  value={rejectionReason}
-                  onChange={(e) => setRejectionReason(e.target.value)}
-                  rows={3}
-                  placeholder={t("inspirations.rejectReasonPlaceholder")}
-                  className="w-full px-3 py-2.5 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))] placeholder-[hsl(var(--text-secondary))] resize-none"
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
-              <button
-                onClick={() => {
-                  setRejectingInspiration(null);
-                  setRejectionReason("");
-                }}
-                disabled={reviewMutation.isPending}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))] disabled:opacity-50"
-              >
-                {t("common:cancel")}
-              </button>
-              <button
-                onClick={handleRejectConfirm}
-                disabled={reviewMutation.isPending}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--error))] text-white rounded-lg hover:bg-[hsl(var(--error)/0.9)] active:scale-95 transition-all text-sm disabled:opacity-50"
-              >
-                {reviewMutation.isPending ? t("common:loading") : t("inspirations.confirmReject")}
-              </button>
+          <div className="px-4 sm:px-6 py-4 space-y-4">
+            <p className="text-[hsl(var(--text-secondary))]">
+              {t("inspirations.rejecting")}: <span className="text-[hsl(var(--text-primary))] font-medium">{rejectingInspiration.name}</span>
+            </p>
+            <div>
+              <label htmlFor="admin-inspirations-rejectReason" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                {t("inspirations.rejectReason")}
+              </label>
+              <textarea id="admin-inspirations-rejectReason"
+                value={rejectionReason}
+                onChange={(e) => setRejectionReason(e.target.value)}
+                rows={3}
+                placeholder={t("inspirations.rejectReasonPlaceholder")}
+                className="w-full px-3 py-2.5 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))] placeholder-[hsl(var(--text-secondary))] resize-none"
+              />
             </div>
           </div>
-        </div>
+
+          <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
+            <button
+              onClick={() => {
+                setRejectingInspiration(null);
+                setRejectionReason("");
+              }}
+              disabled={reviewMutation.isPending}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))] disabled:opacity-50"
+            >
+              {t("common:cancel")}
+            </button>
+            <button
+              onClick={handleRejectConfirm}
+              disabled={reviewMutation.isPending}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--error))] text-white rounded-lg hover:bg-[hsl(var(--error)/0.9)] active:scale-95 transition-all text-sm disabled:opacity-50"
+            >
+              {reviewMutation.isPending ? t("common:loading") : t("inspirations.confirmReject")}
+            </button>
+          </div>
+        </Modal>
       )}
 
     </div>

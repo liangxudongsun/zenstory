@@ -1,3 +1,4 @@
+import { Modal } from "../../components/ui/Modal";
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -7,7 +8,7 @@ import {
   Edit,
   DollarSign,
 } from "lucide-react";
-import { AdminPageState } from "../../components/admin";
+import { AdminPageState, TouchCheckbox } from "../../components/admin";
 import { adminApi } from "../../lib/adminApi";
 import type { SubscriptionPlan, SubscriptionFeatures } from "../../types/subscription";
 import { toast } from "../../lib/toast";
@@ -101,7 +102,7 @@ const PlanCard: React.FC<{
         <span
           className={`px-2 py-0.5 rounded text-xs font-medium ${
             plan.is_active
-              ? "bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))]"
+              ? "bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success-text))]"
               : "bg-[hsl(var(--bg-tertiary))] text-[hsl(var(--text-secondary))]"
           }`}
         >
@@ -151,7 +152,7 @@ const PlanCard: React.FC<{
       <div className="pt-3 border-t border-[hsl(var(--separator-color))] flex items-center justify-end">
         <button
           onClick={() => onEdit(plan)}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-[hsl(var(--accent-primary))] text-white rounded-lg hover:opacity-90 transition-all"
+          className="flex min-h-11 items-center gap-1.5 px-3 py-1.5 text-sm bg-[hsl(var(--accent-primary))] text-white rounded-lg hover:opacity-90 transition-all"
         >
           <Edit size={14} />
           {t("plans.edit")}
@@ -301,188 +302,184 @@ export const SubscriptionPlanManagement: React.FC = () => {
 
       {/* Edit Plan Modal */}
       {showEditModal && editingPlan && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-[hsl(var(--bg-primary))] border border-[hsl(var(--separator-color))] rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-[hsl(var(--bg-primary))] flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
-              <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
-                {t("plans.editPlan")} - {editingPlan.name}
-              </h2>
-              <button
-                onClick={() => {
+        <Modal
+          open
+          ariaLabel={t("plans.editPlan")}
+          onClose={() => {
                   setShowEditModal(false);
                   setEditingPlan(null);
                   setJsonError(null);
                 }}
-                disabled={updateMutation.isPending}
-                aria-label={t("common:close")}
-                className="p-2.5 hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
-              >
-                <X size={20} className="text-[hsl(var(--text-secondary))]" />
-              </button>
-            </div>
+          closeOnEscape={!(updateMutation.isPending)}
+          closeOnBackdropClick={false}
+          showCloseButton={false}
+          bodyClassName="p-0"
+          className="admin-shell rounded-xl!"
+          size="lg"
+        >
+          <div className="sticky top-0 bg-[hsl(var(--bg-primary))] flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
+            <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
+              {t("plans.editPlan")} - {editingPlan.name}
+            </h2>
+            <button
+              onClick={() => {
+                setShowEditModal(false);
+                setEditingPlan(null);
+                setJsonError(null);
+              }}
+              disabled={updateMutation.isPending}
+              aria-label={t("common:close")}
+              className="p-2.5 hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
+            >
+              <X size={20} className="text-[hsl(var(--text-secondary))]" />
+            </button>
+          </div>
 
-            <div className="px-4 sm:px-6 py-4 space-y-4">
-              {/* Basic Info Section */}
-              <div className="space-y-3">
-                <h3 className="text-sm font-medium text-[hsl(var(--text-primary))] uppercase tracking-wide">
-                  {t("plans.basicInfo")}
-                </h3>
+          <div className="px-4 sm:px-6 py-4 space-y-4">
+            {/* Basic Info Section */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium text-[hsl(var(--text-primary))] uppercase tracking-wide">
+                {t("plans.basicInfo")}
+              </h3>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                      {t("plans.displayName")} ({t("plans.zh")})
-                    </label>
-                    <input
-                      type="text"
-                      value={editFormData.display_name}
-                      onChange={(e) =>
-                        setEditFormData({ ...editFormData, display_name: e.target.value })
-                      }
-                      className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))]"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                      {t("plans.displayName")} ({t("plans.en")})
-                    </label>
-                    <input
-                      type="text"
-                      value={editFormData.display_name_en}
-                      onChange={(e) =>
-                        setEditFormData({ ...editFormData, display_name_en: e.target.value })
-                      }
-                      className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))]"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                      {t("plans.monthlyPrice")}
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={editFormData.price_monthly_cents / 100}
-                        onChange={(e) =>
-                          setEditFormData({
-                            ...editFormData,
-                            price_monthly_cents: Math.round((parseFloat(e.target.value) || 0) * 100),
-                          })
-                        }
-                        className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))] pr-12"
-                      />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[hsl(var(--text-secondary))]">
-                        {t("plans.currency")}
-                      </span>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                      {t("plans.yearlyPrice")}
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={editFormData.price_yearly_cents / 100}
-                        onChange={(e) =>
-                          setEditFormData({
-                            ...editFormData,
-                            price_yearly_cents: Math.round((parseFloat(e.target.value) || 0) * 100),
-                          })
-                        }
-                        className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))] pr-12"
-                      />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[hsl(var(--text-secondary))]">
-                        {t("plans.currency")}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setEditFormData({ ...editFormData, is_active: !editFormData.is_active })
-                    }
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      editFormData.is_active
-                        ? "bg-[hsl(var(--accent-primary))]"
-                        : "bg-[hsl(var(--bg-tertiary))]"
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                        editFormData.is_active ? "translate-x-6" : "translate-x-1"
-                      }`}
-                    />
-                  </button>
-                  <span className="text-sm text-[hsl(var(--text-primary))]">
-                    {editFormData.is_active ? t("plans.active") : t("plans.inactive")}
-                  </span>
-                </div>
-              </div>
-
-              {/* Features JSON Editor Section */}
-              <div className="space-y-3">
-                <h3 className="text-sm font-medium text-[hsl(var(--text-primary))] uppercase tracking-wide">
-                  {t("plans.featuresDetail.title")}
-                </h3>
-
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                    {t("plans.featuresDetail.jsonLabel")}
+                  <label htmlFor="admin-plans-displayName" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                    {t("plans.displayName")} ({t("plans.zh")})
                   </label>
-                  <textarea
-                    value={editFormData.featuresJson}
-                    onChange={(e) => handleJsonChange(e.target.value)}
-                    rows={10}
-                    className={`w-full px-3 py-2.5 bg-[hsl(var(--bg-secondary))] border rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))] font-mono text-sm ${
-                      jsonError
-                        ? "border-[hsl(var(--error))]"
-                        : "border-[hsl(var(--separator-color))]"
-                    }`}
-                    placeholder={t("plans.featuresDetail.jsonPlaceholder")}
+                  <input id="admin-plans-displayName"
+                    type="text"
+                    value={editFormData.display_name}
+                    onChange={(e) =>
+                      setEditFormData({ ...editFormData, display_name: e.target.value })
+                    }
+                    className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))]"
                   />
-                  {jsonError && (
-                    <p className="mt-1 text-sm text-[hsl(var(--error))] flex items-center gap-1">
-                      <AlertTriangle size={14} />
-                      {jsonError}
-                    </p>
-                  )}
+                </div>
+                <div>
+                  <label htmlFor="admin-plans-displayName" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                    {t("plans.displayName")} ({t("plans.en")})
+                  </label>
+                  <input id="admin-plans-displayName"
+                    type="text"
+                    value={editFormData.display_name_en}
+                    onChange={(e) =>
+                      setEditFormData({ ...editFormData, display_name_en: e.target.value })
+                    }
+                    className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))]"
+                  />
                 </div>
               </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="admin-plans-monthlyPrice" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                    {t("plans.monthlyPrice")}
+                  </label>
+                  <div className="relative">
+                    <input id="admin-plans-monthlyPrice"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={editFormData.price_monthly_cents / 100}
+                      onChange={(e) =>
+                        setEditFormData({
+                          ...editFormData,
+                          price_monthly_cents: Math.round((parseFloat(e.target.value) || 0) * 100),
+                        })
+                      }
+                      className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))] pr-12"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[hsl(var(--text-secondary))]">
+                      {t("plans.currency")}
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <label htmlFor="admin-plans-yearlyPrice" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                    {t("plans.yearlyPrice")}
+                  </label>
+                  <div className="relative">
+                    <input id="admin-plans-yearlyPrice"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={editFormData.price_yearly_cents / 100}
+                      onChange={(e) =>
+                        setEditFormData({
+                          ...editFormData,
+                          price_yearly_cents: Math.round((parseFloat(e.target.value) || 0) * 100),
+                        })
+                      }
+                      className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))] pr-12"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[hsl(var(--text-secondary))]">
+                      {t("plans.currency")}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <TouchCheckbox
+                checked={editFormData.is_active}
+                onChange={checked => setEditFormData({ ...editFormData, is_active: checked })}
+                disabled={updateMutation.isPending}
+                label={t("plans.enablePlan")}
+              />
             </div>
 
-            <div className="sticky bottom-0 bg-[hsl(var(--bg-primary))] flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
-              <button
-                onClick={() => {
-                  setShowEditModal(false);
-                  setEditingPlan(null);
-                  setJsonError(null);
-                }}
-                disabled={updateMutation.isPending}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))] disabled:opacity-50"
-              >
-                {t("common:cancel")}
-              </button>
-              <button
-                onClick={handleEditSubmit}
-                disabled={updateMutation.isPending || !!jsonError}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--accent-primary))] text-white rounded-lg hover:opacity-90 active:scale-95 transition-all text-sm disabled:opacity-50"
-              >
-                {updateMutation.isPending ? t("common:loading") : t("plans.save")}
-              </button>
+            {/* Features JSON Editor Section */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium text-[hsl(var(--text-primary))] uppercase tracking-wide">
+                {t("plans.featuresDetail.title")}
+              </h3>
+
+              <div>
+                <label htmlFor="admin-plans-featuresDetail-jsonLabel" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                  {t("plans.featuresDetail.jsonLabel")}
+                </label>
+                <textarea id="admin-plans-featuresDetail-jsonLabel"
+                  value={editFormData.featuresJson}
+                  onChange={(e) => handleJsonChange(e.target.value)}
+                  rows={10}
+                  className={`w-full px-3 py-2.5 bg-[hsl(var(--bg-secondary))] border rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))] font-mono text-sm ${
+                    jsonError
+                      ? "border-[hsl(var(--error))]"
+                      : "border-[hsl(var(--separator-color))]"
+                  }`}
+                  placeholder={t("plans.featuresDetail.jsonPlaceholder")}
+                />
+                {jsonError && (
+                  <p className="mt-1 text-sm text-[hsl(var(--error-text))] flex items-center gap-1">
+                    <AlertTriangle size={14} />
+                    {jsonError}
+                  </p>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+
+          <div className="sticky bottom-0 bg-[hsl(var(--bg-primary))] flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
+            <button
+              onClick={() => {
+                setShowEditModal(false);
+                setEditingPlan(null);
+                setJsonError(null);
+              }}
+              disabled={updateMutation.isPending}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))] disabled:opacity-50"
+            >
+              {t("common:cancel")}
+            </button>
+            <button
+              onClick={handleEditSubmit}
+              disabled={updateMutation.isPending || !!jsonError}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--accent-primary))] text-white rounded-lg hover:opacity-90 active:scale-95 transition-all text-sm disabled:opacity-50"
+            >
+              {updateMutation.isPending ? t("common:loading") : t("plans.save")}
+            </button>
+          </div>
+        </Modal>
       )}
 
     </div>

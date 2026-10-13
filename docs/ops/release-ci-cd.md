@@ -49,8 +49,8 @@ independent channel:
 - release notes: `apps/cli/CHANGELOG.md`
 
 The checked-in `0.2.0` is an **Unreleased candidate**, not a claim that it has
-been published. The public registry currently labels `0.1.0` as `latest`; this
-repository change does not alter that registry state. Before a future `cli-v0.2.0` tag, move its notes to an exact
+been published. Read the public registry before publishing; the checked-in candidate does not
+prove which version is currently published or labelled `latest`. Before a future `cli-v0.2.0` tag, move its notes to an exact
 dated `## [0.2.0] - YYYY-MM-DD` heading. PR/manual metadata validation
 accepts that prepared dated version but remains nonpublishing; it does not require
 a misleading duplicate Unreleased candidate marker.
@@ -78,9 +78,8 @@ merge its main, deploy staging or production, change cloud settings, restart
 services, or create a release tag. Record proposed fixes for a separately
 authorized development batch. Preserve dirty product and GEO worktrees.
 
-The draft-recovery and upload-storage batch is authorized for staging validation
-only. Do not promote it to production. Future production batches need explicit
-release authorization; use one coherent PR/push, reuse exact-source passing
+Staging development authorization does not authorize production. Production
+batches need explicit release authorization; use one coherent PR/push, reuse exact-source passing
 checks and avoid redundant Actions runs.
 
 ## Hosted delivery
@@ -197,8 +196,8 @@ attachments live in the Railway service settings: removing the old `chroma-data`
 entry from `railway.toml` does not detach anything (the name never matched).
 Preserve both volumes, their mount paths and all original bytes.
 Railway cannot overlap deployments sharing a volume, so readiness does not prove
-uninterrupted API availability. The user withdrew the lossless-release scope in
-this PR and requested a faster switch with the existing deployment process.
+uninterrupted API availability. The existing process cannot guarantee uninterrupted sessions while a
+volume-bound deployment switches.
 
 LlamaIndex/Chroma and their startup maintenance scripts have been removed.
 `scripts/start_api.py` immediately replaces itself with Uvicorn; it no longer
@@ -217,8 +216,8 @@ the explicitly authorized production source, with provider Git integrations as
 the only deployment producers.
 
 Any future volume-free release first needs verified, reversible object migration
-for every material/screenshot reference, with legacy originals preserved. This PR
-neither migrates production data nor removes its volume. Railway's checked-in
+for every material/screenshot reference, with legacy originals preserved. Preserve production data and volumes unless a separately authorized migration
+has verified every consumer. Railway's checked-in
 TOML does not prove active cloud configuration; read back start command,
 readiness, drain window and source SHA from the provider.
 

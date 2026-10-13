@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 
 const adminUser = {
   id: 'admin-1', username: 'admin', email: 'admin@example.com', email_verified: true,
@@ -263,7 +264,7 @@ test.describe('Admin responsive routes with populated mocked data', () => {
     ]) {
       await page.goto(scenario.path);
       await scenario.open();
-      const modal = page.locator('.fixed.inset-0.z-50 > div, [role="dialog"]').last();
+      const modal = page.getByRole('dialog');
       await expect(modal).toBeVisible();
       const finalAction = modal.getByRole('button').last();
       await finalAction.scrollIntoViewIfNeeded();
@@ -274,6 +275,69 @@ test.describe('Admin responsive routes with populated mocked data', () => {
       });
       expect(geometry.left).toBeGreaterThanOrEqual(0);
       expect(geometry.right).toBeLessThanOrEqual(geometry.width);
+      await expect(modal).toHaveAttribute('role', 'dialog');
+      const audit = await new AxeBuilder({ page }).include('[role="dialog"][aria-modal="true"]').analyze();
+      expect(audit.violations.filter(v => ['serious', 'critical'].includes(v.impact ?? '')).map(v => ({ id: v.id, targets: v.nodes.map(n => n.target) }))).toEqual([]);
+      await finalAction.focus();
+      await page.keyboard.press('Tab');
+      expect(await modal.evaluate(el => el.contains(document.activeElement))).toBe(true);
+      await page.keyboard.press('Escape');
+      await expect(modal).toBeHidden();
     }
   });
+
+  test('admin navigation closes accessibly, returns to the app and resets page scroll', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await bootstrapAdminSession(page);
+    await page.goto('/admin');
+    await expect(page.locator('.admin-page')).toBeVisible();
+    await page.locator('main').evaluate(el => { el.scrollTop = 500; });
+    await page.getByRole('button', { name: '打开管理菜单' }).click();
+    const drawer = page.getByRole('dialog', { name: '管理后台' });
+    await expect(drawer.getByRole('link', { name: '仪表盘', exact: true })).toBeFocused();
+    await expect(page.locator('main')).toHaveAttribute('inert', '');
+    await expect(drawer.getByRole('link', { name: '返回应用' })).toHaveAttribute('href', '/dashboard');
+    await drawer.getByRole('button', { name: '关闭管理菜单' }).click();
+    await expect(page.getByRole('button', { name: '打开管理菜单' })).toBeFocused();
+    await page.getByRole('button', { name: '打开管理菜单' }).click();
+    await drawer.getByRole('link', { name: '用户管理', exact: true }).click();
+    await expect(page.getByRole('heading', { name: '用户管理', level: 1 })).toBeVisible();
+    await expect.poll(() => page.locator('main').evaluate(el => el.scrollTop)).toBe(0);
+    await page.getByRole('button', { name: '返回应用', exact: true }).click();
+    await expect(page).toHaveURL(/\/dashboard$/);
+  });
+
+  test('prompt labels focus their fields and user states stay on one line', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await bootstrapAdminSession(page);
+    await page.goto('/admin/prompts/new');
+    await expect(page.locator('textarea').first()).toBeVisible();
+    for (const id of ['role-definition', 'capabilities', 'directory-structure', 'content-structure', 'file-types', 'writing-guidelines']) {
+      await page.locator(`label[for="prompt-${id}"]`).click();
+      await expect(page.locator(`#prompt-${id}`)).toBeFocused();
+    }
+    await page.goto('/admin/users');
+    await expect(page.locator('tbody tr')).toHaveCount(3);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
+    const status = page.locator('tbody tr').first().locator('td').nth(2).locator('span');
+    expect((await status.boundingBox())!.width).toBeGreaterThan(30);
+    await expect(status).toHaveCSS('white-space', 'nowrap');
+  });
+
+  for (const theme of ['light', 'dark'] as const) {
+    test(`${theme}: representative admin pages have accessible controls and contrast`, async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.addInitScript(value => localStorage.setItem('zenstory-theme', value), theme);
+      await bootstrapAdminSession(page);
+      for (const path of ['/admin', '/admin/users', '/admin/prompts/new', '/admin/plans']) {
+        await page.goto(path);
+        await expect(page.locator('.admin-page')).toBeVisible();
+        if (path === '/admin') await expect(page.getByText('¥1234.56', { exact: true })).toBeVisible();
+        if (path === '/admin/users') await expect(page.getByRole('button', { name: '编辑', exact: true }).first()).toBeVisible();
+        if (path === '/admin/plans') await expect(page.getByText('Professional Writer Plan').first()).toBeVisible();
+        const result = await new AxeBuilder({ page }).analyze();
+        expect(result.violations.filter(v => ['serious', 'critical'].includes(v.impact ?? '')).map(v => ({ id: v.id, targets: v.nodes.map(n => n.target) })), path).toEqual([]);
+      }
+    });
+  }
 });

@@ -45,7 +45,7 @@
     "trialSupportedFormats": "仅支持 .txt，不超过 20MB，需要有章节标题（如“第一章”“第一回”）；前 {{chapters}} 章合计不超过 30 万字",
     "titleLabel": "小说标题",
     "titlePlaceholder": "留空则使用文件名",
-    "uploading": "上传中...",
+    "uploading": "上传中…",
     "upload": "上传并拆解",
     "errors": {
       "invalidType": "仅支持上传 .txt 文件",
@@ -82,7 +82,7 @@
     "relatedChapters": "相关章节",
     "emptyTitle": "选择要查看的内容",
     "emptyDescription": "从列表中选择章节、角色或世界观",
-    "searchPlaceholder": "搜索...",
+    "searchPlaceholder": "搜索",
     "notFound": "找不到这个素材",
     "plotTitle": "情节点",
     "involvedCharacters": "涉及角色",

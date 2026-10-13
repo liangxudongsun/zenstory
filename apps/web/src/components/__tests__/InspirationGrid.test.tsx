@@ -24,7 +24,7 @@ vi.mock('../../lib/toast', () => ({
 
 // Translation map for the inspirations namespace
 const translations: Record<string, string> = {
-  'searchPlaceholder': '搜索灵感...',
+  'searchPlaceholder': "搜索灵感",
   'search': '搜索',
   'view': '查看',
   'use': '使用',
@@ -284,7 +284,7 @@ describe('InspirationGrid', () => {
 
       render(<InspirationGrid />, { wrapper: createWrapper() })
 
-      expect(screen.getByPlaceholderText('搜索灵感...')).toBeInTheDocument()
+      expect(screen.getByPlaceholderText("搜索灵感")).toBeInTheDocument()
     })
 
     it('renders search button', () => {
@@ -300,7 +300,7 @@ describe('InspirationGrid', () => {
 
       render(<InspirationGrid />, { wrapper: createWrapper() })
 
-      const searchInput = screen.getByPlaceholderText('搜索灵感...')
+      const searchInput = screen.getByPlaceholderText("搜索灵感")
       fireEvent.change(searchInput, { target: { value: 'fantasy' } })
 
       expect(searchInput).toHaveValue('fantasy')
@@ -311,7 +311,7 @@ describe('InspirationGrid', () => {
 
       render(<InspirationGrid initialSearch="initial query" />, { wrapper: createWrapper() })
 
-      const searchInput = screen.getByPlaceholderText('搜索灵感...')
+      const searchInput = screen.getByPlaceholderText("搜索灵感")
       expect(searchInput).toHaveValue('initial query')
     })
 
@@ -326,7 +326,7 @@ describe('InspirationGrid', () => {
 
       render(<InspirationGrid />, { wrapper: createWrapper() })
 
-      const searchInput = screen.getByPlaceholderText('搜索灵感...')
+      const searchInput = screen.getByPlaceholderText("搜索灵感")
       fireEvent.change(searchInput, { target: { value: 'test' } })
 
       // Before debounce timer fires, useInspirations should still have empty search
@@ -344,7 +344,7 @@ describe('InspirationGrid', () => {
 
       render(<InspirationGrid />, { wrapper: createWrapper() })
 
-      const searchInput = screen.getByPlaceholderText('搜索灵感...')
+      const searchInput = screen.getByPlaceholderText("搜索灵感")
       const searchButton = screen.getByText('搜索')
 
       fireEvent.change(searchInput, { target: { value: 'test' } })
@@ -852,7 +852,7 @@ describe('InspirationGrid', () => {
 
       render(<InspirationGrid />, { wrapper: createWrapper() })
 
-      const searchInput = screen.getByPlaceholderText('搜索灵感...')
+      const searchInput = screen.getByPlaceholderText("搜索灵感")
       expect(searchInput).toBeInTheDocument()
       expect(searchInput).toHaveAttribute('type', 'text')
     })

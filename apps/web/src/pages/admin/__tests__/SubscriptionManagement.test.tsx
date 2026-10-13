@@ -135,11 +135,11 @@ describe("SubscriptionManagement", () => {
     useMutationMock.mockReturnValue({ mutate: mutateMock, isPending: pending });
     const { container } = render(<SubscriptionManagement />, { wrapper: MemoryRouter });
     fireEvent.click(screen.getByTitle("subscriptions.modify"));
-    const modal = container.querySelector(".fixed.inset-0")!;
+    const modal = container.ownerDocument.querySelector('[role="dialog"]')!;
     const headerClose = modal.querySelector("button")!;
     expect(screen.getByRole("button", { name: "common:cancel" }).hasAttribute("disabled")).toBe(pending);
     expect(headerClose.hasAttribute("disabled")).toBe(pending);
-    if (!pending) { fireEvent.click(headerClose); expect(container.querySelector(".fixed.inset-0")).toBeNull(); }
+    if (!pending) { fireEvent.click(headerClose); expect(container.ownerDocument.querySelector('[role="dialog"]')).toBeNull(); }
   });
 
   it("shows loading state", () => {

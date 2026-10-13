@@ -1,80 +1,51 @@
-# Edit and review text in ZenStory
+# Using the editor
 
-ZenStory's editor supports direct text editing, precise quotations to chat, a selected-text **Humanize** action, paragraph-level diff review, explicit saving and retained version history. The important distinction is that saving the current file and creating a history snapshot are related but separate operations.
+Open a project file to write, edit its title, quote a selection, or review AI changes. The editor uses plain text and shows save status at the bottom.
 
-For the complete station lost-property example, start with [Write your first short story in ZenStory](https://zenstory.ai/docs/getting-started/first-project). For conversation scope, attached context and file-tool behavior, see [AI Assistant](https://zenstory.ai/docs/user-guide/ai-assistant).
+## Save the current file
 
-## Write and save manually
+Autosave runs after about three seconds without typing. Choose **Save** or press `Command/Ctrl + S` to submit immediately.
 
-Open a file rather than a folder in the project tree. The editor exposes a title field and a plain-text content area. Type or paste your revision, then check the status bar before switching files.
+- Unsaved: the current text has not been confirmed on the server.
+- Saving: the submission is still pending.
+- Saved or a save time: the submitted title and text are saved.
 
-- After a change, the editor schedules an automatic save after about three seconds without further editing.
-- Use **Save** or `Ctrl/Command + S` when you need to submit immediately.
-- **Unsaved**, **Saving**, and the last-saved time describe the current file state. They do not prove that every keystroke has its own recoverable version.
-- The editor pauses its automatic save while AI is editing the same file, reducing the risk that an older local copy overwrites the AI update.
+Autosave pauses while AI edits the same file or diff review remains open. Finish that round before checking the current draft.
 
-A save writes the current title and content. A version is a separate snapshot: small edits can be saved with no snapshot, and a full version-history quota can also cause the content to save while the snapshot is skipped. Before a risky rewrite, keep a separate copy of the passage and wait for the saved state. The editor does not promise offline recovery.
+Saving current content does not always add a history version. Small changes or a full history allowance may save prose only. See [version history](version-history.md).
 
-The status-bar count is a workbench measure, not a publishing-platform count. Its current function counts each supported Chinese character and each contiguous Latin-letter sequence; numbers and symbols are excluded. Check the destination's own rules before submitting a manuscript.
+## Quote and revise a passage
 
-## Quote a passage for a narrow request
-
-For a local change, select the exact text in the editor. Use the floating **Add to context** action or `Ctrl/Command + Shift + Q`. The quotation carries its source file into chat. Then state both the permitted change and what must remain unchanged.
-
-Choose the handoff you actually want:
-
-- **Suggestion only:** “Return one replacement paragraph in chat. Do not modify files.” You decide whether to paste it.
-- **Apply to the file:** name the file and ask the agent to replace only the quoted passage. The agent can operate project files; do not assume every file write waits for a confirmation dialog.
-
-The focused file can supply saved file content to the assistant within its context budget, but a quotation makes the exact target explicit. Save or preserve current local edits before relying on focused-file context.
-
-## Use selected-text Humanize separately
-
-Select text, then choose **Humanize** or press `Ctrl/Command + Shift + R`. This invokes the dedicated selected-text rewrite path and opens diff review with the previous file and proposed replacement. It is not the same as asking chat to discuss a paragraph, nor does it establish authorship or guarantee detector scores. This guide source-checked the flow but did not call the AI service, so it does not present the example below as model output.
-
-Established facts: the inner-pocket description is wrong, Lin He does not know why, and the bag has not been released.
-
-**Original editing example:**
+Select text and choose **Add to chat**, or press `Command/Ctrl + Shift + Q`. The quote includes its source file.
 
 ```text
-Before: Shen Min named the object in the inner pocket. Lin He immediately knew she was lying.
-After:  Lin He did not hand over the gray canvas bag.
-        “Take another moment—what was in the inner pocket?”
+Check only the quoted passage. The character does not know the owner's identity yet.
+Identify any sentence that exceeds this knowledge and suggest a replacement.
+Keep the bag at the desk; do not change other paragraphs.
 ```
 
-**Reason:** a wrong answer does not become proof of a lie. Withholding the bag and asking again moves the scene while leaving the cause open. The question is an editorial phrasing choice, not new backstory or an imposed solution.
+For direct editing, name the target, replacement scope, and facts to retain. For suggestions only, say “Reply in chat only; do not change files.”
 
-## Review a diff before finishing
+**Humanize**, or `Command/Ctrl + Shift + R`, generates a candidate rewrite for the selection and opens review. It helps revise expression; it cannot guarantee detector scores.
 
-Diff review can open from more than one route:
+## Review changes
 
-1. **Humanize** builds a proposed replacement for the selected text.
-2. A streamed chat `edit_file` result can open review when both the original and changed content are available.
-3. A save conflict opens review between the newer server content and your unsaved local candidate.
+Read each old/new pair, then accept, reject, or reset. Pending changes are adopted when you finish. Explicitly reject changes you do not want.
 
-Review is not a universal pre-write approval gate. File creation, other tool results, or an edit without comparable before-and-after content may follow a different path.
+Use **Accept all** or **Reject all** after deciding the whole batch. Finish review, then inspect the combined text and save status. Some file operations write directly, so diff review is not a universal approval step before every write.
 
-The review queue groups changes by paragraph. Inspect each old/new pair, then **Accept**, **Reject**, or reset your decision. Crucially, **Pending is applied by default** when you finish; reject every change you do not want. **Accept all** and **Reject all** are available for deliberate bulk decisions. Choose **Finish review** or **Apply changes** to write the reconstructed result.
+## Draft recovery and conflicts
 
-Verified review shortcuts apply when the review surface has focus: `Y` accepts the current item, `N` rejects it, `U` or `R` resets it, arrow keys or `J`/`K` move between items, and `L` locates it in the diff. `Shift + Y` accepts all, `Shift + N` rejects all, and `Enter` finishes. To discard the candidate changes, choose **Reject all**, check the decisions, then finish. Dismissing a view is not proof of undo.
+The browser attempts to retain unsaved drafts before leaving or a page update. When reopening the same account, project, and file:
 
-## Handle a save conflict without discarding work
+- If server content is unchanged, the draft returns to the editor. Check it and save.
+- If server content has changed, compare both copies and choose whether to restore the local draft or use the server copy.
+- If local storage fails, follow the message and keep important text separately.
 
-If AI or another tab changed the file after you loaded it, your save can be rejected as stale. ZenStory keeps the local text in the editor and opens diff review using the newer server text as the baseline and your local text as the candidate. First preserve any irreplaceable local passage; do not refresh the page or clear browser data as a troubleshooting shortcut. Review both sides and finish only after deciding what to keep.
+A save conflict means the file changed while you were editing. Retain local text, compare the newer server copy, and merge. Reloading or clearing site data can affect local recovery; do not start there.
 
-If another write lands while you are applying the reviewed result, the editor reopens review against the newest server content instead of silently discarding the result. A quota notice saying the content saved without a version snapshot is different from a save conflict: the current file was saved, but that save did not add a retained history entry.
+## Word count
 
-## Reviewed source
+The workbench counts Chinese characters and continuous English-letter sequences, excluding numbers and punctuation. Submission platforms can count differently; check their rules before delivery.
 
-Source checked on 2026-09-12. These references describe a fixed version; no real-account editing or model generation was performed.
-
-- [Text selection and adding an exact quotation to chat](https://github.com/zenstory-ai/zenstory/blob/0cb3d51c8f92a1856b99ef974b94fa81b7da6cc3/apps/web/src/components/SimpleEditor.tsx#L310-L354)
-- [Selected-text Humanize request and transition into diff review](https://github.com/zenstory-ai/zenstory/blob/0cb3d51c8f92a1856b99ef974b94fa81b7da6cc3/apps/web/src/components/SimpleEditor.tsx#L363-L445)
-- [Debounced/manual saving and editor/review shortcuts](https://github.com/zenstory-ai/zenstory/blob/0cb3d51c8f92a1856b99ef974b94fa81b7da6cc3/apps/web/src/components/SimpleEditor.tsx#L509-L675)
-- [Loading the focused file and related files into context](https://github.com/zenstory-ai/zenstory/blob/0cb3d51c8f92a1856b99ef974b94fa81b7da6cc3/apps/server/agent/context/assembler.py#L168-L177)
-- [Chat file-edit completion entering diff review when comparable content exists](https://github.com/zenstory-ai/zenstory/blob/0cb3d51c8f92a1856b99ef974b94fa81b7da6cc3/apps/web/src/hooks/useChatStreaming.ts#L1200-L1297)
-- [Pending, accepted and rejected review state; pending applies by default](https://github.com/zenstory-ai/zenstory/blob/0cb3d51c8f92a1856b99ef974b94fa81b7da6cc3/apps/web/src/contexts/ProjectContext.tsx#L221-L315)
-- [Per-change review navigation and shortcuts](https://github.com/zenstory-ai/zenstory/blob/0cb3d51c8f92a1856b99ef974b94fa81b7da6cc3/apps/web/src/components/DiffReviewSplitView.tsx#L209-L244)
-- [Manual save outcomes, stale-write handling and version-quota notice](https://github.com/zenstory-ai/zenstory/blob/0cb3d51c8f92a1856b99ef974b94fa81b7da6cc3/apps/web/src/components/Editor.tsx#L297-L393)
-- [Applying reviewed content and reopening review after a second conflict](https://github.com/zenstory-ai/zenstory/blob/0cb3d51c8f92a1856b99ef974b94fa81b7da6cc3/apps/web/src/components/Editor.tsx#L397-L475)
-- [Mixed Chinese/English workbench word-count function](https://github.com/zenstory-ai/zenstory/blob/0cb3d51c8f92a1856b99ef974b94fa81b7da6cc3/apps/web/src/lib/documentChunker.ts#L26-L29)
+Next: [AI assistant](ai-assistant.md) and [keyboard shortcuts](../reference/keyboard-shortcuts.md).

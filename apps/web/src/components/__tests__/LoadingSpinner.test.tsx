@@ -6,7 +6,7 @@ import { LoadingSpinner, PageLoader, InlineLoader } from '../LoadingSpinner'
 // shows up as the raw key instead of being masked by the inline fallback.
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string) => ({ 'common:loading': '加载中...' } as Record<string, string>)[key] ?? key,
+    t: (key: string) => ({ 'common:loading': "加载中…" } as Record<string, string>)[key] ?? key,
   }),
 }))
 
@@ -148,31 +148,31 @@ describe('LoadingSpinner', () => {
 
   describe('Labels', () => {
     it('renders label when provided', () => {
-      render(<LoadingSpinner label="Loading..." />)
-      expect(screen.getByText('Loading...')).toBeInTheDocument()
+      render(<LoadingSpinner label="Loading…" />)
+      expect(screen.getByText("Loading…")).toBeInTheDocument()
     })
 
     it('renders spinner and label in horizontal layout by default', () => {
-      const { container } = render(<LoadingSpinner label="Loading..." />)
+      const { container } = render(<LoadingSpinner label="Loading…" />)
       const wrapper = container.querySelector('.flex.items-center.justify-center.gap-2')
       expect(wrapper).toBeInTheDocument()
     })
 
     it('renders spinner and label in vertical layout when vertical is true', () => {
-      const { container } = render(<LoadingSpinner label="Loading..." vertical />)
+      const { container } = render(<LoadingSpinner label="Loading…" vertical />)
       const wrapper = container.querySelector('.flex.flex-col.items-center.justify-center.gap-4')
       expect(wrapper).toBeInTheDocument()
     })
 
     it('applies text-sm class to label in vertical layout', () => {
-      render(<LoadingSpinner label="Loading..." vertical />)
-      const label = screen.getByText('Loading...')
+      render(<LoadingSpinner label="Loading…" vertical />)
+      const label = screen.getByText("Loading…")
       expect(label.className).toContain('text-sm')
     })
 
     it('applies text-sm class to label in horizontal layout', () => {
-      render(<LoadingSpinner label="Loading..." />)
-      const label = screen.getByText('Loading...')
+      render(<LoadingSpinner label="Loading…" />)
+      const label = screen.getByText("Loading…")
       expect(label.className).toContain('text-sm')
     })
 
@@ -192,7 +192,7 @@ describe('LoadingSpinner', () => {
     })
 
     it('applies custom className with label', () => {
-      const { container } = render(<LoadingSpinner label="Loading..." className="custom-class" />)
+      const { container } = render(<LoadingSpinner label="Loading…" className="custom-class" />)
       const wrapper = container.firstChild as HTMLElement
       expect(wrapper.className).toContain('custom-class')
     })
@@ -252,7 +252,7 @@ describe('PageLoader', () => {
 
   it('renders with default label', () => {
     render(<PageLoader />)
-    expect(screen.getByText('加载中...')).toBeInTheDocument()
+    expect(screen.getByText("加载中…")).toBeInTheDocument()
   })
 
   it('renders with custom label', () => {
@@ -281,7 +281,7 @@ describe('PageLoader', () => {
   })
 
   it('uses vertical layout', () => {
-    const { container } = render(<PageLoader label="Loading..." />)
+    const { container } = render(<PageLoader label="Loading…" />)
     const flexContainer = container.querySelector('.flex-col')
     expect(flexContainer).toBeInTheDocument()
   })
@@ -300,7 +300,7 @@ describe('InlineLoader', () => {
 
   it('renders with default label', () => {
     render(<InlineLoader />)
-    expect(screen.getByText('加载中...')).toBeInTheDocument()
+    expect(screen.getByText("加载中…")).toBeInTheDocument()
   })
 
   it('renders with custom label', () => {
@@ -315,7 +315,7 @@ describe('InlineLoader', () => {
   })
 
   it('applies horizontal layout with items-center', () => {
-    const { container } = render(<InlineLoader label="Loading..." />)
+    const { container } = render(<InlineLoader label="Loading…" />)
     const wrapper = container.firstChild as HTMLElement
     expect(wrapper.className).toContain('flex')
     expect(wrapper.className).toContain('items-center')

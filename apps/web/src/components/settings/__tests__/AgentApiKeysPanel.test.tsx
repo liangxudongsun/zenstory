@@ -85,12 +85,12 @@ describe('AgentApiKeysPanel', () => {
     const submit = screen.getByRole('button', { name: 'apiKeys.create' })
     expect(submit).toHaveAttribute('type', 'submit')
     expect(submit.className).toContain('min-h-[40px]')
-    expect(submit.className).toContain('bg-[hsl(var(--accent-primary))]')
+    expect(submit.className).toContain('bg-[hsl(var(--primary))]')
     expect(submit.className).not.toContain('text-xs')
 
     const cancel = screen.getByRole('button', { name: 'common.cancel' })
     expect(cancel.className).toContain('min-h-[40px]')
-    expect(cancel.className).not.toContain('bg-[hsl(var(--accent-primary))]')
+    expect(cancel.className).not.toContain('bg-[hsl(var(--primary))]')
   })
 
   it('grows the form buttons to the 44px touch size on phones', async () => {

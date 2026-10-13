@@ -27,7 +27,7 @@ vi.mock("react-i18next", () => ({
           "auth:login.title": "Login",
           "auth:login.verifying": "Verifying identity...",
           "auth:login.failed": "Login failed",
-          "auth:login.redirecting": "Redirecting...",
+          "auth:login.redirecting": "Redirecting…",
           "auth:login.oauthLoading": "Completing Google login, please wait...",
           "auth:login.backToLogin": "Back to login",
           "auth:errors.oauthErrorHint": "OAuth hint",

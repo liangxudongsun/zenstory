@@ -2,12 +2,12 @@
   "panel": {
     "title": "AI 创作助手",
     "processing": "处理中",
-    "loadingHistory": "正在加载对话...",
+    "loadingHistory": "正在加载对话…",
     "aiMemory": "AI 记忆",
     "newSession": "新对话",
     "clearChat": "清空对话",
     "selectProject": "打开一个项目后即可开始对话",
-    "loadingMessages": "正在加载对话...",
+    "loadingMessages": "正在加载对话…",
     "welcome": "我是你的创作伙伴，有什么可以帮你的？",
     "suggestions": "尝试输入：写一章大纲 / 创建角色卡 / 帮我续写",
     "editing": "正在修改：",
@@ -45,13 +45,13 @@
     "roundSavedFilesMore": "{{files}}等 {{total}} 个文件"
   },
   "input": {
-    "placeholder": "想写什么，直接说…",
-    "placeholderWhileProcessing": "AI 正在生成，你可以先输入，结束后再发送…",
+    "placeholder": "想写什么，直接说",
+    "placeholderWhileProcessing": "AI 正在生成，你可以先输入，结束后再发送",
     "placeholderQuotaExhausted": "先把想法写下来，额度恢复后再发。",
     "stop": "停止生成",
     "stopping": "正在停止…",
     "stopArming": "正在开始，稍后可停止",
-    "steerPlaceholder": "补充你的要求…",
+    "steerPlaceholder": "补充你的要求",
     "steerButton": "补充要求",
     "steerHint": "AI 正在生成，补充的要求会在它的下一步生效",
     "steerSent": "已补充，AI 下一步会参考",
@@ -91,9 +91,9 @@
     "apply": "应用更改"
   },
   "status": {
-    "thinking": "正在思考...",
-    "writing": "正在创作中...",
-    "assembling": "正在整理相关资料...",
+    "thinking": "正在思考…",
+    "writing": "正在创作中…",
+    "assembling": "正在整理相关资料…",
     "completed": "已完成 {{count}} 个操作",
     "currentFile": "当前文件 ID: {{id}}",
     "fileType": "文件类型: {{type}}",
@@ -177,7 +177,7 @@
     "parallel_summary_with_skipped": "同时处理 {{total}} 项任务：成功 {{completed}}，没动 {{skipped}}，失败 {{failed}}",
     "parallelTaskLabel": "{{label}}：",
     "processing": "处理中",
-    "processing_ellipsis": "处理中...",
+    "processing_ellipsis": "处理中…",
     "interrupted": "未完成",
     "created": "已创建{{type}}",
     "updated": "已更新",
@@ -275,7 +275,7 @@
     "recognition_success": "识别成功",
     "cancelled": "已取消录音",
     "unavailable": "语音输入不可用",
-    "recognizing": "正在识别...",
+    "recognizing": "正在识别…",
     "mobile_stop": "松开停止录音",
     "desktop_stop": "点击停止录音，右键取消",
     "mobile_hold": "长按说话",
@@ -292,7 +292,7 @@
     "recording": "录音中"
   },
   "stream": {
-    "processing": "正在处理...",
+    "processing": "正在处理…",
     "connectionInterrupted": "网络中断，请重试"
   },
   "thinking": {
@@ -303,7 +303,7 @@
     "toggleHide": "隐藏思考过程"
   },
   "skill": {
-    "loading": "加载技能中...",
+    "loading": "加载技能中…",
     "noResults": "未找到匹配的技能",
     "builtin": "内置",
     "user": "自定义",

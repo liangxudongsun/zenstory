@@ -1267,7 +1267,7 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
                     </div>
                     <div className="text-xs text-[hsl(var(--text-secondary))]">
                       {snippet.content?.substring(0, 100)}
-                      {(snippet.content?.length ?? 0) > 100 && '...'}
+                      {(snippet.content?.length ?? 0) > 100 && '…'}
                     </div>
                   </div>
                   {onViewSnippet && snippet.id && (

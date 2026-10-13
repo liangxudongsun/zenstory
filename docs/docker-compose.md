@@ -1,93 +1,101 @@
-# ZenStory Docker Compose 使用指南
+# Docker Compose 启动与自托管
 
-## Quick Start（推荐）
+仓库提供两套 Compose：`docker-compose.yml` 用于本机快速体验，`docker-compose.full.yml` 用于 PostgreSQL 和 Redis 的完整自托管部署。托管站点的 Railway/Vercel 发布另见[发布流程](ops/release-ci-cd.md)。
 
-写作 Agent 只需要 DeepSeek API Key（模型固定为 `deepseek-flash`）：
+## 本机快速启动
 
-```bash
-# 1. 设置 DeepSeek API Key（也可以写进与 docker-compose.yml 同目录的 .env 文件）
-export DEEPSEEK_API_KEY=your-key-here
+需要 Docker Compose。配置仓库根目录 `.env`，填写自己的模型 Key，并设置固定的随机 JWT 密钥：
 
-# 2. 启动
-docker compose up -d --build
-
-# 3. 创建第一个账号：管理员，不需要邀请码和邮箱验证。
-#    把邮箱和密码换成你自己的，密码至少 12 位（CHANGE-ME 不够长，会被拒绝）
-docker compose exec -e ZENSTORY_ADMIN_EMAIL=you@example.com \
-  -e ZENSTORY_ADMIN_PASSWORD='CHANGE-ME' server python scripts/create_admin.py
-
-#    项目提示词由管理后台「系统提示词」维护；保存后重新加载。
-#    新数据库必须配置 novel、short、screenplay，缺失时写作会明确报错。
-#    官方技能仅存 public_skill 数据库表，不再提供源码默认值或导入种子。
-
-# 4. 访问
-# Web:  http://localhost:5173
-# API:  http://localhost:8000/docs
+```dotenv
+DEEPSEEK_API_KEY=填写自己的Key
+JWT_SECRET_KEY=填写至少32字符的随机密钥
 ```
 
-数据库是 SQLite，和上传文件、向量索引一起放在 Docker volume 里：`docker compose down`、重新构建镜像都不会清掉数据，`docker compose down -v` 会。没有设置 `JWT_SECRET_KEY` 时，服务每次重启都会换一个签名密钥，所有人需要重新登录；在 `.env` 里写一个至少 32 字符的 `JWT_SECRET_KEY` 即可保持登录。
+写作服务当前使用 `deepseek-flash`。使用真实 Key 生成文字会产生模型费用；开发验证使用 mock。仅启动页面不会替你配置项目写作提示词。
 
-每个账号（包括管理员）默认都是免费套餐：每天 10 条 AI 消息（北京时间 00:00 重置）、最多 3 个项目。要放开，先运行 `docker compose exec server python scripts/seed_subscription_plans.py` 创建 Pro 套餐，再在管理后台「订阅管理」里给账号开通 Pro，或在「订阅计划」里直接改免费套餐的额度。
+```sh
+docker compose up -d --build
+docker compose ps
+```
 
-## 其他人怎么注册
+默认访问 Web `http://localhost:5173`、API `http://localhost:8000`，API 健康入口是 `/health`。
 
-默认注册要填邀请码。用管理员账号在「设置 → 邀请」或管理后台「邀请系统」生成邀请码；不想要邀请码，就在 `docker-compose.yml` 的 `server.environment` 里加 `AUTH_REGISTER_INVITE_CODE_OPTIONAL: "true"`，再 `docker compose up -d`。
+## 创建管理员与写作配置
 
-用邮箱注册的账号要先收验证码才能登录，发验证码需要 Redis 和 `RESEND_API_KEY`（以及在 Resend 验证过的 `RESEND_FROM_EMAIL`）。快速启动不带 Redis，别人在这里用邮箱注册后会因为「邮箱未验证」登录不了，需要的话用下面的 `docker-compose.full.yml`。只给几个信得过的人用，也可以再运行 `create_admin.py` 建账号，每次换一个邮箱和 `ZENSTORY_ADMIN_USERNAME`（默认是 `admin`，用户名不能重复）。这样建的都是管理员账号，能进管理后台；建好后在后台「用户管理」里编辑这个账号，取消「超级用户」。
+准备邮箱、唯一用户名和至少 12 字符的密码，以环境变量传给脚本，避免把真实密码写进命令历史：
 
-## 可选功能
+```sh
+export ZENSTORY_ADMIN_EMAIL=you@example.com
+export ZENSTORY_ADMIN_USERNAME=admin
+read -r -s ZENSTORY_ADMIN_PASSWORD
+export ZENSTORY_ADMIN_PASSWORD
+docker compose exec -e ZENSTORY_ADMIN_EMAIL -e ZENSTORY_ADMIN_USERNAME \
+  -e ZENSTORY_ADMIN_PASSWORD server python scripts/create_admin.py
+unset ZENSTORY_ADMIN_PASSWORD
+```
 
-| 功能 | 需要的配置 |
-| --- | --- |
-| 邮箱注册验证码 | `REDIS_URL`、`RESEND_API_KEY`、`RESEND_FROM_EMAIL` |
-| 语音输入 | `TENCENT_SECRET_ID`、`TENCENT_SECRET_KEY` |
-| Google 登录 | 后端 `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`、`GOOGLE_REDIRECT_URI`、`FRONTEND_URL`；前端（`web.environment`）`VITE_GOOGLE_OAUTH_ENABLED=true` |
-| 素材库拆解 | 另行运行 Prefect server 与 worker（见 `apps/server/prefect.yaml`），并给套餐打开素材库权限 |
-| 灵感库（默认关闭） | 快速启动在根目录 `.env` 中设 `INSPIRATIONS_ENABLED=true`，再运行 `docker compose up -d`；该 Compose 自动同步前后端开关。完整部署分别在 `apps/server/.env.docker` 设 `INSPIRATIONS_ENABLED=true`、`apps/web/.env.docker` 设 `VITE_INSPIRATIONS_ENABLED=true`，再运行 `docker compose -f docker-compose.full.yml up -d`。关闭时数据保留，用户/后台入口与 API 停用，不影响输入自己的创意创建项目 |
-| 外部 Agent 接入（Agent API / ZenStory 命令行工具 `zenstory`） | `API_BASE_URL=https://你的服务器/api/v1`（后端地址，不是 5173，会写进 `/skill.md`）。设置页按前端 `VITE_API_BASE_URL` 给出 `npx zenstory login --api-base <后端地址>/api/v1` 与 `<后端地址>/skill.md`；用户在终端运行后按提示粘贴 Key。CLI 只接受 https（`localhost` / `127.0.0.1` / `::1` 例外），局域网 http 部署需要先在前面加一层 TLS 反向代理 |
-| Pro 套餐、兑换码 | `python scripts/seed_subscription_plans.py` 创建 Pro 套餐；`REDEMPTION_CODE_HMAC_SECRET`（至少 32 字符） |
+管理员账号不需要邀请码和邮箱验证。不要把此脚本当作普通用户注册入口。
 
-## 生产部署（PostgreSQL + Redis）
+在管理后台维护 novel、short、screenplay 的系统提示词，保存后重新加载。新数据库缺少启用的对应配置时，写作会明确报错。官方技能从数据库读取，没有源码默认技能或自动种子。维护方法见[写作配置](agent-writing-guidance.md)。
 
-```bash
-# 1. 准备环境文件
+创建账号后默认使用免费权益：每天 10 条 AI 消息、3 个项目。按需运行 `scripts/seed_subscription_plans.py` 初始化套餐，再从后台给账号开通权益。
+
+## 普通用户注册
+
+默认注册需要邀请码。管理员从邀请页面生成后交给用户；可选邀请策略由 `AUTH_REGISTER_INVITE_CODE_OPTIONAL` 与前端注册配置控制。
+
+邮箱验证和密码重设需要 Redis、`RESEND_API_KEY`、有效的 `RESEND_FROM_EMAIL`。快速 Compose 没有 Redis，不适合直接开放邮箱注册。先完成邮件和 Redis 配置，再让普通用户注册。
+
+## 完整部署
+
+复制环境模板并填齐所有必填值：
+
+```sh
 cp apps/server/.env.docker.example apps/server/.env.docker
 cp apps/web/.env.docker.example apps/web/.env.docker
+```
 
-# 2. 编辑 apps/server/.env.docker，填入：
-#    - DEEPSEEK_API_KEY
-#    - JWT_SECRET_KEY（至少 32 字符）
-#    - DATABASE_URL 与 POSTGRES_USER / POSTGRES_PASSWORD 保持一致（默认 zenstory / changeme；
-#      对外提供服务前，在仓库根目录的 .env 里改掉 POSTGRES_PASSWORD，并同步改 DATABASE_URL）
+后端模板包括独立的 PostgreSQL owner/app 用户、数据库名、对应密码、Redis 密码、JWT 密钥和模型 Key。使用 URL 安全的随机密码，owner 与 app 凭证分开。Web 模板的 `VITE_API_BASE_URL` 是浏览器可访问的 API origin，不加 `/api/v1`。
 
-# 3. 启动
+Compose 的变量替换不会仅凭 `env_file` 读取所有值，启动前需导出两个文件：
+
+```sh
+set -a
+. apps/server/.env.docker
+. apps/web/.env.docker
+set +a
+docker compose -f docker-compose.full.yml config --quiet
 docker compose -f docker-compose.full.yml up -d --build
 ```
 
-## 常用命令
+完整部署默认只在本机绑定 Web `127.0.0.1:8080`、API `127.0.0.1:8000`；数据库和 Redis 不暴露宿主端口。对外服务先配置 TLS 反向代理与准确的 `CORS_ORIGINS`、`FRONTEND_URL`。
 
-```bash
-docker compose up -d --build      # 启动并构建
-docker compose down               # 停止并删除容器（数据留在卷里）
-docker compose down -v            # 停止并删除容器和卷（数据一起删除）
-docker compose logs -f server     # 查看后端日志
-docker compose ps                 # 查看服务状态
-```
+`postgres-init` 初始化 app 角色；名为 `migrate` 的服务当前调用 `init_db` 创建缺失表，**不会替已有数据库执行 Alembic 列迁移**。升级前核对待执行迁移、备份与回滚兼容性，不把容器健康当成 schema 已更新。
 
-## 故障排查
+## 可选能力
 
-### 端口冲突
+| 能力 | 配置入口 |
+| --- | --- |
+| 邮件验证、密码重设 | Redis、Resend 配置 |
+| Google 登录 | 后端 OAuth 配置、准确回调域名、前端 Google 开关 |
+| 语音 | 腾讯云语音凭证 |
+| 素材拆解 | Prefect server、worker、任务注册及模型配置 |
+| 在线支付 | Zpay 配置与显式启用，核对回调及权益发放 |
+| 兑换码 | 套餐初始化与独立 HMAC 密钥 |
+| 外部 Agent / CLI | API HTTPS origin、用户 API Key，见 `apps/cli` |
 
-```bash
-lsof -i :5173  # Web
-lsof -i :8000  # Server
-```
+灵感库默认关闭。自托管需要时，后端与前端的开关必须一致；配置方式以 Compose 与环境模板为准。面向在线用户的文档只显示“待开放”。
 
-修改端口：`SERVER_PORT=9000 WEB_PORT=3000 docker compose up -d`。开发模式下后端默认允许 5173 和 3000 两个前端端口的跨域请求，用其他端口时把前端地址加进 `docker-compose.yml` 的 `CORS_ORIGINS`。
+## 数据与排查
 
-### 服务不健康
+快速部署的 SQLite、完整部署的 PostgreSQL/Redis 和上传文件使用命名卷。停止或重建容器通常保留卷；删除卷会删除数据，清理前先核对用途和备份。
 
-```bash
+```sh
 docker compose logs --tail=100 server
+docker compose ps
 curl -f http://localhost:8000/health
 ```
+
+端口可通过 `SERVER_PORT`、`WEB_PORT` 调整。前端实际 origin 必须加入 CORS；不要把数据库、Redis 或生产凭证暴露到浏览器环境变量。
+
+升级涉及 worker 时，先排空任务。托管环境的生产操作、卷保留与 tag 门禁遵循[发布流程](ops/release-ci-cd.md)。

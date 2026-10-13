@@ -1,11 +1,11 @@
 {
   "title": "Inspiration Library",
   "subtitle": "Pick a story template and copy it into a new project",
-  "searchPlaceholder": "Search inspirations...",
+  "searchPlaceholder": "Search inspirations",
   "search": "Search",
   "view": "View",
   "use": "Create project",
-  "copying": "Creating...",
+  "copying": "Creating…",
   "copied": "Created",
   "useThis": "Create project from this",
   "copyCount_one": "{{count}} copy",
@@ -54,7 +54,7 @@
   "mySubmissions": {
     "title": "My Submissions",
     "count": "{{count}} items",
-    "loading": "Loading...",
+    "loading": "Loading…",
     "loadError": "Couldn't load your submissions. Please try again.",
     "empty": "No submissions yet. In a project, open \"AI Memory\" and click \"Submit to Inspiration Library\".",
     "submittedAt": "Submitted on {{date}}",

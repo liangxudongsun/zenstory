@@ -32,8 +32,8 @@ vi.mock('react-i18next', () => ({
         'discoverTab': 'Discover',
         'mySkillsTab': 'My Skills',
         'create': 'Create',
-        'searchPlaceholder': 'Search skills...',
-        'searchMySkillsPlaceholder': 'Search my skills...',
+        'searchPlaceholder': "Search skills",
+        'searchMySkillsPlaceholder': "Search my skills",
         'allCategories': 'All',
         'noSkillsFound': 'No skills found',
         'addToMine': 'Add',
@@ -282,7 +282,7 @@ describe('SkillsPage', () => {
     await userEvent.click(button)
     expect(screen.getByRole('button', { name: /^Collapse$/ })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: /^Collapse$/ }))
-    expect(screen.getAllByRole('button', { name: /^Expand$/ })).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: /^Expand$/ })).toHaveLength(1)
   })
 
   // ========================================
@@ -320,7 +320,7 @@ describe('SkillsPage', () => {
       const user = userEvent.setup()
       render(<SkillsPage />)
 
-      const search = screen.getByPlaceholderText('Search skills...')
+      const search = screen.getByPlaceholderText("Search skills")
       await user.type(search, 'w')
       expect(await screen.findByText('Newest category result')).toBeInTheDocument()
 
@@ -484,7 +484,7 @@ describe('SkillsPage', () => {
         expect(screen.getByText('Skills')).toBeInTheDocument()
       })
 
-      const searchInput = screen.getByPlaceholderText('Search skills...')
+      const searchInput = screen.getByPlaceholderText("Search skills")
       await userEvent.type(searchInput, 'dialogue')
 
       // Wait for debounce and API call
@@ -601,7 +601,7 @@ describe('SkillsPage', () => {
 
       vi.mocked(skillsApi.mySkills).mockClear()
 
-      const searchInput = screen.getByPlaceholderText('Search my skills...')
+      const searchInput = screen.getByPlaceholderText("Search my skills")
       await userEvent.type(searchInput, 'writing')
 
       // Wait for debounce and API call
@@ -887,7 +887,7 @@ describe('SkillsPage', () => {
       })
 
       // Change search query which triggers loadPublicSkills
-      const searchInput = screen.getByPlaceholderText('Search skills...')
+      const searchInput = screen.getByPlaceholderText("Search skills")
       await userEvent.type(searchInput, 'test')
 
       // Should not throw TDZ error
@@ -1089,24 +1089,47 @@ describe('SkillsPage', () => {
       expect(publicSkillsApi.list).toHaveBeenCalledWith(expect.objectContaining({ search: '人物abc' }))
     })
 
-    it('fetches full instructions when expanding a truncated public skill', async () => {
+    it('shows official usage guidance once, without a disclosure or an instruction detail request', async () => {
       vi.mocked(publicSkillsApi.list).mockResolvedValue({
-        skills: [{ ...mockPublicSkills[0], instructions: 'Preview only', instructions_truncated: true }],
+        skills: [mockPublicSkills[0], { ...mockPublicSkills[0], id: 'official-2', name: 'Character Expert', instructions_truncated: true }],
+        total: 2, page: 1, page_size: 20,
+      })
+      render(<SkillsPage />)
+      await screen.findByText('Dialogue Expert')
+      expect(screen.queryByRole('button', { name: /expand/i })).not.toBeInTheDocument()
+      expect(screen.queryByText('Write natural dialogue.')).not.toBeInTheDocument()
+      expect(screen.getAllByText('officialUsageHint')).toHaveLength(1)
+      expect(publicSkillsApi.get).not.toHaveBeenCalled()
+    })
+
+    it('does not offer an empty community disclosure', async () => {
+      vi.mocked(publicSkillsApi.list).mockResolvedValue({
+        skills: [{ ...mockPublicSkills[1], instructions: '  ' }], total: 1, page: 1, page_size: 20,
+      })
+      render(<SkillsPage />)
+      await screen.findByText('World Builder')
+      expect(screen.queryByRole('button', { name: /expand/i })).not.toBeInTheDocument()
+      expect(screen.queryByText('officialUsageHint')).not.toBeInTheDocument()
+    })
+
+    it('fetches full instructions when expanding a truncated community skill', async () => {
+      vi.mocked(publicSkillsApi.list).mockResolvedValue({
+        skills: [{ ...mockPublicSkills[1], instructions: 'Preview only', instructions_truncated: true }],
         total: 1,
         page: 1,
         page_size: 20,
       })
       vi.mocked(publicSkillsApi.get).mockResolvedValue({
-        ...mockPublicSkills[0],
+        ...mockPublicSkills[1],
         instructions: 'The complete instructions',
       })
       render(<SkillsPage />)
-      await screen.findByText('Dialogue Expert')
+      await screen.findByText('World Builder')
 
       await userEvent.click(screen.getByRole('button', { name: /expand/i }))
 
       expect(await screen.findByText('The complete instructions')).toBeInTheDocument()
-      expect(publicSkillsApi.get).toHaveBeenCalledWith('public-1')
+      expect(publicSkillsApi.get).toHaveBeenCalledWith('public-2')
     })
   })
 
@@ -1118,7 +1141,7 @@ describe('SkillsPage', () => {
       description: 'Expert at writing dialogue, with a long scenario description',
     }
 
-    it('shows the description and a note instead of instructions for an official public skill', async () => {
+    it('shows the official description without an empty disclosure while community instructions stay readable', async () => {
       vi.mocked(publicSkillsApi.list).mockResolvedValue({
         skills: [hiddenOfficial, mockPublicSkills[1]],
         total: 2,
@@ -1128,9 +1151,8 @@ describe('SkillsPage', () => {
       render(<SkillsPage />)
       await screen.findByText('Dialogue Expert')
 
-      await userEvent.click(screen.getByRole('button', { name: /expandDetails/ }))
-
-      expect(await screen.findByText('instructionsHidden')).toBeInTheDocument()
+      expect(screen.getByText(hiddenOfficial.description)).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /expandDetails/ })).not.toBeInTheDocument()
       expect(publicSkillsApi.get).not.toHaveBeenCalled()
       // 社区技能照常展开正文
       await userEvent.click(screen.getByRole('button', { name: /^Expand$/ }))
@@ -1149,8 +1171,7 @@ describe('SkillsPage', () => {
 
       const addedCard = screen.getByText('Plot Twist Generator').closest('.group') as HTMLElement
       expect(within(addedCard).queryByRole('button', { name: 'skills:export.button' })).not.toBeInTheDocument()
-      await userEvent.click(within(addedCard).getByTitle('skills:expandDetails'))
-      expect(within(addedCard).getByText('skills:instructionsHidden')).toBeInTheDocument()
+      expect(within(addedCard).queryByTitle('skills:expandDetails')).not.toBeInTheDocument()
       expect(skillsApi.listResources).not.toHaveBeenCalled()
 
       const ownCard = screen.getByText('Writing Assistant').closest('.group') as HTMLElement

@@ -9,8 +9,8 @@ const readyHeadings: Record<string, string> = {
   "/": "从灵感到连载，一套工具写完整部作品",
   "/privacy-policy": "隐私政策",
   "/terms-of-service": "服务条款",
-  "/docs": "ZenStory 工作台帮助文档",
-  "/docs/getting-started/quick-start": "ZenStory 工作台快速开始：从空项目到第一份可修改提纲",
+  "/docs": "ZenStory 工作台文档",
+  "/docs/getting-started/quick-start": "网页写作快速入门",
   "/pricing": "选一个适合你的方案",
   "/auth/callback": "登录 ZenStory",
   "/login": "登录 ZenStory",
@@ -86,7 +86,7 @@ for (const viewport of sizes) {
     await page.keyboard.press('Escape');
     await expect(dialog).not.toBeVisible();
     await page.goto('/materials/responsive-material');
-    const search = page.getByPlaceholder('搜索...', { exact: true });
+    const search = page.getByPlaceholder("搜索", { exact: true });
     if (viewport.width < 768) expect((await search.boundingBox())!.width).toBeGreaterThanOrEqual(200);
     await page.getByRole('button', { name: '章节', exact: true }).click();
     await page.getByText('第1章 很长的标题与人物选择', { exact: true }).click();

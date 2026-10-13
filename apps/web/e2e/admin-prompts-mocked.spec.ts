@@ -244,7 +244,7 @@ test.describe('Admin prompts (mocked)', () => {
     });
 
     await page.getByRole('button', { name: /删除|delete|prompts\.delete/i }).first().click();
-    const modal = page.locator('.fixed.inset-0.z-50').last();
+    const modal = page.getByRole('dialog');
     await modal.getByRole('button', { name: /确认|confirm|common:confirm/i }).click();
 
     await expect.poll(() => deleteCalled).toBe(1);

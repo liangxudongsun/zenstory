@@ -201,7 +201,7 @@ export default function ForgotPassword() {
                   disabled={loading || !trimmedEmail}
                 >
                   {loading
-                    ? t("auth:forgotPassword.sending", "正在发送...")
+                    ? t("auth:forgotPassword.sending", "正在发送…")
                     : t("auth:forgotPassword.sendCode", "发送验证码")}
                 </button>
               </form>
@@ -293,7 +293,7 @@ export default function ForgotPassword() {
 
                 <button type="submit" className="btn-primary w-full py-3 text-base" disabled={loading}>
                   {loading
-                    ? t("auth:forgotPassword.submitting", "正在重设...")
+                    ? t("auth:forgotPassword.submitting", "正在重设…")
                     : t("auth:forgotPassword.submit", "重设密码")}
                 </button>
 

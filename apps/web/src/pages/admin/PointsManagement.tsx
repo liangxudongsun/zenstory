@@ -1,3 +1,4 @@
+import { Modal } from "../../components/ui/Modal";
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -227,7 +228,7 @@ export const PointsManagement: React.FC = () => {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <Coins className="h-5 w-5 text-[hsl(var(--accent-primary))]" />
+                    <Coins className="h-5 w-5 text-[var(--admin-accent-text)]" />
                     <span className="font-medium text-[hsl(var(--text-primary))]">
                       <AdminUserLink userId={userPoints?.user_id}>{userPoints?.username ?? "-"}</AdminUserLink>
                     </span>
@@ -401,68 +402,76 @@ export const PointsManagement: React.FC = () => {
 
       {/* Adjust Points Dialog */}
       {adjustDialogOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-[hsl(var(--bg-primary))] border border-[hsl(var(--separator-color))] rounded-lg shadow-xl w-full max-w-md">
-            <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
-              <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
-                {t("points.adjustPoints")}
-              </h2>
-              <button
-                onClick={() => setAdjustDialogOpen(false)}
-                disabled={adjustMutation.isPending}
-                aria-label={t("common:close")}
-                className="p-2.5 touch-target hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
-              >
-                <X size={20} className="text-[hsl(var(--text-secondary))]" />
-              </button>
+        <Modal
+          open
+          ariaLabel={t("points.adjustPoints")}
+          onClose={() => setAdjustDialogOpen(false)}
+          closeOnEscape={!(adjustMutation.isPending)}
+          closeOnBackdropClick={false}
+          showCloseButton={false}
+          bodyClassName="p-0"
+          className="admin-shell rounded-xl!"
+          size="md"
+        >
+          <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
+            <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
+              {t("points.adjustPoints")}
+            </h2>
+            <button
+              onClick={() => setAdjustDialogOpen(false)}
+              disabled={adjustMutation.isPending}
+              aria-label={t("common:close")}
+              className="p-2.5 touch-target hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
+            >
+              <X size={20} className="text-[hsl(var(--text-secondary))]" />
+            </button>
+          </div>
+
+          <div className="px-4 sm:px-6 py-4 space-y-4">
+            <div>
+              <label htmlFor="admin-points-adjustAmount" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                {t("points.adjustAmount")}
+              </label>
+              <input id="admin-points-adjustAmount"
+                type="number"
+                value={adjustForm.amount}
+                onChange={(e) => setAdjustForm({ ...adjustForm, amount: Number(e.target.value) })}
+                placeholder={t("points.adjustAmountPlaceholder")}
+                className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))]"
+              />
             </div>
 
-            <div className="px-4 sm:px-6 py-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                  {t("points.adjustAmount")}
-                </label>
-                <input
-                  type="number"
-                  value={adjustForm.amount}
-                  onChange={(e) => setAdjustForm({ ...adjustForm, amount: Number(e.target.value) })}
-                  placeholder={t("points.adjustAmountPlaceholder")}
-                  className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                  {t("points.adjustReason")}
-                </label>
-                <textarea
-                  value={adjustForm.reason}
-                  onChange={(e) => setAdjustForm({ ...adjustForm, reason: e.target.value })}
-                  placeholder={t("points.adjustReasonPlaceholder")}
-                  rows={3}
-                  className="w-full px-3 py-2.5 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))] resize-none"
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
-              <button
-                onClick={() => setAdjustDialogOpen(false)}
-                disabled={adjustMutation.isPending}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))] disabled:opacity-50"
-              >
-                {t("common:cancel")}
-              </button>
-              <button
-                onClick={handleAdjustPoints}
-                disabled={adjustMutation.isPending || !adjustForm.reason.trim()}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--accent-primary))] text-white rounded-lg hover:opacity-90 active:scale-95 transition-all text-sm disabled:opacity-50"
-              >
-                {adjustMutation.isPending ? t("common:loading") : t("common:confirm")}
-              </button>
+            <div>
+              <label htmlFor="admin-points-adjustReason" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                {t("points.adjustReason")}
+              </label>
+              <textarea id="admin-points-adjustReason"
+                value={adjustForm.reason}
+                onChange={(e) => setAdjustForm({ ...adjustForm, reason: e.target.value })}
+                placeholder={t("points.adjustReasonPlaceholder")}
+                rows={3}
+                className="w-full px-3 py-2.5 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))] resize-none"
+              />
             </div>
           </div>
-        </div>
+
+          <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
+            <button
+              onClick={() => setAdjustDialogOpen(false)}
+              disabled={adjustMutation.isPending}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))] disabled:opacity-50"
+            >
+              {t("common:cancel")}
+            </button>
+            <button
+              onClick={handleAdjustPoints}
+              disabled={adjustMutation.isPending || !adjustForm.reason.trim()}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--accent-primary))] text-white rounded-lg hover:opacity-90 active:scale-95 transition-all text-sm disabled:opacity-50"
+            >
+              {adjustMutation.isPending ? t("common:loading") : t("common:confirm")}
+            </button>
+          </div>
+        </Modal>
       )}
 
     </div>

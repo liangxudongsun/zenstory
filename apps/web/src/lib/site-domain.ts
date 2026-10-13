@@ -31,6 +31,11 @@ function pairForOrigin(origin: string): SitePair | undefined {
   return pairs.find((pair) => pair.siteOrigin === origin || pair.appOrigin === origin)
 }
 
+export function getWorkbenchHomeUrl(href: string): string {
+  const pair = pairForOrigin(new URL(href).origin)
+  return pair ? `${pair.appOrigin}/` : '/'
+}
+
 export function isManagedOrigin(href: string): boolean {
   return Boolean(pairForOrigin(new URL(href).origin))
 }
@@ -69,7 +74,7 @@ export function getPublicCanonicalUrl(href: string): string {
     if (isAppPath(url.pathname)) {
       return `${productionPair.appOrigin}${url.pathname}`
     }
-    if (matchesPrefix(url.pathname, siteRouting.sitePrefixes)) {
+    if (matchesPrefix(url.pathname, [...siteRouting.sitePrefixes, ...siteRouting.sharedPrefixes])) {
       return `${productionPair.siteOrigin}${url.pathname}`
     }
     return `${url.origin === pair.appOrigin ? productionPair.appOrigin : productionPair.siteOrigin}${url.pathname}`

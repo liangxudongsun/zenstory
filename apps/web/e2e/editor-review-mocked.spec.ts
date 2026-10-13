@@ -18,7 +18,7 @@ const projectA = responsiveProjects[0].id;
 const projectB = responsiveProjects[1].id;
 const token0 = '2026-10-06T10:00:00.000Z';
 const textarea = (page: Page) => page.locator('[data-editor-scroll-container="true"] textarea');
-const titleInput = (page: Page) => page.getByPlaceholder('Enter title...');
+const titleInput = (page: Page) => page.getByPlaceholder("Enter title");
 const puts = (f: Fixture) => f.requests.filter(r => r.method === 'PUT');
 const wordCount = (text: string) => (text.match(/[\u4e00-\u9fa5]/g) || []).length + (text.match(/[a-zA-Z]+/g) || []).length;
 
@@ -556,7 +556,7 @@ test.describe('footer locale and viewport matrix', () => {
   for (const width of [320, 390, 1440]) {
     for (const locale of ['en', 'zh'] as const) {
       test(`footer ${locale} ${width}: dirty saving saved selection zoom and scroll`, async ({ page }) => {
-        const labels = locale === 'en' ? { save: 'Save', dirty: 'Unsaved', saving: 'Saving...', saved: 'Saved just now', title: 'Enter title...', humanize: 'Humanize', zoom: 'Reset zoom' } : { save: '保存', dirty: '未保存', saving: '保存中...', saved: '刚刚保存', title: '请输入标题...', humanize: '去AI味', zoom: '重置缩放' };
+        const labels = locale === 'en' ? { save: 'Save', dirty: 'Unsaved', saving: "Saving…", saved: 'Saved just now', title: "Enter title", humanize: 'Humanize', zoom: 'Reset zoom' } : { save: '保存', dirty: '未保存', saving: "保存中…", saved: '刚刚保存', title: "请输入标题", humanize: '去AI味', zoom: '重置缩放' };
         const content = '你好 story text。\n\n'.repeat(80);
         const f = await fixture(page, content, locale);
         await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 });

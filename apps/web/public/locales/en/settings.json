@@ -48,7 +48,7 @@
   "actions": {
     "resetDefault": "Reset to Default",
     "cancel": "Cancel",
-    "saving": "Saving...",
+    "saving": "Saving…",
     "save": "Save Preferences",
     "saved": "Preferences saved",
     "confirmReset": "Reset preferences to default? Your writing is not affected."
@@ -63,11 +63,11 @@
     "regenerate": "Regenerate",
     "regenerateTitle": "Regenerate API Key",
     "regenerateConfirm": "The old key stops working immediately. Tools signed in with it need to sign in again with the new key.",
-    "regenerating": "Regenerating...",
+    "regenerating": "Regenerating…",
     "createdTitle": "API Key Created",
     "copyWarning": "Copy the key now. You won’t be able to see it again after closing.",
     "done": "Done",
-    "loading": "Loading...",
+    "loading": "Loading…",
     "noKeys": "No API keys yet",
     "created": "Created",
     "lastUsed": "Last used",
@@ -104,7 +104,7 @@
     },
     "emptyState": "Create a key, then follow the steps above to connect your AI agent.",
     "testConnection": "Test Connection",
-    "testing": "Testing...",
+    "testing": "Testing…",
     "testSuccess": "Connected. This key works.",
     "testFailed": "Connection failed: {{error}}",
     "hintBar": "Only paste your key in the terminal, never into an AI chat. If a key leaks, disable or regenerate it anytime.",
@@ -155,8 +155,8 @@
   "common": {
     "previous": "Previous",
     "next": "Next",
-    "loading": "Loading...",
+    "loading": "Loading…",
     "cancel": "Cancel",
-    "processing": "Processing..."
+    "processing": "Processing…"
   }
 }

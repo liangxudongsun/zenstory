@@ -227,6 +227,28 @@ describe('FileTreePane create placeholder', () => {
   });
 });
 
+describe('FileTreePane English project template folders', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.projectId = 'project-1';
+    mocks.createFile.mockResolvedValue({ id: 'outline-new' });
+  });
+
+  it.each(['Concept', 'Episode Outlines'])('creates outlines inside the %s template folder', async (title) => {
+    mocks.getTree.mockResolvedValue({
+      tree: [{ id: 'outline-folder', title, file_type: 'folder', children: [] }],
+    });
+    render(<FileSearchProvider><FileTreePane /></FileSearchProvider>);
+    fireEvent.click(await screen.findByTitle('common:create common:fileTypes.outline'));
+    const input = screen.getByPlaceholderText('editor:fileTree.newOutline');
+    fireEvent.change(input, { target: { value: 'Scene plan' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(mocks.createFile).toHaveBeenCalledWith('project-1', {
+      title: 'Scene plan', file_type: 'outline', parent_id: 'outline-folder', content: '',
+    }));
+  });
+});
+
 describe('FileTreePane create/delete failures', () => {
   const tree = [{
     id: 'folder-characters',

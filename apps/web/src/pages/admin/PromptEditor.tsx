@@ -1,3 +1,4 @@
+import { Modal } from "../../components/ui/Modal";
 import React, { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
@@ -155,7 +156,7 @@ export const PromptEditor: React.FC = () => {
     return (
       <div className="admin-page">
         <div className="admin-surface flex flex-col items-center gap-4 py-12 text-center">
-          <AlertTriangle className="text-[hsl(var(--error))]" size={32} />
+          <AlertTriangle className="text-[hsl(var(--error-text))]" size={32} />
           <p className="text-[hsl(var(--text-secondary))]">{errorText}</p>
           <button
             type="button"
@@ -179,6 +180,7 @@ export const PromptEditor: React.FC = () => {
       <div className="flex flex-col gap-3">
         <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
           <button
+            aria-label={t("common:back")}
             onClick={() => navigate("/admin/prompts")}
             className="p-2.5 touch-target shrink-0 hover:bg-[hsl(var(--bg-tertiary))] rounded-lg transition-colors min-h-11"
           >
@@ -214,7 +216,7 @@ export const PromptEditor: React.FC = () => {
             ) : (
               <Save size={18} />
             )}
-            <span className="hidden sm:inline">{t("promptEditor.save")}</span>
+            <span>{t("promptEditor.save")}</span>
           </button>
         </div>
         {!isNew && (
@@ -235,8 +237,9 @@ export const PromptEditor: React.FC = () => {
         <FormSection title={t("promptEditor.basicInfo")}>
           {isNew ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-              <FormField label={t("promptEditor.projectType")} className="sm:col-span-2">
+              <FormField htmlFor="prompt-project-type" label={t("promptEditor.projectType")} className="sm:col-span-2">
                 <AdminSelect
+                  id="prompt-project-type"
                   fullWidth
                   value={selectedProjectType}
                   onChange={(e) => setSelectedProjectType(e.target.value)}
@@ -249,8 +252,9 @@ export const PromptEditor: React.FC = () => {
               </FormField>
             </div>
           ) : (
-            <FormField label={t("promptEditor.projectType")}>
+            <FormField htmlFor="prompt-project-type" label={t("promptEditor.projectType")}>
               <input
+                id="prompt-project-type"
                 type="text"
                 value={decodeURIComponent(projectType!)}
                 disabled
@@ -268,8 +272,9 @@ export const PromptEditor: React.FC = () => {
 
         {/* Prompt 配置 */}
         <FormSection title={t("promptEditor.promptConfig")}>
-          <FormField label={t("promptEditor.roleDefinition")}>
+          <FormField htmlFor="prompt-role-definition" label={t("promptEditor.roleDefinition")}>
             <textarea
+              id="prompt-role-definition"
               aria-label={t("promptEditor.roleDefinition")}
               required
               value={formData.role_definition}
@@ -279,8 +284,9 @@ export const PromptEditor: React.FC = () => {
             />
           </FormField>
 
-          <FormField label={t("promptEditor.capabilities")}>
+          <FormField htmlFor="prompt-capabilities" label={t("promptEditor.capabilities")}>
             <textarea
+              id="prompt-capabilities"
               aria-label={t("promptEditor.capabilities")}
               required
               value={formData.capabilities}
@@ -290,8 +296,9 @@ export const PromptEditor: React.FC = () => {
             />
           </FormField>
 
-          <FormField label={t("promptEditor.directoryStructure")}>
+          <FormField htmlFor="prompt-directory-structure" label={t("promptEditor.directoryStructure")}>
             <textarea
+              id="prompt-directory-structure"
               value={formData.directory_structure}
               onChange={(e) => handleInputChange("directory_structure", e.target.value)}
               rows={10}
@@ -299,8 +306,9 @@ export const PromptEditor: React.FC = () => {
             />
           </FormField>
 
-          <FormField label={t("promptEditor.contentStructure")}>
+          <FormField htmlFor="prompt-content-structure" label={t("promptEditor.contentStructure")}>
             <textarea
+              id="prompt-content-structure"
               value={formData.content_structure}
               onChange={(e) => handleInputChange("content_structure", e.target.value)}
               rows={16}
@@ -308,8 +316,9 @@ export const PromptEditor: React.FC = () => {
             />
           </FormField>
 
-          <FormField label={t("promptEditor.fileTypes")}>
+          <FormField htmlFor="prompt-file-types" label={t("promptEditor.fileTypes")}>
             <textarea
+              id="prompt-file-types"
               value={formData.file_types}
               onChange={(e) => handleInputChange("file_types", e.target.value)}
               rows={6}
@@ -317,8 +326,9 @@ export const PromptEditor: React.FC = () => {
             />
           </FormField>
 
-          <FormField label={t("promptEditor.writingGuidelines")}>
+          <FormField htmlFor="prompt-writing-guidelines" label={t("promptEditor.writingGuidelines")}>
             <textarea
+              id="prompt-writing-guidelines"
               value={formData.writing_guidelines}
               onChange={(e) => handleInputChange("writing_guidelines", e.target.value)}
               rows={20}
@@ -336,37 +346,45 @@ export const PromptEditor: React.FC = () => {
 
       {/* 删除确认对话框 */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-[hsl(var(--bg-primary))] border border-[hsl(var(--separator-color))] rounded-lg shadow-xl w-full max-w-md">
-            <div className="flex items-center gap-3 px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
-              <AlertTriangle size={24} className="text-red-500" />
-              <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
-                {t("prompts.delete")}
-              </h2>
-            </div>
-            <div className="px-4 sm:px-6 py-4">
-              <p className="text-[hsl(var(--text-secondary))]">
-                {t("prompts.deleteConfirm")}
-              </p>
-            </div>
-            <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
-              <button
-                onClick={() => setShowDeleteConfirm(false)}
-                disabled={deleteMutation.isPending}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))] disabled:opacity-50"
-              >
-                {t("common:cancel")}
-              </button>
-              <button
-                onClick={handleDeleteConfirm}
-                disabled={deleteMutation.isPending}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--error))] text-white rounded-lg hover:bg-[hsl(var(--error)/0.9)] active:scale-95 transition-all text-sm disabled:opacity-50"
-              >
-                {deleteMutation.isPending ? t("common:loading") : t("common:confirm")}
-              </button>
-            </div>
+        <Modal
+          open
+          ariaLabel={t("prompts.delete")}
+          onClose={() => setShowDeleteConfirm(false)}
+          closeOnEscape={!(deleteMutation.isPending)}
+          closeOnBackdropClick={false}
+          showCloseButton={false}
+          bodyClassName="p-0"
+          className="admin-shell rounded-xl!"
+          size="md"
+        >
+          <div className="flex items-center gap-3 px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
+            <AlertTriangle size={24} className="text-red-500" />
+            <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
+              {t("prompts.delete")}
+            </h2>
           </div>
-        </div>
+          <div className="px-4 sm:px-6 py-4">
+            <p className="text-[hsl(var(--text-secondary))]">
+              {t("prompts.deleteConfirm")}
+            </p>
+          </div>
+          <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
+            <button
+              onClick={() => setShowDeleteConfirm(false)}
+              disabled={deleteMutation.isPending}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))] disabled:opacity-50"
+            >
+              {t("common:cancel")}
+            </button>
+            <button
+              onClick={handleDeleteConfirm}
+              disabled={deleteMutation.isPending}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--error))] text-white rounded-lg hover:bg-[hsl(var(--error)/0.9)] active:scale-95 transition-all text-sm disabled:opacity-50"
+            >
+              {deleteMutation.isPending ? t("common:loading") : t("common:confirm")}
+            </button>
+          </div>
+        </Modal>
       )}
     </div>
   );

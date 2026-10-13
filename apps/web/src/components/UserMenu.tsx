@@ -352,7 +352,7 @@ export const UserMenu: React.FC<UserMenuProps> = () => {
               {isCheckedIn
                 ? t('settings:points.alreadyCheckedIn', '今日已签到')
                 : checkInMutation.isPending
-                  ? t('common:processing', '处理中...')
+                  ? t('common:processing', "处理中…")
                   : t('settings:points.checkIn', '签到领积分')}
             </button>
 
@@ -519,7 +519,7 @@ export const UserMenuMobile: React.FC<UserMenuMobileProps> = ({ onLogout }) => {
           {isCheckedIn
             ? t('settings:points.alreadyCheckedIn', '今日已签到')
             : checkInMutation.isPending
-              ? t('common:processing', '处理中...')
+              ? t('common:processing', "处理中…")
               : t('settings:points.checkIn', '签到领积分')}
         </span>
       </button>

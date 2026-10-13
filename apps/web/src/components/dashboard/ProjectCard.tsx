@@ -36,33 +36,26 @@ export function ProjectCard({
   const TypeIcon = style.icon;
 
   return (
-    <div
+    <article
       onClick={onOpen}
-      tabIndex={0}
-      role="button"
-      aria-label={t("dashboard:projects.openProject", { defaultValue: "打开项目「{{name}}」", name: project.name })}
-      onKeyDown={(e) => {
-        // Only the card itself: Enter on the delete button must not also open the project.
-        if (e.key === "Enter" && e.target === e.currentTarget) {
-          onOpen();
-        }
-      }}
-      className="group relative flex flex-col rounded-lg border border-[hsl(var(--border-color))] bg-[hsl(var(--bg-secondary))] p-4 cursor-pointer transition-all hover:border-[hsl(var(--accent-primary)/0.3)] hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary)/0.5)]"
+      className="group relative flex flex-col rounded-2xl border border-[hsl(var(--border-color))] bg-[hsl(var(--bg-secondary))] p-5 cursor-pointer transition-colors hover:border-[hsl(var(--accent-primary)/0.3)]"
       data-testid={testId}
     >
-      <div
-        className={`absolute inset-0 rounded-lg bg-gradient-to-br ${style.gradientFrom} ${style.gradientTo} opacity-0 transition-opacity group-hover:opacity-100`}
+      <button
+        type="button"
+        onClick={(event) => { event.stopPropagation(); onOpen(); }}
+        aria-label={t("dashboard:projects.openProject", { defaultValue: "打开项目「{{name}}」", name: project.name })}
+        className="absolute inset-0 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-primary)/0.5)]"
       />
-
-      <div className="relative flex flex-1 flex-col">
+      <div className="relative pointer-events-none flex flex-1 flex-col">
         <div className="mb-2 flex items-start justify-between">
           <div
-            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${style.bgClass} transition-transform group-hover:scale-110`}
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${style.bgClass}`}
           >
             <TypeIcon className={`w-4.5 h-4.5 ${style.colorClass}`} />
           </div>
           <div className="ml-3 min-w-0 flex-1 self-center">
-            <h3 className="truncate text-sm font-semibold leading-snug text-[hsl(var(--text-primary))]">
+            <h3 title={project.name} className="line-clamp-2 text-sm font-semibold leading-snug text-[hsl(var(--text-primary))]">
               {project.name}
             </h3>
           </div>
@@ -74,7 +67,7 @@ export function ProjectCard({
               e.stopPropagation();
               onDelete();
             }}
-            className={`-mr-1 -mt-1 ${
+            className={`relative pointer-events-auto -mr-1 -mt-1 ${
               alwaysShowDelete ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
             }`}
           />
@@ -87,7 +80,9 @@ export function ProjectCard({
         )}
 
         <div data-testid="project-card-footer" className="mt-auto">
-          <ProjectProgressLine progress={progress} projectType={project.project_type} />
+          <div className="relative pointer-events-auto">
+            <ProjectProgressLine progress={progress} projectType={project.project_type} />
+          </div>
           <div className="flex items-center justify-between">
             <span className={`rounded-md px-2 py-0.5 text-xs font-medium ${style.bgClass} ${style.colorClass}`}>
               {t(style.labelKey)}
@@ -99,6 +94,6 @@ export function ProjectCard({
           </div>
         </div>
       </div>
-    </div>
+    </article>
   );
 }

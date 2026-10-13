@@ -2,12 +2,12 @@
   "panel": {
     "title": "AI Creative Partner",
     "processing": "Processing",
-    "loadingHistory": "Loading conversation...",
+    "loadingHistory": "Loading conversation…",
     "aiMemory": "AI Memory",
     "newSession": "New chat",
     "clearChat": "Clear Chat",
     "selectProject": "Open a project to start chatting",
-    "loadingMessages": "Loading conversation...",
+    "loadingMessages": "Loading conversation…",
     "welcome": "I'm your creative partner. How can I help?",
     "suggestions": "Try: Write an outline / Create a character sheet / Continue writing",
     "editing": "Editing:",
@@ -45,13 +45,13 @@
     "roundSavedFilesMore": "{{files}} and {{rest}} more"
   },
   "input": {
-    "placeholder": "Tell the AI what to write…",
-    "placeholderWhileProcessing": "AI is generating — you can type now and send when it finishes…",
+    "placeholder": "Tell the AI what to write",
+    "placeholderWhileProcessing": "AI is generating — you can type now and send when it finishes",
     "placeholderQuotaExhausted": "Draft your idea now and send it once your messages reset.",
     "stop": "Stop generating",
     "stopping": "Stopping…",
     "stopArming": "Starting… you can stop in a moment",
-    "steerPlaceholder": "Add to your request…",
+    "steerPlaceholder": "Add to your request",
     "steerButton": "Add request",
     "steerHint": "AI is generating — what you add applies at its next step",
     "steerSent": "Added — the AI will use it at the next step",
@@ -91,9 +91,9 @@
     "apply": "Apply Changes"
   },
   "status": {
-    "thinking": "Thinking...",
-    "writing": "Creating...",
-    "assembling": "Gathering relevant notes...",
+    "thinking": "Thinking…",
+    "writing": "Creating…",
+    "assembling": "Gathering relevant notes…",
     "completed": "Completed {{count}} operations",
     "currentFile": "Current file ID: {{id}}",
     "fileType": "File type: {{type}}",
@@ -177,7 +177,7 @@
     "parallel_summary_with_skipped": "Ran {{total}} tasks: {{completed}} succeeded, {{skipped}} left unchanged, {{failed}} failed",
     "parallelTaskLabel": "{{label}}:",
     "processing": "Processing",
-    "processing_ellipsis": "Processing...",
+    "processing_ellipsis": "Processing…",
     "interrupted": "Not finished",
     "created": "Created {{type}}",
     "updated": "Updated",
@@ -275,7 +275,7 @@
     "recognition_success": "Recognition successful",
     "cancelled": "Recording cancelled",
     "unavailable": "Voice input unavailable",
-    "recognizing": "Recognizing...",
+    "recognizing": "Recognizing…",
     "mobile_stop": "Release to stop recording",
     "desktop_stop": "Click to stop recording, right-click to cancel",
     "mobile_hold": "Hold to speak",
@@ -292,7 +292,7 @@
     "recording": "Recording"
   },
   "stream": {
-    "processing": "Processing...",
+    "processing": "Processing…",
     "connectionInterrupted": "Connection lost. Please try again."
   },
   "thinking": {
@@ -303,7 +303,7 @@
     "toggleHide": "Hide reasoning process"
   },
   "skill": {
-    "loading": "Loading skills...",
+    "loading": "Loading skills…",
     "noResults": "No matching skills found",
     "builtin": "Built-in",
     "user": "Custom",

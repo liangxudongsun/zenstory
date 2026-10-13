@@ -276,7 +276,7 @@ describe("MaterialsPage", () => {
 
     const solid = screen
       .getAllByRole("button")
-      .filter((button) => button.className.includes("bg-[hsl(var(--accent-primary))]"));
+      .filter((button) => button.className.includes("bg-[hsl(var(--primary))]"));
     expect(solid).toEqual([trial]);
   });
 
@@ -331,7 +331,7 @@ describe("MaterialsPage", () => {
     expect(screen.queryByText("materials:uploadFirst")).not.toBeInTheDocument();
     const upgrade = within(emptyState).getByRole("button", { name: "开通 Pro" });
     // The shared page-action button: solid primary, 40px on desktop.
-    expect(upgrade.className).toContain("bg-[hsl(var(--accent-primary))]");
+    expect(upgrade.className).toContain("bg-[hsl(var(--primary))]");
     expect(upgrade.className).toContain("min-h-[40px]");
     fireEvent.click(upgrade);
     expect(trackEventMock).toHaveBeenCalledWith("materials_upgrade_clicked", {

@@ -1,40 +1,56 @@
-# Organization / workbench domain migration
+# 域名与静态页面路由
 
-## Contract
-- `https://zenstory.ai/`: crawler-readable ZenStory AI organization home.
-- `https://app.zenstory.ai/`: original workbench. Existing localStorage sessions do not move across origins; users may need to sign in again. Do not copy stored tokens into URLs.
-- Project/glossary/docs/legal pages stay on apex. App requests for them redirect to apex.
-- Legacy apex auth/dashboard/project/materials/admin/onboarding/pricing URLs redirect to app, preserving path/query. The OAuth fragment must survive browser redirects.
-- `/api/*` on both hosts proxies `https://api.zenstory.ai/api/*`; `/api/health` is an upstream JSON404, not the actual `/health` endpoint.
+组织站用于阅读，工作台用于写作，API 负责数据与任务。旧链接通过路由兼容，登录状态按 origin 隔离。
 
-Source of routing truth: `apps/web/content/site-routing.json` and `scripts/build-site-layout.mjs`; regenerate tracked `vercel.json` with `node scripts/build-site-layout.mjs --write-config`. Build fails if it drifts. The controlled root shell must contain no canonical, og:url or JSON-LD: generators fail closed on inherited route metadata instead of trying to sanitize arbitrary HTML with regex. Vercel uses `npm run build:vercel`: Vite -> org -> docs -> domain finalizer. Default `npm run build`/Docker/local preview retain their root app index, robots.txt and legacy sitemap and skip Vercel-only relocation. No root index/robots/sitemap may survive finalization because files take precedence over Vercel rewrites. Private app routes stay out of sitemaps. Owned geo-preview/app-preview aliases are noindex validation surfaces, not canonical sites.
+## 当前域名
 
-## Release order
-1. Record current production deployment and nonsecret origin config.
-2. Attach app host to ergou-ai; append app origin to Railway CORS, keeping all existing origins. Verify exact deployment SUCCESS, /health and valid/invalid CORS.
-3. Validate source/tests, Vercel preview host matrix, no-JS/JS heads, internal aliases, client navigation and safe OAuth fragment. Never infer platform routing from local matcher tests alone.
-4. Release verified web build. Confirm legacy apex `/auth/callback` permanently redirects to app and preserves harmless fragment.
-5. Only now set Railway `FRONTEND_URL=https://app.zenstory.ai`. Leave `GOOGLE_REDIRECT_URI=https://api.zenstory.ai/api/auth/google/callback` unchanged. Poll exact deployment; retest callback error/anonymous flows and API proxy.
-6. Record actual release IDs, test outputs and any authenticated-account/Search Console gaps. Do not claim successful real-account auth or search indexing without evidence.
+| 环境 | 组织站 | 工作台 | API |
+| --- | --- | --- | --- |
+| 生产 | `zenstory.ai` | `app.zenstory.ai` | `api.zenstory.ai` |
+| 预发布 | `geo-preview.zenstory.ai` | `app-preview.zenstory.ai` | `staging-api-staging-a289.up.railway.app` |
 
-## Controlled live smoke checks
-The domain suite is excluded from normal Playwright discovery and never runs against a live host by default. Run from `apps/web`:
+预发布保留登录保护与 noindex，使用独立数据和凭证。访问健康页不证明用户会话或所有集成正常。
+
+## 路由约定
+
+- 组织首页、项目介绍、术语、文档和法律页面在组织站静态生成。
+- `/docs` 两边各自保留阅读入口，共用 `apps/web/docs` 内容源。工作台使用 React 阅读器、搜索与语言设置，组织站使用静态双语页面。
+- 工作台上的其他组织内容入口跳到组织站；组织站旧的登录、项目编辑、管理后台等入口跳到工作台，保留路径和查询参数。
+- 法律页面的品牌入口返回工作台；组织内容的品牌入口返回组织首页。
+- OAuth 回调重定向保留必要片段，随后由回调页清理凭证；不要手动把登录令牌搬进 URL。
+- 生产与预发布 `/api/*` 分别代理到对应 API。实际健康入口是 API origin 的 `/health`，不是 `/api/health`。
+
+跨 origin 的浏览器存储不共享，域名切换后可能需要重新登录。不要复制用户令牌来“迁移会话”。
+
+## 构建来源
+
+路由定义在 `apps/web/content/site-routing.json`，域名布局由 `apps/web/scripts/build-site-layout.mjs` 生成。`vercel.json` 必须与生成结果一致：
 
 ```sh
-GEO_DOMAIN_MODE=preview npm run test:geo
-# After the release and callback-first backend switch:
-GEO_DOMAIN_MODE=production npm run test:geo
+pnpm --dir apps/web build:vercel
 ```
 
-Both modes exercise read-only pages, anonymous guards and a harmless `access_denied` callback; neither signs in or creates user data. Preview roots must return `X-Robots-Tag: noindex`; production roots must not. Set `GEO_SITE_ORIGIN` and `GEO_APP_ORIGIN` together to override targets. Use `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` if needed for an installed browser. Remove temporary preview aliases only after verification; record that cleanup and retain noindex until removal.
+只有修改路由契约时才重新生成跟踪配置：
 
-## Baseline rollback (2026-09-12)
-- Vercel existing project `ergou-ai`, project ID `prj_x4aJCaG3j8QHvwJKOpL3qeE6Lvl3`, prior production deployment `dpl_GjopJQmxLQpYZWKzn1KZC3uaCEVF` (main `6e67941`). Inspect before reuse: another legitimate release may supersede this baseline.
-- Railway project `cbe4812b-c4fd-4d4d-ae13-b06395b2c7f0`, service `server`, environment `production`; previous `FRONTEND_URL=https://zenstory.ai`.
-- Previous CORS: apex, www and manga origins. App origin was added (staging deployment `3b67233d-747e-4199-b7d7-ff8e5e1400b5`) without removing them.
+```sh
+pnpm --dir apps/web exec node scripts/build-site-layout.mjs --write-config
+```
 
-On regression: restore FRONTEND_URL to recorded prior value first, then roll back Vercel to verified previous production deployment. Keep additive app CORS during rollback so staged app doesn't break; no DB/schema/provider-credential changes belong in this migration. Verify rollback with actual health, callback and host responses. Keep legacy permanent redirects for long-lived old links after successful cutover.
+普通 Vite build 与 Docker 保留 app 根入口；Vercel finalizer 移动组织、工作台布局并处理 robots 和 sitemap。私有应用路由不进入 sitemap。组织站的公开文档和法律页不加载工作台 bundle，保留单 URL 双语阅读。Vercel 将静态文档放到 `_site/docs` 并按组织域名重写，App 的 `/docs` 使用应用壳；公开文档 canonical 仍指向组织站。
 
+## 验证
 
-## Generator coverage
-`npm run test:site:coverage` requires Node20.11+ (native LCOV reporter). It retains the spawned-generator integration tests and emits `coverage/site-lcov.info`; no third-party coverage package is added. CI runs it after Vitest coverage, asserts that all three generator source files have measured hits (so subprocess collection cannot silently disappear), and uploads both LCOV files together under the existing frontend flag. A green unit suite alone must not be reported as a green Codecov patch check; inspect the actual PR check before merge.
+本地生成器测试验证静态链接、metadata 和路由；实际 provider 配置仍需单独读取。域名浏览器检查不默认访问线上：
+
+```sh
+# 从 apps/web 运行；目标由模式和测试配置限定
+GEO_DOMAIN_MODE=preview pnpm test:geo
+```
+
+生产模式只在已授权发布后使用。检查包括匿名页面、重定向、无 JS 阅读、noindex 和无凭证的错误回调，不创建账号或调用模型。
+
+## 发布与回退
+
+按[发布流程](release-ci-cd.md)验证 main、预发布及生产 tag。操作前记录当前 provider 来源与必要配置，不复用历史 deployment ID 作为今天的回退基线。
+
+发生路由回归时，根据当前记录回退受影响配置或部署，保留兼容旧链接的重定向。域名调整不授权改数据库、删除上传卷或更换用户凭证。

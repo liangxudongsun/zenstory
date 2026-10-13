@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import DashboardProjects from '../DashboardProjects'
 import { ApiError } from '../../lib/apiClient'
@@ -61,7 +62,7 @@ vi.mock('react-i18next', () => ({
           'common:cancel': 'Cancel',
           'projects.filterAll': 'All',
           'dashboard:projects.openProject': `Open project ${String(options?.name ?? '')}`,
-          'common.loading': 'Loading...',
+          'common.loading': "Loading…",
           'common.retry': 'Retry',
         } as Record<string, string>
       )[key] ?? key,
@@ -212,7 +213,7 @@ describe('DashboardProjects', () => {
     render(<DashboardProjects />)
 
     for (const project of mockProjects) {
-      const card = screen.getByRole('button', { name: `Open project ${project.name}` })
+      const card = screen.getByRole('button', { name: `Open project ${project.name}` }).closest('article')!
       const content = card.querySelector(':scope > .relative')
       const footer = content?.lastElementChild
       const meta = footer?.lastElementChild
@@ -304,7 +305,8 @@ describe('DashboardProjects', () => {
     ]
     rerender(<DashboardProjects />)
 
-    fireEvent.keyDown(screen.getByRole('button', { name: /Open project Keyboard Novel/ }), { key: 'Enter' })
+    screen.getByRole('button', { name: /Open project Keyboard Novel/ }).focus()
+    await userEvent.keyboard('{Enter}')
     expect(mockNavigate).toHaveBeenCalledWith('/project/project-3')
 
     fireEvent.click(screen.getByTitle('Delete project'))

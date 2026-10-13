@@ -27,7 +27,7 @@ vi.mock('react-i18next', () => ({
       (
         {
           searchPlaceholder: 'Search documentation',
-          loading: 'Loading...',
+          loading: "Loading…",
           noResults: 'No results',
         } as Record<string, string>
       )[key] ?? fallback ?? key,

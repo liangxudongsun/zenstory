@@ -28,6 +28,17 @@ describe("ThemeContext", () => {
     });
   });
 
+  it("leaves surface and text colors to the stylesheet in both themes", async () => {
+    const { result } = renderHook(() => useTheme(), { wrapper: createWrapper() });
+    for (const theme of ["light", "dark"] as const) {
+      act(() => result.current.setTheme(theme));
+      await waitFor(() => expect(document.documentElement).toHaveClass(theme));
+      for (const token of ["--bg-primary", "--bg-secondary", "--text-secondary", "--border-color"]) {
+        expect(document.documentElement.style.getPropertyValue(token)).toBe("");
+      }
+    }
+  });
+
   it("respects explicit saved theme preference", async () => {
     localStorage.setItem("zenstory-theme", "dark");
 
@@ -66,7 +77,7 @@ describe("ThemeContext", () => {
     await waitFor(() => {
       expect(result.current.accentColor).toBe("#8b5cf6");
       expect(localStorage.getItem("zenstory-accent-color")).toBe("#8b5cf6");
-      expect(document.documentElement.style.getPropertyValue("--accent-primary")).toBe("262 83% 64%");
+      expect(document.documentElement.style.getPropertyValue("--accent-primary")).toBe("262 83% 43%");
     });
   });
 });

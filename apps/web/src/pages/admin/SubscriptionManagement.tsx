@@ -1,3 +1,4 @@
+import { Modal } from "../../components/ui/Modal";
 import React, { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -50,13 +51,13 @@ const getEffectivePlanDisplayName = (
 
 const getStatusColor = (status: string, hasSubscriptionRecord: boolean = true): string => {
   if (!hasSubscriptionRecord) {
-    return "bg-[hsl(var(--accent-primary)/0.15)] text-[hsl(var(--accent-primary))]";
+    return "bg-[hsl(var(--accent-primary)/0.15)] text-[var(--admin-accent-text)]";
   }
   switch (normalizeSubscriptionStatus(status)) {
     case "active":
-      return "bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))]";
+      return "bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success-text))]";
     case "expired":
-      return "bg-[hsl(var(--warning)/0.15)] text-[hsl(var(--warning))]";
+      return "bg-[hsl(var(--warning)/0.15)] text-[hsl(var(--warning-text))]";
     case "cancelled":
       return "bg-[hsl(var(--bg-tertiary))] text-[hsl(var(--text-secondary))]";
     default:
@@ -173,12 +174,12 @@ const SubscriptionCard: React.FC<{
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {subscription.is_test_account && (
-          <div className="text-xs inline-flex items-center w-fit px-2 py-1 rounded bg-[hsl(var(--warning)/0.15)] text-[hsl(var(--warning))]">
+          <div className="text-xs inline-flex items-center w-fit px-2 py-1 rounded bg-[hsl(var(--warning)/0.15)] text-[hsl(var(--warning-text))]">
             {t("subscriptions.testAccount", "测试账号")}
           </div>
         )}
         {!subscription.has_subscription_record && (
-          <div className="text-xs inline-flex items-center w-fit px-2 py-1 rounded bg-[hsl(var(--accent-primary)/0.15)] text-[hsl(var(--accent-primary))]">
+          <div className="text-xs inline-flex items-center w-fit px-2 py-1 rounded bg-[hsl(var(--accent-primary)/0.15)] text-[var(--admin-accent-text)]">
             {t("subscriptions.noRecord", "无订阅记录")}
           </div>
         )}
@@ -483,12 +484,12 @@ export const SubscriptionManagement: React.FC = () => {
                             {getUserSecondaryText(sub)}
                           </span>
                           {sub.is_test_account && (
-                            <span className="mt-1 inline-flex w-fit px-2 py-0.5 rounded text-[10px] bg-[hsl(var(--warning)/0.15)] text-[hsl(var(--warning))]">
+                            <span className="mt-1 inline-flex w-fit px-2 py-0.5 rounded text-[10px] bg-[hsl(var(--warning)/0.15)] text-[hsl(var(--warning-text))]">
                               {t("subscriptions.testAccount", "测试账号")}
                             </span>
                           )}
                           {!sub.has_subscription_record && (
-                            <span className="mt-1 inline-flex w-fit px-2 py-0.5 rounded text-[10px] bg-[hsl(var(--accent-primary)/0.15)] text-[hsl(var(--accent-primary))]">
+                            <span className="mt-1 inline-flex w-fit px-2 py-0.5 rounded text-[10px] bg-[hsl(var(--accent-primary)/0.15)] text-[var(--admin-accent-text)]">
                               {t("subscriptions.noRecord", "无订阅记录")}
                             </span>
                           )}
@@ -571,234 +572,253 @@ export const SubscriptionManagement: React.FC = () => {
 
       {/* Subscription Details Modal */}
       {selectedSubscription && !showModifyModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-[hsl(var(--bg-primary))] border border-[hsl(var(--separator-color))] rounded-lg shadow-xl w-full max-w-lg">
-            <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
-              <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
-                {t("subscriptions.detailsTitle")}
-              </h2>
-              <button
-                onClick={() => setSelectedSubscription(null)}
-                className="p-2.5 hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
-              >
-                <X size={20} className="text-[hsl(var(--text-secondary))]" />
-              </button>
-            </div>
-
-            <div className="px-4 sm:px-6 py-4 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm text-[hsl(var(--text-secondary))] mb-1">
-                    {t("subscriptions.user")}
-                  </label>
-                  <p className="text-[hsl(var(--text-primary))] font-medium">
-                    {getUserPrimaryText(selectedSubscription)}
-                  </p>
-                  <p className="text-xs text-[hsl(var(--text-secondary))] mt-1">
-                    {getUserSecondaryText(selectedSubscription)}
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-sm text-[hsl(var(--text-secondary))] mb-1">
-                    {t("subscriptions.email")}
-                  </label>
-                  <p className="text-[hsl(var(--text-primary))]">
-                    {selectedSubscription.email}
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-sm text-[hsl(var(--text-secondary))] mb-1">
-                    {t("subscriptions.plan")}
-                  </label>
-                  <p className="text-[hsl(var(--text-primary))] font-medium">
-                    {getPlanDisplayName(selectedSubscription)}
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-sm text-[hsl(var(--text-secondary))] mb-1">
-                    {t("subscriptions.status")}
-                  </label>
-                  <span
-                    className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(
-                      getEffectiveStatus(selectedSubscription),
-                      selectedSubscription.has_subscription_record ?? true,
-                    )}`}
-                  >
-                  {getStatusText(selectedSubscription, translate)}
-                  </span>
-                </div>
-                <div>
-                  <label className="block text-sm text-[hsl(var(--text-secondary))] mb-1">
-                    {t("subscriptions.periodStart")}
-                  </label>
-                  <p className="text-[hsl(var(--text-primary))]">
-                    {formatDate(selectedSubscription.current_period_start)}
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-sm text-[hsl(var(--text-secondary))] mb-1">
-                    {t("subscriptions.periodEnd")}
-                  </label>
-                  <p className="text-[hsl(var(--text-primary))]">
-                    {getPeriodEndDisplay(selectedSubscription)}
-                  </p>
-                </div>
-                <div className="col-span-2">
-                  <label className="block text-sm text-[hsl(var(--text-secondary))] mb-1">
-                    {t("subscriptions.createdAt")}
-                  </label>
-                  <p className="text-[hsl(var(--text-primary))]">
-                    {formatDateTime(selectedSubscription.created_at)}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
-              <button
-                onClick={() => setSelectedSubscription(null)}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))]"
-              >
-                {t("common:close")}
-              </button>
-              <button
-                onClick={() => {
-                  setModifyFormData({
-                    plan_name: getEffectivePlanName(selectedSubscription),
-                    duration_days: 0,
-                    status: getEffectiveStatus(selectedSubscription),
-                  });
-                  setShowModifyModal(true);
-                }}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--accent-primary))] text-white rounded-lg hover:opacity-90 active:scale-95 transition-all text-sm"
-              >
-                {t("subscriptions.modify")}
-              </button>
-            </div>
+        <Modal
+          open
+          ariaLabel={t("subscriptions.detailsTitle")}
+          onClose={() => setSelectedSubscription(null)}
+          closeOnEscape={true}
+          closeOnBackdropClick={false}
+          showCloseButton={false}
+          bodyClassName="p-0"
+          className="admin-shell rounded-xl!"
+          size="lg"
+        >
+          <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
+            <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
+              {t("subscriptions.detailsTitle")}
+            </h2>
+            <button aria-label={t("common:close")}
+              onClick={() => setSelectedSubscription(null)}
+              className="p-2.5 hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
+            >
+              <X size={20} className="text-[hsl(var(--text-secondary))]" />
+            </button>
           </div>
-        </div>
-      )}
 
-      {/* Modify Subscription Modal */}
-      {showModifyModal && selectedSubscription && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-[hsl(var(--bg-primary))] border border-[hsl(var(--separator-color))] rounded-lg shadow-xl w-full max-w-md">
-            <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
-              <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
-                {t("subscriptions.modifyTitle")}
-              </h2>
-              <button
-                onClick={() => {
-                  setShowModifyModal(false);
-                  setSelectedSubscription(null);
-                }}
-                disabled={updateMutation.isPending}
-                aria-label={t("common:close")}
-                className="p-2.5 hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
-              >
-                <X size={20} className="text-[hsl(var(--text-secondary))]" />
-              </button>
-            </div>
-
-            <div className="px-4 sm:px-6 py-4 space-y-4">
-              <div className="p-3 bg-[hsl(var(--bg-secondary))] rounded-lg">
-                <p className="text-sm text-[hsl(var(--text-secondary))]">
-                  {t("subscriptions.modifyingFor")}
-                </p>
-                <p className="text-[hsl(var(--text-primary))] font-medium mt-1">
+          <div className="px-4 sm:px-6 py-4 space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm text-[hsl(var(--text-secondary))] mb-1">
+                  {t("subscriptions.user")}
+                </label>
+                <p className="text-[hsl(var(--text-primary))] font-medium">
                   {getUserPrimaryText(selectedSubscription)}
                 </p>
                 <p className="text-xs text-[hsl(var(--text-secondary))] mt-1">
                   {getUserSecondaryText(selectedSubscription)}
                 </p>
               </div>
-
               <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                  {t("subscriptions.plan")}
+                <label className="block text-sm text-[hsl(var(--text-secondary))] mb-1">
+                  {t("subscriptions.email")}
                 </label>
-                <AdminSelect
-                  fullWidth
-                  value={modifyFormData.plan_name}
-                  onChange={(e) =>
-                    setModifyFormData({ ...modifyFormData, plan_name: e.target.value })
-                  }
-                  className="text-[hsl(var(--text-primary))]"
-                >
-                  {selectablePlanOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </AdminSelect>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                  <div className="flex items-center gap-2">
-                    <Calendar size={16} />
-                    {t("subscriptions.extendDuration")}
-                  </div>
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  value={modifyFormData.duration_days}
-                  onChange={(e) =>
-                    setModifyFormData({
-                      ...modifyFormData,
-                      duration_days: Math.max(0, parseInt(e.target.value, 10) || 0),
-                    })
-                  }
-                  className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))]"
-                />
-                <p className="text-xs text-[hsl(var(--text-secondary))] mt-1">
-                  {t("subscriptions.extendHint")}
-                  {" "}
-                  {t("subscriptions.extendHintOptional", "只改状态时填 0。")}
+                <p className="text-[hsl(var(--text-primary))]">
+                  {selectedSubscription.email}
                 </p>
               </div>
-
               <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                <label className="block text-sm text-[hsl(var(--text-secondary))] mb-1">
+                  {t("subscriptions.plan")}
+                </label>
+                <p className="text-[hsl(var(--text-primary))] font-medium">
+                  {getPlanDisplayName(selectedSubscription)}
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm text-[hsl(var(--text-secondary))] mb-1">
                   {t("subscriptions.status")}
                 </label>
-                <AdminSelect
-                  fullWidth
-                  value={modifyFormData.status}
-                  onChange={(e) =>
-                    setModifyFormData({ ...modifyFormData, status: e.target.value })
-                  }
-                  className="text-[hsl(var(--text-primary))]"
+                <span
+                  className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(
+                    getEffectiveStatus(selectedSubscription),
+                    selectedSubscription.has_subscription_record ?? true,
+                  )}`}
                 >
-                  <option value="active">{t("subscriptions.statusActive")}</option>
-                  <option value="expired">{t("subscriptions.statusPastDue")}</option>
-                  <option value="cancelled">{t("subscriptions.statusCanceled")}</option>
-                </AdminSelect>
+                {getStatusText(selectedSubscription, translate)}
+                </span>
+              </div>
+              <div>
+                <label className="block text-sm text-[hsl(var(--text-secondary))] mb-1">
+                  {t("subscriptions.periodStart")}
+                </label>
+                <p className="text-[hsl(var(--text-primary))]">
+                  {formatDate(selectedSubscription.current_period_start)}
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm text-[hsl(var(--text-secondary))] mb-1">
+                  {t("subscriptions.periodEnd")}
+                </label>
+                <p className="text-[hsl(var(--text-primary))]">
+                  {getPeriodEndDisplay(selectedSubscription)}
+                </p>
+              </div>
+              <div className="col-span-2">
+                <label className="block text-sm text-[hsl(var(--text-secondary))] mb-1">
+                  {t("subscriptions.createdAt")}
+                </label>
+                <p className="text-[hsl(var(--text-primary))]">
+                  {formatDateTime(selectedSubscription.created_at)}
+                </p>
               </div>
             </div>
+          </div>
 
-            <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
-              <button
-                onClick={() => {
+          <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
+            <button
+              onClick={() => setSelectedSubscription(null)}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))]"
+            >
+              {t("common:close")}
+            </button>
+            <button
+              onClick={() => {
+                setModifyFormData({
+                  plan_name: getEffectivePlanName(selectedSubscription),
+                  duration_days: 0,
+                  status: getEffectiveStatus(selectedSubscription),
+                });
+                setShowModifyModal(true);
+              }}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--accent-primary))] text-white rounded-lg hover:opacity-90 active:scale-95 transition-all text-sm"
+            >
+              {t("subscriptions.modify")}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modify Subscription Modal */}
+      {showModifyModal && selectedSubscription && (
+        <Modal
+          open
+          ariaLabel={t("subscriptions.modifyTitle")}
+          onClose={() => {
                   setShowModifyModal(false);
                   setSelectedSubscription(null);
                 }}
-                disabled={updateMutation.isPending}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))] disabled:opacity-50"
+          closeOnEscape={!(updateMutation.isPending)}
+          closeOnBackdropClick={false}
+          showCloseButton={false}
+          bodyClassName="p-0"
+          className="admin-shell rounded-xl!"
+          size="md"
+        >
+          <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
+            <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
+              {t("subscriptions.modifyTitle")}
+            </h2>
+            <button
+              onClick={() => {
+                setShowModifyModal(false);
+                setSelectedSubscription(null);
+              }}
+              disabled={updateMutation.isPending}
+              aria-label={t("common:close")}
+              className="p-2.5 hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
+            >
+              <X size={20} className="text-[hsl(var(--text-secondary))]" />
+            </button>
+          </div>
+
+          <div className="px-4 sm:px-6 py-4 space-y-4">
+            <div className="p-3 bg-[hsl(var(--bg-secondary))] rounded-lg">
+              <p className="text-sm text-[hsl(var(--text-secondary))]">
+                {t("subscriptions.modifyingFor")}
+              </p>
+              <p className="text-[hsl(var(--text-primary))] font-medium mt-1">
+                {getUserPrimaryText(selectedSubscription)}
+              </p>
+              <p className="text-xs text-[hsl(var(--text-secondary))] mt-1">
+                {getUserSecondaryText(selectedSubscription)}
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="admin-subscriptions-plan" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                {t("subscriptions.plan")}
+              </label>
+              <AdminSelect id="admin-subscriptions-plan"
+                fullWidth
+                value={modifyFormData.plan_name}
+                onChange={(e) =>
+                  setModifyFormData({ ...modifyFormData, plan_name: e.target.value })
+                }
+                className="text-[hsl(var(--text-primary))]"
               >
-                {t("common:cancel")}
-              </button>
-              <button
-                onClick={handleModifySubmit}
-                disabled={updateMutation.isPending}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--accent-primary))] text-white rounded-lg hover:opacity-90 active:scale-95 transition-all text-sm disabled:opacity-50"
+                {selectablePlanOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </AdminSelect>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                <div className="flex items-center gap-2">
+                  <Calendar size={16} />
+                  {t("subscriptions.extendDuration")}
+                </div>
+              </label>
+              <input
+                type="number"
+                min={0}
+                value={modifyFormData.duration_days}
+                onChange={(e) =>
+                  setModifyFormData({
+                    ...modifyFormData,
+                    duration_days: Math.max(0, parseInt(e.target.value, 10) || 0),
+                  })
+                }
+                className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))]"
+              />
+              <p className="text-xs text-[hsl(var(--text-secondary))] mt-1">
+                {t("subscriptions.extendHint")}
+                {" "}
+                {t("subscriptions.extendHintOptional", "只改状态时填 0。")}
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="admin-subscriptions-status" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                {t("subscriptions.status")}
+              </label>
+              <AdminSelect id="admin-subscriptions-status"
+                fullWidth
+                value={modifyFormData.status}
+                onChange={(e) =>
+                  setModifyFormData({ ...modifyFormData, status: e.target.value })
+                }
+                className="text-[hsl(var(--text-primary))]"
               >
-                {updateMutation.isPending ? t("common:loading") : t("subscriptions.saveChanges")}
-              </button>
+                <option value="active">{t("subscriptions.statusActive")}</option>
+                <option value="expired">{t("subscriptions.statusPastDue")}</option>
+                <option value="cancelled">{t("subscriptions.statusCanceled")}</option>
+              </AdminSelect>
             </div>
           </div>
-        </div>
+
+          <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
+            <button
+              onClick={() => {
+                setShowModifyModal(false);
+                setSelectedSubscription(null);
+              }}
+              disabled={updateMutation.isPending}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))] disabled:opacity-50"
+            >
+              {t("common:cancel")}
+            </button>
+            <button
+              onClick={handleModifySubmit}
+              disabled={updateMutation.isPending}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--accent-primary))] text-white rounded-lg hover:opacity-90 active:scale-95 transition-all text-sm disabled:opacity-50"
+            >
+              {updateMutation.isPending ? t("common:loading") : t("subscriptions.saveChanges")}
+            </button>
+          </div>
+        </Modal>
       )}
 
     </div>

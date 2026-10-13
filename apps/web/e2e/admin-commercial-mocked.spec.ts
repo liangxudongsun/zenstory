@@ -187,7 +187,7 @@ test.describe('Admin commercial flows (mocked)', () => {
 
     await page.goto('/admin/codes');
     await page.getByRole('button', { name: /^(批量生成|批量创建|Batch create|Bulk create|codes\.batchCreate)/i }).first().click();
-    const modal = page.locator('.fixed.inset-0.z-50').last();
+    const modal = page.getByRole('dialog');
     await modal.locator('select').nth(1).selectOption('multi_use');
     await modal.locator('#batch-max-uses').fill('25');
     await modal.locator('input[type="number"]').nth(1).fill('2');
@@ -276,7 +276,7 @@ test.describe('Admin commercial flows (mocked)', () => {
     await row.locator('button').nth(1).click();
 
     await page.locator('input[type="number"]').fill('30');
-    await page.locator('.fixed.inset-0.z-50').last().locator('button').last().click();
+    await page.getByRole('dialog').locator('button').last().click();
 
     await expect.poll(() => updatePayload).not.toBeNull();
     expect(updatePayload).toEqual({

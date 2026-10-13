@@ -14,7 +14,7 @@ export const AdminUserLink: React.FC<AdminUserLinkProps> = ({ userId, children, 
   return (
     <Link
       to={adminUserPath(userId)}
-      className={`text-[hsl(var(--accent-primary))] hover:underline ${className}`.trim()}
+      className={`text-[var(--admin-accent-text)] hover:underline ${className}`.trim()}
       onClick={(event) => event.stopPropagation()}
     >
       {children}

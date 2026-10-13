@@ -168,7 +168,7 @@ export const ReferralManagement: React.FC = () => {
           onClick={() => setActiveTab("codes")}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             activeTab === "codes"
-              ? "border-[hsl(var(--accent-primary))] text-[hsl(var(--accent-primary))]"
+              ? "border-[hsl(var(--accent-primary))] text-[var(--admin-accent-text)]"
               : "border-transparent text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))]"
           }`}
         >
@@ -178,7 +178,7 @@ export const ReferralManagement: React.FC = () => {
           onClick={() => setActiveTab("rewards")}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             activeTab === "rewards"
-              ? "border-[hsl(var(--accent-primary))] text-[hsl(var(--accent-primary))]"
+              ? "border-[hsl(var(--accent-primary))] text-[var(--admin-accent-text)]"
               : "border-transparent text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))]"
           }`}
         >
