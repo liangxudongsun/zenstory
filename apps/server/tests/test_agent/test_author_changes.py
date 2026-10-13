@@ -673,20 +673,22 @@ def test_whitespace_only_changes_are_not_listed(db_session, owner_project):
     assert author_changes(db_session, chapter) is None
 
 
-def test_long_documents_replay_quickly_or_say_they_did_not(db_session, owner_project):
-    import time
+def test_long_documents_replay_without_aligning_on_blank_lines_or_say_they_did_not(db_session, owner_project):
+    """段落间的空行不参与对齐（它们到处都是，用来对齐会让比对开销接近平方）；太长的正文明说没算出来。
 
-    from agent.tools.author_changes import MAX_BLAME_LINES
+    不用牆钟时间断言（CI 带覆盖率时会慢很多）：直接检查空行被当作 junk。
+    """
+    from agent.tools.author_changes import MAX_BLAME_LINES, _matcher
 
     _, project = owner_project
     ai = "\n\n".join(f"　　第{i}段，AI 写的一句话。" for i in range(1000))
+    lines = ai.split("\n")
+    assert "" in _matcher(lines, lines).bjunk
     chapter = _file(db_session, project, ai, title="第1章", file_type="draft")
     _version(db_session, chapter, ai, "create", "ai")
     author = ai.replace("第500段，AI 写的一句话。", "第500段，作者改过。")
     _version(db_session, chapter, author, "edit", "user")
-    started = time.monotonic()
     changes = author_changes(db_session, chapter)
-    assert time.monotonic() - started < 1.5
     assert [h.after for h in changes.hunks] == ["　　第500段，作者改过。"]
 
     huge = "\n".join(f"第{i}行。" for i in range(MAX_BLAME_LINES + 1))
