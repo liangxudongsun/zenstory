@@ -40,7 +40,7 @@ def test_normalize_plan_features_replaces_legacy_free_message_limit():
         plan_name="free",
     )
 
-    assert normalized["ai_conversations_per_day"] == 10
+    assert normalized["ai_conversations_per_day"] == 3
 
 
 def test_normalize_plan_features_preserves_explicit_false_and_zero_overrides():

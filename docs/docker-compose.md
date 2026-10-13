@@ -38,7 +38,7 @@ unset ZENSTORY_ADMIN_PASSWORD
 
 在管理后台维护 novel、short、screenplay 的系统提示词，保存后重新加载。新数据库缺少启用的对应配置时，写作会明确报错。官方技能从数据库读取，没有源码默认技能或自动种子。维护方法见[写作配置](agent-writing-guidance.md)。
 
-创建账号后默认使用免费权益：每天 10 条 AI 消息、3 个项目。按需运行 `scripts/seed_subscription_plans.py` 初始化套餐，再从后台给账号开通权益。
+创建账号后默认使用免费权益：每天 3 条 AI 消息、3 个项目。按需运行 `scripts/seed_subscription_plans.py` 初始化套餐，再从后台给账号开通权益。
 
 ## 普通用户注册
 

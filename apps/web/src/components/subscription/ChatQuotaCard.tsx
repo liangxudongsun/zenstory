@@ -9,7 +9,7 @@ const chatQuotaPrompt = getUpgradePromptDefinition("chat_quota_blocked");
 
 interface ChatQuotaCardProps {
   /**
-   * Today's free AI message allowance (10 on the free plan). Left out when the server
+   * Today's free AI message allowance (3 on the free plan). Left out when the server
    * refused a round while the cached count still shows room: the card then names no count.
    */
   limit?: number;

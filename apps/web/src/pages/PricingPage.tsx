@@ -214,7 +214,7 @@ export default function PricingPage() {
             {isCatalogLoading ? t("common:loading", "加载中…") : t("dashboard:billing.compareTitle", "选一个适合你的方案")}
           </h1>
           <p className="text-sm md:text-base text-[hsl(var(--text-secondary))]">
-            {t("dashboard:billing.catalogSubtitle", "免费版每天 10 条 AI 消息，够你先写起来；要日更连载，再开 Pro。")}
+            {t("dashboard:billing.catalogSubtitle", "免费版每天 3 条 AI 消息，够你先写起来；要日更连载，再开 Pro。")}
           </p>
         </section>
 

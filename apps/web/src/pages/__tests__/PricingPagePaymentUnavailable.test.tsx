@@ -65,7 +65,7 @@ function renderPricingPage() {
 }
 
 const entitlements = {
-  ai_conversations_per_day: 10,
+  ai_conversations_per_day: 3,
   active_projects_limit: 3,
   material_decompositions_monthly: 5,
   custom_skills_limit: 3,

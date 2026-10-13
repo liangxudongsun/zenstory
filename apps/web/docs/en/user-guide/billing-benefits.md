@@ -6,7 +6,7 @@ Open **Plans & Benefits** in the workbench to check your plan, today's messages,
 
 | Benefit | Free | Pro |
 | --- | --- | --- |
-| AI messages | 10 per day | Unlimited |
+| AI messages | 3 per day | Unlimited |
 | Projects | 3 | Unlimited |
 | Owned custom skills | 3 | 20 |
 | Material breakdowns | One free trial, first 20 chapters | 5 per month |
