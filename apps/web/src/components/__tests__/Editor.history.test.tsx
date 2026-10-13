@@ -127,7 +127,11 @@ describe('actual Editor / SimpleEditor / history restore integration', () => {
       return { ...file, content: body.content, updated_at: `2026-10-06T10:00:00.00001${saves}`, version_quota_exceeded: true }
     })
     const saveEdit = async (content: string, expectedSaves: number) => {
-      fireEvent.change(await screen.findByPlaceholderText('editor:placeholder.contentPlaceholder'), { target: { value: content } })
+      const textarea = await screen.findByPlaceholderText('editor:placeholder.contentPlaceholder')
+      // A fresh mount must finish loading the file before the edit, or the load overwrites it on slow runners.
+      if (expectedSaves === 1 || expectedSaves >= 3) await waitFor(() => expect(textarea).toHaveValue(file.content))
+      fireEvent.change(textarea, { target: { value: content } })
+      await screen.findByText('editor:unsaved')
       fireEvent.click(screen.getByRole('button', { name: 'editor:save' }))
       await waitFor(() => expect(updateFile).toHaveBeenCalledTimes(expectedSaves))
       await waitFor(() => expect(screen.queryByText('editor:unsaved')).not.toBeInTheDocument())
