@@ -9,6 +9,11 @@ export type AgentStreamFailurePhase = "fetch" | "response" | "read" | "parse" | 
 
 export interface AgentStreamTelemetry {
   noteFailure(phase: AgentStreamFailurePhase, error: unknown): void;
+  /**
+   * A read, parse or callback failure after the terminal frame. The round's
+   * outcome is already settled; this is a separate diagnostic, never a failure.
+   */
+  noteFailureAfterTerminal(phase: AgentStreamFailurePhase, error: unknown): void;
   /** Record the HTTP response (status and correlation ids). */
   noteResponse(status: number, ids: { requestId?: string; agentRunId?: string }): void;
   /** Count one parsed SSE event. */
@@ -29,6 +34,14 @@ export class AgentStreamError extends Error {
   constructor(code: string) {
     super(`Agent stream failed: ${code}`);
     this.name = "AgentStreamError";
+  }
+}
+
+/** A UI callback threw after the round had already ended; not a transport failure. */
+export class AgentStreamCallbackError extends Error {
+  constructor() {
+    super("Agent stream callback threw after the terminal event");
+    this.name = "AgentStreamCallbackError";
   }
 }
 
@@ -64,12 +77,30 @@ export function createAgentStreamTelemetry(
     return true;
   };
 
+  const safeExceptionType = (error: unknown): string => {
+    const safeNames = new Set(["Error", "TypeError", "SyntaxError", "AbortError", "NotFoundError", "NetworkError", "TimeoutError"]);
+    const name = error instanceof Error || error instanceof DOMException ? error.name : undefined;
+    return name && safeNames.has(name) ? name : "OtherError";
+  };
+
   return {
     noteFailure(phase, error) {
       failurePhase = phase;
-      const safeNames = new Set(["Error", "TypeError", "SyntaxError", "AbortError", "NotFoundError", "NetworkError", "TimeoutError"]);
-      const name = error instanceof Error || error instanceof DOMException ? error.name : undefined;
-      exceptionType = name && safeNames.has(name) ? name : "OtherError";
+      exceptionType = safeExceptionType(error);
+    },
+    noteFailureAfterTerminal(phase, error) {
+      const properties = {
+        ...baseProperties(),
+        failure_phase: phase,
+        exception_type: safeExceptionType(error),
+      };
+      trackEvent("ai_chat_tail_failed", properties);
+      if (phase === "callback") {
+        captureException(new AgentStreamCallbackError(), {
+          feature_area: "agent_stream",
+          ...properties,
+        });
+      }
     },
     noteResponse(status, ids) {
       httpStatus = status;

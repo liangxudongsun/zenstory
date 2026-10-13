@@ -101,6 +101,34 @@ describe('useAgentStream', () => {
       expect(result.current.segments).toEqual([])
     })
 
+    it('ends the round and releases the stream even when done handling throws', () => {
+      const onComplete = vi.fn()
+      const onSegmentEnd = vi.fn(() => { throw new TypeError('segment end failed') })
+      const { result } = renderHook(() =>
+        useAgentStream('test-project-id', { onComplete, onSegmentEnd })
+      )
+      const controller = createMockStreamController()
+
+      act(() => {
+        result.current.startStream({ message: 'test' })
+      })
+      const callbacks = controller.getCallbacks()!
+      act(() => {
+        callbacks.onContent?.('delivered text')
+      })
+      // agentApi reports the throw as a diagnostic, not as onError.
+      let thrown: unknown
+      act(() => {
+        try { callbacks.onDone?.({}) } catch (error) { thrown = error }
+      })
+      expect(thrown).toEqual(new TypeError('segment end failed'))
+
+      expect(result.current.isStreaming).toBe(false)
+      expect(result.current.isThinking).toBe(false)
+      expect(onComplete).toHaveBeenCalledTimes(1)
+      expect(onComplete).toHaveBeenCalledWith(expect.any(Array), null, expect.objectContaining({ partial: true }))
+    })
+
     it('calls onStart callback', () => {
       const onStart = vi.fn()
       const { result } = renderHook(() =>

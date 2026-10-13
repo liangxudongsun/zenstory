@@ -1307,69 +1307,80 @@ export function useAgentStream(
 
           onDone: (data) => {
             if (isStaleEvent()) return;
-            flushPendingContent();
-            const applyAction = data.apply_action as ApplyAction | undefined;
+            try {
+              flushPendingContent();
+              const applyAction = data.apply_action as ApplyAction | undefined;
 
-            // End current segment
-            if (currentSegmentIdRef.current) {
-              const segmentId = currentSegmentIdRef.current;
-              updateSegmentsSync(draft => {
-                const seg = draft.find(s => s.id === segmentId);
-                if (seg) {
-                  seg.isStreaming = false;
-                }
+              // End current segment
+              if (currentSegmentIdRef.current) {
+                const segmentId = currentSegmentIdRef.current;
+                updateSegmentsSync(draft => {
+                  const seg = draft.find(s => s.id === segmentId);
+                  if (seg) {
+                    seg.isStreaming = false;
+                  }
+                });
+                onSegmentEnd?.(segmentId);
+                currentSegmentIdRef.current = null;
+              }
+
+              setState((prev) => {
+                return {
+                  ...prev,
+                  isStreaming: false,
+                  isThinking: false,
+                  applyAction: applyAction || null,
+                  refs: data.refs || [],
+                };
               });
-              onSegmentEnd?.(segmentId);
-              currentSegmentIdRef.current = null;
-            }
 
-            setState((prev) => {
-              return {
-                ...prev,
-                isStreaming: false,
-                isThinking: false,
-                applyAction: applyAction || null,
-                refs: data.refs || [],
-              };
-            });
-
-            // Get final segments for callback
-            // 🔥 防止重复调用 onComplete（在回调内部也要检查，因为 React 可能多次调用此回调）
-            // Use segmentsRef.current to avoid stale closure issue with segments
-            if (!onCompleteCalledRef.current) {
-              onCompleteCalledRef.current = true;
-              const completionMeta: StreamCompletionMeta = {
-                assistantMessageId:
-                  typeof data.assistant_message_id === "string" && data.assistant_message_id.trim()
-                    ? data.assistant_message_id
-                    : undefined,
-                sessionId:
-                  typeof data.session_id === "string" && data.session_id.trim()
-                    ? data.session_id
-                    : undefined,
-                confirmedFileMutation:
-                  typeof data.file_mutated === "boolean" ? data.file_mutated : undefined,
-              };
-              if (data.stop_reason === "user_stopped") {
-                completionMeta.stoppedByAuthor = true;
-                if (typeof data.produced_output === "boolean") {
-                  completionMeta.producedOutput = data.produced_output;
+              // Get final segments for callback
+              // 🔥 防止重复调用 onComplete（在回调内部也要检查，因为 React 可能多次调用此回调）
+              // Use segmentsRef.current to avoid stale closure issue with segments
+              if (!onCompleteCalledRef.current) {
+                onCompleteCalledRef.current = true;
+                const completionMeta: StreamCompletionMeta = {
+                  assistantMessageId:
+                    typeof data.assistant_message_id === "string" && data.assistant_message_id.trim()
+                      ? data.assistant_message_id
+                      : undefined,
+                  sessionId:
+                    typeof data.session_id === "string" && data.session_id.trim()
+                      ? data.session_id
+                      : undefined,
+                  confirmedFileMutation:
+                    typeof data.file_mutated === "boolean" ? data.file_mutated : undefined,
+                };
+                if (data.stop_reason === "user_stopped") {
+                  completionMeta.stoppedByAuthor = true;
+                  if (typeof data.produced_output === "boolean") {
+                    completionMeta.producedOutput = data.produced_output;
+                  }
+                  const writtenFiles = parseWrittenFiles(data.written_files);
+                  if (writtenFiles.length > 0) {
+                    completionMeta.writtenFiles = writtenFiles;
+                  }
                 }
-                const writtenFiles = parseWrittenFiles(data.written_files);
-                if (writtenFiles.length > 0) {
-                  completionMeta.writtenFiles = writtenFiles;
+                if (
+                  completionMeta.assistantMessageId ||
+                  completionMeta.sessionId ||
+                  completionMeta.confirmedFileMutation !== undefined ||
+                  completionMeta.stoppedByAuthor
+                ) {
+                  onComplete?.(segmentsRef.current, applyAction || null, completionMeta);
+                } else {
+                  onComplete?.(segmentsRef.current, applyAction || null);
                 }
               }
-              if (
-                completionMeta.assistantMessageId ||
-                completionMeta.sessionId ||
-                completionMeta.confirmedFileMutation !== undefined ||
-                completionMeta.stoppedByAuthor
-              ) {
-                onComplete?.(segmentsRef.current, applyAction || null, completionMeta);
-              } else {
-                onComplete?.(segmentsRef.current, applyAction || null);
-              }
+            } finally {
+              // agentApi 不会把 done 之后的回调异常报成失败（不再走 onError 收尾）：
+              // 中途抛错时这里也要结束流式状态，并补发一次终止回调释放文件只读锁。
+              setState((prev) =>
+                prev.isStreaming || prev.isThinking
+                  ? { ...prev, isStreaming: false, isThinking: false }
+                  : prev,
+              );
+              finalizeStream();
             }
           },
 

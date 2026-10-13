@@ -370,7 +370,13 @@ def test_runtime_budget_defaults_bound_runaway_cost():
         <= agent_runtime.AGENT_RUN_MAX_MODEL_CALLS
         <= 2 * agent_runtime.AGENT_TOOL_CALL_MAX_ITERATIONS
     )
-    assert agent_runtime.AGENT_RUN_WALL_CLOCK_TIMEOUT_S >= 15 * 60
+    # 平台到 15 分钟会切断连接（心跳也不能延长）：应用要先发出超时终态、
+    # 结算并送出退还帧，至少留两分钟收尾。
+    assert (
+        10 * 60
+        <= agent_runtime.AGENT_RUN_WALL_CLOCK_TIMEOUT_S
+        <= agent_runtime.RAILWAY_HTTP_CONNECTION_LIMIT_S - 120
+    )
     assert 5 <= agent_runtime.AGENT_SSE_HEARTBEAT_INTERVAL_S <= 30
 
 
