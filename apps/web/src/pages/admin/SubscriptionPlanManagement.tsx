@@ -31,59 +31,26 @@ const PlanCard: React.FC<{
     return String(value);
   };
 
+  // 卡片只列运行时真正生效的权益，取值来自服务端解析后的 effective_features
+  // （与用户在定价、账单页看到并被限制的一致）。上下文窗口、自定义提示词、
+  // 素材上传次数等存储键目前没有任何代码读取，不在这里当成套餐差异展示；
+  // 原始配置仍在编辑框里。
   const featureLabels: Record<string, string> = {
     ai_conversations_per_day: t("plans.featuresDetail.ai_conversations_per_day"),
-    context_window_tokens: t("plans.featuresDetail.context_window_tokens"),
-    context_tokens_limit: t("plans.featuresDetail.context_tokens_limit"),
-    file_versions_per_file: t("plans.featuresDetail.file_versions_per_file"),
     max_projects: t("plans.featuresDetail.max_projects"),
-    active_projects_limit: t("plans.featuresDetail.active_projects_limit"),
-    material_uploads: t("plans.featuresDetail.material_uploads"),
-    material_uploads_monthly: t("plans.featuresDetail.material_uploads_monthly"),
-    material_decompositions: t("plans.featuresDetail.material_decompositions"),
-    material_decompositions_monthly: t("plans.featuresDetail.material_decompositions_monthly"),
     custom_skills: t("plans.featuresDetail.custom_skills"),
-    custom_skills_limit: t("plans.featuresDetail.custom_skills_limit"),
+    file_versions_per_file: t("plans.featuresDetail.file_versions_per_file"),
+    materials_library_access: t("plans.featuresDetail.materials_library_access"),
+    material_decompositions: t("plans.featuresDetail.material_decompositions_monthly"),
     inspiration_copies_monthly: t("plans.featuresDetail.inspiration_copies_monthly"),
     export_formats: t("plans.featuresDetail.export_formats"),
-    custom_prompts: t("plans.featuresDetail.custom_prompts"),
-    priority_support: t("plans.featuresDetail.priority_support"),
-    priority_queue_level: t("plans.featuresDetail.priority_queue_level"),
   };
 
-  const featureDisplayOrder = [
-    "ai_conversations_per_day",
-    "max_projects",
-    "active_projects_limit",
-    "context_window_tokens",
-    "context_tokens_limit",
-    "material_uploads",
-    "material_uploads_monthly",
-    "material_decompositions",
-    "material_decompositions_monthly",
-    "custom_skills",
-    "custom_skills_limit",
-    "inspiration_copies_monthly",
-    "file_versions_per_file",
-    "export_formats",
-    "custom_prompts",
-    "priority_support",
-    "priority_queue_level",
-  ];
-
-  const knownFeatureKeys = featureDisplayOrder.filter((key) =>
-    Object.prototype.hasOwnProperty.call(plan.features, key)
-  );
-  const extraFeatureKeys = Object.keys(plan.features)
-    .filter(
-      (key) =>
-        !featureDisplayOrder.includes(key)
-        && key !== "writing_credits_monthly"
-        && key !== "agent_runs_monthly",
-    )
-    .sort();
-  const planFeatureKeys = [...knownFeatureKeys, ...extraFeatureKeys].filter(
-    (key) => inspirationsConfig.enabled || key !== "inspiration_copies_monthly",
+  const features = (plan.effective_features ?? plan.features) as SubscriptionFeatures;
+  const planFeatureKeys = Object.keys(featureLabels).filter(
+    (key) =>
+      Object.prototype.hasOwnProperty.call(features, key)
+      && (inspirationsConfig.enabled || key !== "inspiration_copies_monthly"),
   );
 
   return (
@@ -139,14 +106,19 @@ const PlanCard: React.FC<{
           {planFeatureKeys.map((key) => (
             <div key={key} className="flex items-center justify-between">
               <span className="text-[hsl(var(--text-secondary))]">
-                {featureLabels[key] || key}
+                {featureLabels[key]}
               </span>
               <span className="text-[hsl(var(--text-primary))] font-medium">
-                {formatFeatureValue((plan.features as SubscriptionFeatures)[key])}
+                {formatFeatureValue(features[key])}
               </span>
             </div>
           ))}
         </div>
+        {plan.effective_features && (
+          <p className="text-xs text-[hsl(var(--text-secondary))]">
+            {t("plans.featuresDetail.effectiveHint")}
+          </p>
+        )}
       </div>
 
       <div className="pt-3 border-t border-[hsl(var(--separator-color))] flex items-center justify-end">
@@ -357,10 +329,10 @@ export const SubscriptionPlanManagement: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label htmlFor="admin-plans-displayName" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                  <label htmlFor="admin-plans-displayNameEn" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
                     {t("plans.displayName")} ({t("plans.en")})
                   </label>
-                  <input id="admin-plans-displayName"
+                  <input id="admin-plans-displayNameEn"
                     type="text"
                     value={editFormData.display_name_en}
                     onChange={(e) =>

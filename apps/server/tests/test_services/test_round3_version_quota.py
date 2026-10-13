@@ -372,3 +372,25 @@ def test_rollback_with_expired_plan_uses_one_outer_commit(
     assert quota_exceeded is False
     db_session.expire_all()
     assert db_session.get(UserSubscription, subscription.id).status == "expired"
+
+
+def test_pro_plan_missing_version_key_uses_pro_default(db_session: Session):
+    """A Pro row without file_versions_per_file is held to Pro's 100, as /plans shows, not free's 10."""
+    user = _make_user(db_session, "round3_pro_missing_version_key")
+    plan = db_session.exec(select(SubscriptionPlan).where(SubscriptionPlan.name == "pro")).first()
+    if plan is None:
+        plan = SubscriptionPlan(name="pro", display_name="Pro", price_monthly_cents=4900)
+    plan.features = {"ai_conversations_per_day": -1}
+    db_session.add(plan)
+    db_session.commit()
+    now = datetime.utcnow()
+    db_session.add(UserSubscription(
+        user_id=user.id, plan_id=plan.id, status="active",
+        current_period_start=now - timedelta(days=1), current_period_end=now + timedelta(days=30),
+        cancel_at_period_end=False,
+    ))
+    db_session.commit()
+
+    _, _, max_versions = FileVersionService().check_user_version_quota(db_session, "no-file", user.id)
+
+    assert max_versions == 100

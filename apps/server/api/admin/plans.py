@@ -8,6 +8,7 @@ import logging
 from fastapi import APIRouter, Depends, Request, status
 from sqlmodel import Session, select
 
+from api.subscription import _normalize_plan_features_for_response
 from config.datetime_utils import utcnow
 from core.error_codes import ErrorCode
 from core.error_handler import APIException
@@ -18,7 +19,7 @@ from services.admin_audit_service import admin_audit_service
 from services.core.auth_service import get_current_superuser
 from utils.logger import get_logger, log_with_context
 
-from .schemas import PlanUpdateRequest
+from .schemas import AdminPlanResponse, PlanUpdateRequest
 
 logger = get_logger(__name__)
 
@@ -28,7 +29,7 @@ router = APIRouter(tags=["admin-plans"])
 # ==================== Plan Management ====================
 
 
-@router.get("/plans", response_model=list[SubscriptionPlan])
+@router.get("/plans", response_model=list[AdminPlanResponse])
 def list_plans(
     current_user: User = Depends(get_current_superuser),
     session: Session = Depends(get_session),
@@ -48,7 +49,15 @@ def list_plans(
         count=len(plans),
     )
 
-    return plans
+    # 存储的 features 可能缺键、带旧格式或被代码覆盖（免费版每日次数）：卡片显示
+    # 与 /plans 同一套解析后的有效权益，编辑框仍用原始 features。
+    return [
+        AdminPlanResponse(
+            **plan.model_dump(),
+            effective_features=_normalize_plan_features_for_response(plan.features, plan.name),
+        )
+        for plan in plans
+    ]
 
 
 @router.put("/plans/{plan_id}", response_model=SubscriptionPlan)

@@ -156,3 +156,59 @@ async def test_admin_plans_endpoints_forbidden_for_non_superuser(
         response = await client.put(final_path, headers=auth_headers(token), json=payload)
 
     assert response.status_code == 403
+
+
+@pytest.mark.integration
+async def test_admin_plans_show_the_entitlements_users_get(client: AsyncClient, db_session: Session):
+    """Rows shaped like production: missing keys, legacy export formats, a stale free daily limit."""
+    admin = await create_user(db_session, "admin_plan_effective", "admin_plan_effective@example.com", is_superuser=True)
+    free_features = {
+        "max_projects": 3, "custom_prompts": False, "export_formats": ["txt", "md"],
+        "material_uploads": 0, "context_window_tokens": 4096, "file_versions_per_file": 10,
+        "material_decompositions": 0, "ai_conversations_per_day": 10, "materials_library_access": False,
+    }
+    pro_features = {
+        "max_projects": -1, "custom_skills": 20, "export_formats": ["txt", "md", "docx", "pdf"],
+        "file_versions_per_file": 100, "material_decompositions": 5, "ai_conversations_per_day": -1,
+        "materials_library_access": True,
+    }
+    for name, features in (("free", free_features), ("pro", pro_features)):
+        existing = db_session.exec(select(SubscriptionPlan).where(SubscriptionPlan.name == name)).first()
+        plan = existing or SubscriptionPlan(name=name, display_name=name)
+        plan.features = features
+        db_session.add(plan)
+    db_session.commit()
+    token = await login_user(client, admin.username)
+
+    response = await client.get("/api/admin/plans", headers=auth_headers(token))
+
+    assert response.status_code == 200
+    plans = {item["name"]: item for item in response.json()}
+    user_plans = {item["name"]: item for item in (await client.get("/api/v1/subscription/plans")).json()}
+    for name in ("free", "pro"):
+        # The card shows what users see; the edit box still gets the stored JSON.
+        assert plans[name]["effective_features"] == user_plans[name]["features"]
+    assert plans["free"]["features"] == free_features
+    assert plans["free"]["effective_features"]["custom_skills"] == 3
+    assert plans["free"]["effective_features"]["ai_conversations_per_day"] == 3
+    assert plans["free"]["effective_features"]["export_formats"] == ["txt"]
+    assert plans["pro"]["effective_features"]["export_formats"] == ["txt"]
+
+
+@pytest.mark.integration
+async def test_admin_can_resave_a_plan_with_legacy_export_formats(client: AsyncClient, db_session: Session):
+    admin = await create_user(db_session, "admin_plan_resave", "admin_plan_resave@example.com", is_superuser=True)
+    plan = create_plan(db_session, "plan_legacy_exports")
+    token = await login_user(client, admin.username)
+
+    response = await client.put(
+        f"/api/admin/plans/{plan.id}",
+        headers=auth_headers(token),
+        json={"display_name": "基础版", "features": {
+            "ai_conversations_per_day": 10, "max_projects": 3, "export_formats": ["txt", "md", "docx", "pdf"],
+        }},
+    )
+
+    assert response.status_code == 200
+    db_session.refresh(plan)
+    assert plan.features == {"ai_conversations_per_day": 10, "max_projects": 3, "export_formats": ["txt"]}

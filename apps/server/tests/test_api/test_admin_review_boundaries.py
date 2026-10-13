@@ -90,6 +90,8 @@ async def test_admin_user_email_is_stored_canonically(client, db_session, admin_
     {"features": {"max_projects": -2}},
     {"features": {"max_projects": True}},
     {"features": {"unknown_quota": 5}},
+    {"features": {"export_formats": ["pdf"]}},
+    {"features": {"export_formats": ["docx", "md"]}},
 ])
 async def test_admin_rejects_invalid_plan_features_and_prices(client, admin_boundary, change):
     _, _, plan = admin_boundary

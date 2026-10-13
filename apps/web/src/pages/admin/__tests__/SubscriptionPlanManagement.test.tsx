@@ -154,6 +154,44 @@ describe("SubscriptionPlanManagement", () => {
     });
   });
 
+  it("shows the effective entitlements users get, not the raw stored keys", () => {
+    inspirationFeature.enabled = false;
+    useQueryMock.mockReturnValue({
+      data: [{
+        ...plan,
+        name: "free",
+        features: {
+          ai_conversations_per_day: 10, max_projects: 3, context_window_tokens: 4096, custom_prompts: false,
+          material_uploads: 0, material_decompositions: 0, export_formats: ["txt", "md"],
+          file_versions_per_file: 10, materials_library_access: false,
+        },
+        effective_features: {
+          ai_conversations_per_day: 3, max_projects: 3, context_window_tokens: 4096, custom_prompts: false,
+          material_uploads: 0, material_decompositions: 0, export_formats: ["txt"], file_versions_per_file: 10,
+          materials_library_access: false, custom_skills: 3, inspiration_copies_monthly: 10, priority_support: false,
+        },
+      }],
+      isLoading: false, isFetching: false, isError: false, error: null, refetch: vi.fn(),
+    });
+
+    render(<SubscriptionPlanManagement />);
+
+    const rows = screen.getAllByText(/^plans\.featuresDetail\./, { selector: "span" }).map((label) => [
+      label.textContent, label.nextElementSibling?.textContent,
+    ]);
+    expect(rows).toEqual([
+      ["plans.featuresDetail.ai_conversations_per_day", "3"],
+      ["plans.featuresDetail.max_projects", "3"],
+      ["plans.featuresDetail.custom_skills", "3"],
+      ["plans.featuresDetail.file_versions_per_file", "10"],
+      ["plans.featuresDetail.materials_library_access", "plans.no"],
+      ["plans.featuresDetail.material_decompositions_monthly", "0"],
+      ["plans.featuresDetail.export_formats", "txt"],
+    ]);
+    expect(screen.getByText("plans.featuresDetail.effectiveHint")).toBeInTheDocument();
+    expect(screen.queryByText("materials_library_access")).not.toBeInTheDocument();
+  });
+
   it("hides the inspiration entitlement from plan cards when disabled", () => {
     inspirationFeature.enabled = false;
     useQueryMock.mockReturnValue({

@@ -491,7 +491,9 @@
       "custom_skills_limit": "自定义技能上限",
       "inspiration_copies_monthly": "每月灵感复用次数",
       "priority_support": "优先支持",
-      "priority_queue_level": "队列优先级"
+      "priority_queue_level": "队列优先级",
+      "materials_library_access": "素材库",
+      "effectiveHint": "这里显示用户实际获得、系统实际限制的权益；编辑框中是存储的原始配置，未生效的键不会显示。"
     }
   },
   "points": {

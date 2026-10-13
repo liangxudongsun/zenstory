@@ -89,6 +89,8 @@
     "timesPerMonth": "/month",
     "messagesPerDay": "/day",
     "projectsUnit": "projects",
+    "skillsUnit": "skills",
+    "versionsUnit": "versions",
     "metricMaterialDecompositions": "Material breakdowns",
     "metricMaterialDecompositionsOutcome": "Break reference novels into characters, plot and other key points",
     "metricCustomSkills": "Custom skills",

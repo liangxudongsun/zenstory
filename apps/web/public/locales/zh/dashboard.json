@@ -89,6 +89,8 @@
     "timesPerMonth": "次/月",
     "messagesPerDay": "条/天",
     "projectsUnit": "个",
+    "skillsUnit": "个",
+    "versionsUnit": "个",
     "metricMaterialDecompositions": "素材拆解",
     "metricMaterialDecompositionsOutcome": "把参考小说拆成人物、情节等要点",
     "metricCustomSkills": "自定义技能",
