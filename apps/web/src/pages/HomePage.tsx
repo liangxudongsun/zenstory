@@ -41,6 +41,7 @@ export default function HomePage() {
   const [activeScene, setActiveScene] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [sceneProgress, setSceneProgress] = useState(0);
+  const [isDemoPaused, setIsDemoPaused] = useState(false);
   // The sign-up route is lazy and navigation waits for its chunk, so the
   // clicked card shows an "opening" state instead of looking unresponsive.
   const [openingProjectType, setOpeningProjectType] = useState<ProjectType | null>(null);
@@ -120,9 +121,10 @@ export default function HomePage() {
   };
 
   const handleViewDemo = () => {
+    demoSectionRef.current?.focus({ preventScroll: true });
     demoSectionRef.current?.scrollIntoView({
       behavior: prefersReducedMotion ? "auto" : "smooth",
-      block: "center",
+      block: "start",
     });
   };
 
@@ -132,7 +134,7 @@ export default function HomePage() {
       clearTimeout(sceneTransitionTimeoutRef.current);
       sceneTransitionTimeoutRef.current = null;
     }
-    if (prefersReducedMotion) {
+    if (prefersReducedMotion || isDemoPaused) {
       setSceneProgress(0);
       setIsTransitioning(false);
       return;
@@ -168,7 +170,7 @@ export default function HomePage() {
         sceneTransitionTimeoutRef.current = null;
       }
     };
-  }, [activeScene, prefersReducedMotion]);
+  }, [activeScene, prefersReducedMotion, isDemoPaused]);
 
   // Handle manual scene selection
   const handleSceneSelect = useCallback((index: number) => {
@@ -209,7 +211,7 @@ export default function HomePage() {
   };
 
   return (
-    <div className="min-h-screen relative overflow-hidden bg-[hsl(var(--bg-primary))]">
+    <div className="public-page min-h-screen relative overflow-x-clip bg-[hsl(var(--bg-primary))]">
       {/* Modern grid background */}
       <div className="fixed inset-0 pointer-events-none">
         <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:60px_60px]" />
@@ -225,6 +227,7 @@ export default function HomePage() {
       {/* Header */}
       <PublicHeader maxWidth="max-w-6xl" />
 
+      <main>
       {/* Hero Section */}
       <section className="pt-16 md:pt-24 lg:pt-28 pb-10 md:pb-14 lg:pb-16 px-4 md:px-6 relative">
         <div className="max-w-6xl mx-auto">
@@ -238,7 +241,7 @@ export default function HomePage() {
               </div>
               
               <div>
-                <h1 className="text-4xl md:text-5xl lg:text-[52px] font-bold leading-[1.1] md:leading-[1.05] text-[hsl(var(--text-primary))] mb-4 md:mb-5">
+                <h1 className="text-[32px] sm:text-4xl md:text-5xl lg:text-[52px] text-balance font-bold leading-[1.15] md:leading-[1.05] text-[hsl(var(--text-primary))] mb-4 md:mb-5">
                   {t('home:hero.titlePart1')}
                   <br />
                   <span className="text-[hsl(var(--text-primary))]">
@@ -273,7 +276,7 @@ export default function HomePage() {
                       {t('home:hero.secondaryCta', '查看演示')}
                     </button>
                   </div>
-                  <p className="text-[10px] md:text-xs text-[hsl(var(--text-secondary))] mt-2 md:mt-3 opacity-70">
+                  <p className="text-[10px] md:text-xs text-[hsl(var(--text-secondary))] mt-2 md:mt-3">
                     {t('home:hero.ctaSubtext')}
                   </p>
                 </div>
@@ -282,15 +285,15 @@ export default function HomePage() {
               {/* Features */}
               <div className="flex flex-wrap gap-x-6 gap-y-2.5 md:gap-x-8 md:gap-y-3 pt-4 md:pt-6">
                 <div className="flex items-center gap-2 md:gap-2.5 text-xs md:text-sm text-[hsl(var(--text-secondary))]">
-                  <Check className="w-4 h-4 md:w-4.5 md:h-4.5 text-[hsl(var(--success))]" strokeWidth={2.5} />
+                  <Check className="w-4 h-4 md:w-4.5 md:h-4.5 text-[hsl(var(--success-text))]" strokeWidth={2.5} />
                   <span className="font-medium">{t('home:features.cloudSave')}</span>
                 </div>
                 <div className="flex items-center gap-2 md:gap-2.5 text-xs md:text-sm text-[hsl(var(--text-secondary))]">
-                  <Check className="w-4 h-4 md:w-4.5 md:h-4.5 text-[hsl(var(--success))]" strokeWidth={2.5} />
+                  <Check className="w-4 h-4 md:w-4.5 md:h-4.5 text-[hsl(var(--success-text))]" strokeWidth={2.5} />
                   <span className="font-medium">{t('home:features.multiDevice')}</span>
                 </div>
                 <div className="flex items-center gap-2 md:gap-2.5 text-xs md:text-sm text-[hsl(var(--text-secondary))]">
-                  <Check className="w-4 h-4 md:w-4.5 md:h-4.5 text-[hsl(var(--success))]" strokeWidth={2.5} />
+                  <Check className="w-4 h-4 md:w-4.5 md:h-4.5 text-[hsl(var(--success-text))]" strokeWidth={2.5} />
                   <span className="font-medium">{t('home:features.versionHistory')}</span>
                 </div>
               </div>
@@ -299,10 +302,13 @@ export default function HomePage() {
             {/* Right - Product Preview with Scene Carousel */}
             <div
               ref={demoSectionRef}
-              className="relative"
+              role="region"
+              tabIndex={-1}
+              aria-label={t('home:hero.secondaryCta', '查看演示')}
+              className="relative scroll-mt-16"
             >
               {/* Glow effect behind card */}
-              <div className="absolute -inset-4 bg-[hsl(var(--accent-primary))] rounded-3xl opacity-12 blur-2xl" />
+              <div aria-hidden="true" className="pointer-events-none absolute -inset-4 bg-[hsl(var(--accent-primary))] rounded-3xl opacity-12 blur-2xl" />
               
               {/* Main card */}
               <div className="relative rounded-2xl overflow-hidden">
@@ -334,12 +340,14 @@ export default function HomePage() {
               </div>
               
               {/* Scene indicator - text buttons */}
-              <div className="flex gap-2 md:gap-3 justify-center mt-4 md:mt-5">
+              <div className="flex flex-wrap gap-1 md:gap-2 justify-center mt-4 md:mt-5">
                 {SCENES.map((scene, index) => (
                   <button
                     key={scene.id}
+                    type="button"
+                    aria-pressed={index === activeScene}
                     onClick={() => handleSceneSelect(index)}
-                    className={`text-[10px] md:text-xs px-3 md:px-4 py-1 md:py-1.5 rounded-full transition-all duration-300 ${
+                    className={`min-h-11 text-xs px-3 md:px-4 rounded-full transition-colors ${
                       index === activeScene
                         ? 'bg-[hsl(var(--accent-primary))] text-white shadow-[0_0_15px_rgba(74,158,255,0.4)]'
                         : 'text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))] hover:bg-[hsl(var(--bg-tertiary))]'
@@ -349,6 +357,18 @@ export default function HomePage() {
                   </button>
                 ))}
               </div>
+
+              {!prefersReducedMotion && (
+                <div className="flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setIsDemoPaused((paused) => !paused)}
+                    className="min-h-11 px-3 text-xs rounded-lg text-[hsl(var(--text-secondary))] hover:bg-[hsl(var(--bg-tertiary))]"
+                  >
+                    {isDemoPaused ? t('home:demo.resume') : t('home:demo.pause')}
+                  </button>
+                </div>
+              )}
 
               {/* Carousel controls */}
               {!prefersReducedMotion && (
@@ -387,8 +407,8 @@ export default function HomePage() {
               {
                 icon: FileText,
                 type: 'short' as ProjectType,
-                colorClass: "text-emerald-500",
-                bgClass: "bg-emerald-500/10",
+                colorClass: "text-[hsl(var(--success-text))]",
+                bgClass: "bg-[hsl(var(--success)/0.1)]",
                 popular: false
               },
               {
@@ -424,7 +444,7 @@ export default function HomePage() {
               >
                 {/* Popular badge */}
                 {item.popular && (
-                  <div className="absolute top-3 md:top-4 right-3 md:right-4 px-2 md:px-3 py-1 md:py-1.5 rounded-full bg-[hsl(var(--warning))] text-white text-[10px] md:text-[11px] font-bold shadow-md flex items-center gap-0.5 md:gap-1">
+                  <div className="absolute top-3 md:top-4 right-3 md:right-4 px-2 md:px-3 py-1 md:py-1.5 rounded-full bg-[hsl(var(--warning)/0.15)] text-[hsl(var(--warning-text))] text-[10px] md:text-[11px] font-bold flex items-center gap-0.5 md:gap-1">
                     <TrendingUp className="w-2.5 h-2.5 md:w-3 md:h-3" />
                     {t('home:demo.popular')}
                   </div>
@@ -591,32 +611,33 @@ export default function HomePage() {
         </section>
       )}
 
+      </main>
       {/* Footer */}
       <footer className="py-4 md:py-6 px-4 md:px-6 border-t border-[hsl(var(--border-color))] bg-[hsl(var(--bg-primary))]">
         <div className="max-w-6xl mx-auto text-center space-y-1 md:space-y-2">
           <div className="flex flex-wrap items-center justify-center gap-4 text-xs">
             {/* Static org pages (generated by scripts/build-org-pages.mjs) — plain anchors, not SPA routes */}
-            <a href="/projects" className="text-[hsl(var(--text-secondary))] opacity-60 hover:opacity-100 transition-opacity">
+            <a href="/projects" className="text-[hsl(var(--text-secondary))] hover:opacity-100 transition-opacity">
               {t('home:footer.projects')}
             </a>
-            <span className="text-[hsl(var(--text-secondary))] opacity-40">|</span>
-            <a href="/glossary" className="text-[hsl(var(--text-secondary))] opacity-60 hover:opacity-100 transition-opacity">
+            <span className="text-[hsl(var(--text-secondary))]">|</span>
+            <a href="/glossary" className="text-[hsl(var(--text-secondary))] hover:opacity-100 transition-opacity">
               {t('home:footer.glossary')}
             </a>
-            <span className="text-[hsl(var(--text-secondary))] opacity-40">|</span>
-            <a href="https://github.com/zenstory-ai" className="text-[hsl(var(--text-secondary))] opacity-60 hover:opacity-100 transition-opacity">
+            <span className="text-[hsl(var(--text-secondary))]">|</span>
+            <a href="https://github.com/zenstory-ai" className="text-[hsl(var(--text-secondary))] hover:opacity-100 transition-opacity">
               {t('home:footer.github')}
             </a>
-            <span className="text-[hsl(var(--text-secondary))] opacity-40">|</span>
-            <Link to="/privacy-policy" className="text-[hsl(var(--text-secondary))] opacity-60 hover:opacity-100 transition-opacity">
+            <span className="text-[hsl(var(--text-secondary))]">|</span>
+            <Link to="/privacy-policy" className="text-[hsl(var(--text-secondary))] hover:opacity-100 transition-opacity">
               {t('privacy:footer.privacy')}
             </Link>
-            <span className="text-[hsl(var(--text-secondary))] opacity-40">|</span>
-            <Link to="/terms-of-service" className="text-[hsl(var(--text-secondary))] opacity-60 hover:opacity-100 transition-opacity">
+            <span className="text-[hsl(var(--text-secondary))]">|</span>
+            <Link to="/terms-of-service" className="text-[hsl(var(--text-secondary))] hover:opacity-100 transition-opacity">
               {t('privacy:footer.terms')}
             </Link>
           </div>
-          <p className="text-xs text-[hsl(var(--text-secondary))] opacity-60">{t('home:footer.copyright', { year: new Date().getFullYear() })}</p>
+          <p className="text-xs text-[hsl(var(--text-secondary))]">{t('home:footer.copyright', { year: new Date().getFullYear() })}</p>
         </div>
       </footer>
     </div>
@@ -635,7 +656,7 @@ function SceneCreate() {
       {/* Sidebar - 20% */}
       <div className="w-full md:w-[20%] min-w-[120px] bg-[hsl(var(--bg-secondary))] border-b md:border-b-0 md:border-r border-[hsl(var(--border-color))] p-3 shrink-0">
         <div className="text-[10px] text-[hsl(var(--text-secondary))] uppercase tracking-wider font-semibold mb-2">{t('home:preview.projectFiles')}</div>
-        <div className="space-y-0.5">
+        <div className="grid grid-cols-2 gap-0.5 md:block md:space-y-0.5">
           <div className="flex items-center gap-2 h-8 px-2 rounded-md text-[hsl(var(--text-secondary))] text-xs">
             <span>📁</span>
             <span className="truncate">{t('home:preview.worldBuilding')}</span>
@@ -663,16 +684,16 @@ function SceneCreate() {
         </div>
         <div className="space-y-2 text-xs leading-relaxed">
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-[hsl(var(--text-secondary))]">
-            <span><span className="opacity-60">{t('home:preview.sceneCreate.character.gender')}</span> {t('home:preview.sceneCreate.character.genderValue')}</span>
-            <span><span className="opacity-60">{t('home:preview.sceneCreate.character.age')}</span> {t('home:preview.sceneCreate.character.ageValue')}</span>
-            <span><span className="opacity-60">{t('home:preview.sceneCreate.character.identity')}</span> {t('home:preview.sceneCreate.character.identityValue')}</span>
+            <span><span>{t('home:preview.sceneCreate.character.gender')}</span> {t('home:preview.sceneCreate.character.genderValue')}</span>
+            <span><span>{t('home:preview.sceneCreate.character.age')}</span> {t('home:preview.sceneCreate.character.ageValue')}</span>
+            <span><span>{t('home:preview.sceneCreate.character.identity')}</span> {t('home:preview.sceneCreate.character.identityValue')}</span>
           </div>
           <div className="text-[hsl(var(--text-secondary))] pt-2 border-t border-[hsl(var(--border-color))]">
-            <span className="opacity-60 mb-1 block text-[10px]">{t('home:preview.sceneCreate.character.personality')}</span>
+            <span className="mb-1 block text-[10px]">{t('home:preview.sceneCreate.character.personality')}</span>
             {t('home:preview.sceneCreate.character.personalityDesc')}
           </div>
           <div className="text-[hsl(var(--text-primary))]">
-            <span className="text-[hsl(var(--text-secondary))] opacity-60 mb-1 block text-[10px]">{t('home:preview.sceneCreate.character.secret')}</span>
+            <span className="text-[hsl(var(--text-secondary))] mb-1 block text-[10px]">{t('home:preview.sceneCreate.character.secret')}</span>
             <span className="text-[hsl(var(--accent-primary))] font-medium">{t('home:preview.sceneCreate.character.secretDesc')}</span>
             <span className="inline-block w-0.5 h-3.5 bg-[hsl(var(--accent-primary))] ml-1 align-middle animate-pulse" />
           </div>
@@ -706,7 +727,7 @@ function SceneCreate() {
               <div className="w-4 h-4 rounded-full bg-[hsl(var(--success))] flex items-center justify-center">
                 <Check className="w-2.5 h-2.5 text-white" />
               </div>
-              <span className="text-[11px] font-semibold text-[hsl(var(--success))]">{t('home:preview.sceneCreate.ai.created')}</span>
+              <span className="text-[11px] font-semibold text-[hsl(var(--success-text))]">{t('home:preview.sceneCreate.ai.created')}</span>
             </div>
             <div className="text-[11px] text-[hsl(var(--text-primary))] font-medium">{t('home:preview.sceneCreate.character.name')}</div>
             <div className="text-[10px] text-[hsl(var(--text-secondary))] mt-1">{t('home:preview.sceneCreate.ai.desc')}</div>
@@ -733,7 +754,7 @@ function SceneSuggest() {
       {/* Sidebar - 20% */}
       <div className="w-full md:w-[20%] min-w-[120px] bg-[hsl(var(--bg-secondary))] border-b md:border-b-0 md:border-r border-[hsl(var(--border-color))] p-3 shrink-0">
         <div className="text-[10px] text-[hsl(var(--text-secondary))] uppercase tracking-wider font-semibold mb-2">{t('home:preview.projectFiles')}</div>
-        <div className="space-y-0.5">
+        <div className="grid grid-cols-2 gap-0.5 md:block md:space-y-0.5">
           <div className="flex items-center gap-2 h-8 px-2 rounded-md text-[hsl(var(--text-secondary))] text-xs">
             <span>📁</span>
             <span className="truncate">{t('home:preview.worldBuilding')}</span>
@@ -818,7 +839,7 @@ function SceneSuggest() {
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[hsl(var(--accent-primary)/0.08)] border border-[hsl(var(--accent-primary)/0.15)] w-fit">
             <Sparkles className="w-3 h-3 text-[hsl(var(--accent-primary))]" />
             <span className="text-[10px] text-[hsl(var(--accent-primary))] font-medium">{t('home:preview.sceneSuggest.ai.action')}</span>
-            <span className="text-[9px] text-[hsl(var(--text-secondary))] opacity-70 px-1 py-0.5 bg-[hsl(var(--bg-tertiary))] rounded text-[8px]">Tab</span>
+            <span className="text-[9px] text-[hsl(var(--text-secondary))] px-1 py-0.5 bg-[hsl(var(--bg-tertiary))] rounded text-[8px]">Tab</span>
           </div>
         </div>
 
@@ -842,7 +863,7 @@ function SceneEdit() {
       {/* Sidebar - 20% */}
       <div className="w-full md:w-[20%] min-w-[120px] bg-[hsl(var(--bg-secondary))] border-b md:border-b-0 md:border-r border-[hsl(var(--border-color))] p-3 shrink-0">
         <div className="text-[10px] text-[hsl(var(--text-secondary))] uppercase tracking-wider font-semibold mb-2">{t('home:preview.projectFiles')}</div>
-        <div className="space-y-0.5">
+        <div className="grid grid-cols-2 gap-0.5 md:block md:space-y-0.5">
           <div className="flex items-center gap-2 h-8 px-2 rounded-md text-[hsl(var(--text-secondary))] text-xs">
             <span>📁</span>
             <span className="truncate">{t('home:preview.worldBuilding')}</span>

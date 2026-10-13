@@ -21,6 +21,8 @@
     "versionHistory": "改错了可退回旧版本"
   },
   "demo": {
+    "pause": "暂停演示",
+    "resume": "继续演示",
     "projectName": "《天阙余烬》项目",
     "autoSave": "自动保存",
     "versionHistory": "版本历史",

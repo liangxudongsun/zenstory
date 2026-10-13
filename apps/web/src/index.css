@@ -236,6 +236,7 @@
    ======================================== */
 
 /* Remove default focus outline for mouse users */
+@layer base {
 :focus:not(:focus-visible) {
     outline: none;
 }
@@ -291,6 +292,33 @@ textarea:focus-visible,
 .js-focus-visible [role="radio"].focus-visible {
     outline: 2px solid hsl(var(--accent-primary));
     outline-offset: 2px;
+}
+}
+
+/* Public pages need readable small labels and white-on-blue actions, even
+   when ThemeProvider supplies the lighter workbench accent inline. */
+.public-page {
+    --text-tertiary: var(--text-secondary);
+    --primary: var(--accent-primary);
+    --primary-hover: var(--accent-dark);
+}
+
+.light .public-page {
+    --text-secondary: 210 15% 38%;
+    --accent-primary: 217 75% 44%;
+    --accent-dark: 217 75% 38%;
+    --purple-light: 270 55% 40%;
+}
+
+.dark .public-page {
+    --text-secondary: 0 0% 70%;
+    --accent-primary: 217 85% 72%;
+    --accent-dark: 217 75% 64%;
+    --primary-foreground: var(--bg-primary);
+}
+
+.dark .public-page .text-white {
+    color: hsl(var(--bg-primary));
 }
 
 * {

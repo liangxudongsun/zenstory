@@ -117,6 +117,24 @@ function expectScene(scene: 'create' | 'suggest' | 'edit') {
 }
 
 describe.each([false, true])('HomePage real timer lifetime (root StrictMode=%s)', (strict) => {
+  it('pauses rotation, allows manual selection, and resumes from that scene', () => {
+    show(strict);
+    advance(5040);
+    fireEvent.click(screen.getByRole('button', { name: 'Pause demo' }));
+    advance(12000);
+    expectScene('create');
+    expect(vi.getTimerCount()).toBe(0);
+    select('edit');
+    advance(300);
+    expectScene('edit');
+    expect(screen.getByRole('button', { name: enHome.demo.scenes.edit })).toHaveAttribute('aria-pressed', 'true');
+    advance(12000);
+    expectScene('edit');
+    fireEvent.click(screen.getByRole('button', { name: 'Resume demo' }));
+    advance(5340);
+    expectScene('create');
+  });
+
   it('a newer manual scene replaces an already pending automatic transition', () => {
     show(strict);
     advance(5040); // First 80ms interval tick at/after the 5000ms deadline.

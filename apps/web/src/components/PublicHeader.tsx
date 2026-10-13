@@ -411,7 +411,7 @@ export function PublicHeader({
       {isMobile && showMobileMenu && (variant === "dashboard" || variant === "home") && (
         <div
           id={mobileMenuId}
-          className="md:hidden absolute top-12 left-0 right-0 bg-[hsl(var(--bg-secondary))] border-b border-[hsl(var(--separator-color))] shadow-lg z-40"
+          className="md:hidden fixed top-12 left-0 right-0 max-h-[calc(100dvh-3rem)] overflow-y-auto bg-[hsl(var(--bg-secondary))] border-b border-[hsl(var(--separator-color))] shadow-lg z-40"
         >
           <div className="flex flex-col p-2 gap-1" role="menu" aria-label={t("common:nav.mobileMenu", "移动端导航菜单")}>
             {variant === "home" && (

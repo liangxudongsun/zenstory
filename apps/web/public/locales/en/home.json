@@ -21,6 +21,8 @@
     "versionHistory": "Undo edits with earlier versions"
   },
   "demo": {
+    "pause": "Pause demo",
+    "resume": "Resume demo",
     "projectName": "Project: Embers of the Skyfall",
     "autoSave": "Auto Save",
     "versionHistory": "Version History",

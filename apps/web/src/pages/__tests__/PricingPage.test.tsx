@@ -151,6 +151,7 @@ function createDefaultTiers() {
 function getControlByName(label: RegExp): HTMLElement | null {
   return (
     screen.queryByRole("button", { name: label }) ??
+    screen.queryByRole("switch", { name: label }) ??
     screen.queryByRole("radio", { name: label }) ??
     screen.queryByRole("tab", { name: label }) ??
     screen.queryByLabelText(label)
@@ -158,6 +159,35 @@ function getControlByName(label: RegExp): HTMLElement | null {
 }
 
 describe("PricingPage", () => {
+  it("exposes the differences filter as a keyboard-operable switch", async () => {
+    const [free, pro] = createDefaultTiers();
+    mockGetCatalog.mockResolvedValue(createCatalog([free, { ...pro, entitlements: { ...pro.entitlements, custom_skills_limit: 3 } }]));
+    render(<PricingPage />, { wrapper: createWrapper() });
+    await screen.findByText("选一个适合你的方案");
+    const toggle = screen.getByRole("switch", { name: "仅看差异" });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("omits the differences filter when every listed entitlement differs", async () => {
+    mockGetCatalog.mockResolvedValue(createCatalog(createDefaultTiers()));
+    render(<PricingPage />, { wrapper: createWrapper() });
+    await screen.findByText("推荐");
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+  });
+
+  it("omits comparison controls and disables paid actions when the catalog fails", async () => {
+    mockGetCatalog.mockRejectedValue(new Error("offline"));
+    render(<PricingPage />, { wrapper: createWrapper() });
+    await screen.findByText("加载失败");
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+    for (const radio of screen.getAllByRole("radio")) expect(radio).toBeDisabled();
+    for (const cta of screen.getAllByRole("button", { name: "开通 Pro" })) expect(cta).toBeDisabled();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetStatus.mockResolvedValue({ tier: "free", status: "active" });
@@ -294,7 +324,7 @@ describe("PricingPage", () => {
     mockGetCatalog.mockResolvedValue(createCatalog(createDefaultTiers()));
 
     render(<PricingPage />, { wrapper: createWrapper() });
-    await waitFor(() => expect(getControlByName(/年付|Yearly/i)).not.toBeNull());
+    await waitFor(() => expect(getControlByName(/年付|Yearly/i)).toBeEnabled());
 
     fireEvent.click(getControlByName(/年付|Yearly/i)!);
     fireEvent.click(screen.getAllByRole("button", { name: /开通 Pro|Get Pro/i })[0]);

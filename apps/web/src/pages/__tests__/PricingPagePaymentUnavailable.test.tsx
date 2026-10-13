@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -110,6 +110,7 @@ describe("PricingPage checkout when online payment is off", () => {
     renderPricingPage();
 
     const [upgradeButton] = await screen.findAllByRole("button", { name: /开通 Pro/ });
+    await waitFor(() => expect(upgradeButton).toBeEnabled());
     fireEvent.click(upgradeButton);
 
     const alert = await screen.findByRole("alert");

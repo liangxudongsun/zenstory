@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SEOHelmet } from '../Helmet'
 
@@ -70,7 +70,7 @@ describe('SEOHelmet', () => {
   it('renders canonical, hreflang, open graph, and schema metadata for public pages', () => {
     render(<SEOHelmet />)
 
-    expect(screen.getByTestId('helmet-root')).toHaveAttribute('data-lang', 'en-US')
+    expect(document.documentElement).toHaveAttribute('lang', 'en-US')
     expect(document.querySelector('title')?.textContent).toBe('SEO Title')
     expect(document.querySelector('meta[name="description"]'))?.toHaveAttribute('content', 'SEO description')
     expect(document.querySelector('meta[name="keywords"]'))?.toHaveAttribute('content', 'novel, writing')
@@ -86,7 +86,7 @@ describe('SEOHelmet', () => {
 
     render(<SEOHelmet />)
 
-    expect(screen.getByTestId('helmet-root')).toHaveAttribute('data-lang', 'zh-CN')
+    expect(document.documentElement).toHaveAttribute('lang', 'zh-CN')
     expect(document.querySelector('meta[name="robots"]'))?.toHaveAttribute('content', 'noindex')
     expect(document.querySelectorAll('link[rel="alternate"]')).toHaveLength(0)
   })

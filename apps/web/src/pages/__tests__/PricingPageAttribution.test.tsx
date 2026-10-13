@@ -139,7 +139,7 @@ describe("PricingPage attribution", () => {
     render(<PricingPage />, { wrapper: createWrapper(["/pricing?source=chat_quota_blocked"]) });
 
     await waitFor(() => {
-      expect(screen.getAllByRole("button", { name: /开通 Pro|Get Pro/i }).length).toBeGreaterThan(0);
+      expect(screen.getAllByRole("button", { name: /开通 Pro|Get Pro/i })[0]).toBeEnabled();
     });
 
     fireEvent.click(screen.getAllByRole("button", { name: /开通 Pro|Get Pro/i })[0]);

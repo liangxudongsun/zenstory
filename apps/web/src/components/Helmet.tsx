@@ -18,6 +18,7 @@
  * @see {@link https://github.com/nfl/react-helmet} react-helmet-async
  */
 
+import { useEffect } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { useSEO } from '../providers/SEOProvider';
 import { useTranslation } from 'react-i18next';
@@ -92,6 +93,12 @@ export function SEOHelmet(_props: SEOHelmetProps = {}) {
   const lang = i18n.language;
   const langKey = lang.startsWith('zh') ? 'zh-CN' : 'en-US';
 
+  // Keep document language in sync directly: React 19 head hoisting can
+  // remove Helmet's htmlAttributes while the metadata remains rendered.
+  useEffect(() => {
+    document.documentElement.lang = langKey;
+  }, [langKey]);
+
   // 只为公开页面生成hreflang
   const isPublicPage = !seoConfig.noindex;
 
@@ -100,7 +107,7 @@ export function SEOHelmet(_props: SEOHelmetProps = {}) {
   const pathname = window.location.pathname;
 
   return (
-    <Helmet htmlAttributes={{ lang: langKey }}>
+    <Helmet>
       <title>{seoConfig.title}</title>
       <meta name="description" content={seoConfig.description} />
       {seoConfig.keywords && (

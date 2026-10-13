@@ -200,8 +200,13 @@ export default function PricingPage() {
     });
   }, [showOnlyDifferences, metricDefinitions, sortedPlans]);
 
+  const hasSharedMetrics = !isCatalogLoading && !isError && sortedPlans.length > 1 &&
+    metricDefinitions.some((metric) => new Set(
+      sortedPlans.map((plan) => toComparableMetricValue(metric.compareValue(plan)))
+    ).size === 1);
+
   return (
-    <div className="min-h-screen bg-[hsl(var(--bg-primary))]">
+    <div className="public-page min-h-screen bg-[hsl(var(--bg-primary))]">
       <PublicHeader maxWidth="max-w-6xl" />
       <main className="max-w-6xl mx-auto px-4 md:px-6 py-8 md:py-14 pb-28 md:pb-14 space-y-6 md:space-y-8">
         <section className="text-center space-y-2 md:space-y-3">
@@ -242,6 +247,7 @@ export default function PricingPage() {
                     type="button"
                     role="radio"
                     aria-checked={billingCycle === cycle}
+                    disabled={isCatalogLoading || isError || sortedPlans.length === 0}
                     tabIndex={billingCycle === cycle ? 0 : -1}
                     onClick={() => setBillingCycle(cycle)}
                     onKeyDown={(event) => {
@@ -252,7 +258,7 @@ export default function PricingPage() {
                       document.getElementById(`billing-cycle-${nextCycle}`)?.focus();
                     }}
                     className={cn(
-                      "h-8 px-3 text-sm rounded-md transition-colors",
+                      "min-h-11 px-4 text-sm rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
                       billingCycle === cycle
                         ? "bg-[hsl(var(--accent-primary))] text-white"
                         : "text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))]"
@@ -265,27 +271,29 @@ export default function PricingPage() {
                 ))}
               </div>
 
-              <button
+              {hasSharedMetrics && <button
                 type="button"
-                aria-pressed={showOnlyDifferences}
+                role="switch"
+                aria-checked={showOnlyDifferences}
                 onClick={() => setShowOnlyDifferences((prev) => !prev)}
-                className="inline-flex h-8 items-center justify-between gap-2 rounded-lg border border-[hsl(var(--border-color))] px-3 text-xs text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))]"
+                className="inline-flex min-h-11 items-center justify-between gap-3 rounded-lg border border-[hsl(var(--border-color))] px-3 text-sm text-[hsl(var(--text-primary))] hover:bg-[hsl(var(--bg-tertiary))]"
               >
                 <span>{t("dashboard:billing.showOnlyDiff", "仅看差异")}</span>
                 <span
+                  aria-hidden="true"
                   className={cn(
-                    "relative h-4 w-8 rounded-full transition-colors",
-                    showOnlyDifferences ? "bg-[hsl(var(--accent-primary))]" : "bg-[hsl(var(--bg-tertiary))]"
+                    "relative h-5 w-9 shrink-0 rounded-full transition-colors",
+                    showOnlyDifferences ? "bg-[hsl(var(--accent-primary))]" : "bg-[hsl(var(--text-tertiary))]"
                   )}
                 >
                   <span
                     className={cn(
-                      "absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform",
+                      "absolute left-0 top-0.5 h-4 w-4 rounded-full bg-white transition-transform",
                       showOnlyDifferences ? "translate-x-4" : "translate-x-0.5"
                     )}
                   />
                 </span>
-              </button>
+              </button>}
             </div>
           </div>
         </section>
@@ -301,8 +309,8 @@ export default function PricingPage() {
         {isError && (
           <Card variant="outlined" padding="lg">
             <div className="flex flex-col items-center gap-3 py-2">
-              <p className="text-sm text-[hsl(var(--error))]">{t("common:error", "加载失败")}</p>
-              <Button size="sm" variant="secondary" onClick={() => void refetch()}>
+              <p role="alert" className="text-sm text-[hsl(var(--error-text))]">{t("common:error", "加载失败")}</p>
+              <Button size={isMobile ? "touch" : "sm"} variant="secondary" onClick={() => void refetch()}>
                 {t("common:retry", "重试")}
               </Button>
             </div>
@@ -325,16 +333,16 @@ export default function PricingPage() {
                 variant="outlined"
                 padding="lg"
                 className={cn(
-                  "rounded-2xl relative transition-all",
+                  "rounded-2xl relative flex flex-col border! overflow-hidden",
                   plan.recommended
-                    ? "border-[hsl(var(--accent-primary))] bg-[linear-gradient(180deg,hsl(var(--accent-primary)/0.14),hsl(var(--bg-secondary))_46%)] shadow-[0_16px_36px_hsl(var(--accent-primary)/0.16)]"
+                    ? "border-[hsl(var(--accent-primary)/0.5)]! bg-[linear-gradient(180deg,hsl(var(--accent-primary)/0.14),hsl(var(--bg-secondary))_46%)] shadow-[0_16px_36px_hsl(var(--accent-primary)/0.16)]"
                     : "border-[hsl(var(--border-color))]"
                 )}
               >
                 {plan.recommended && (
-                  <div className="absolute left-0 right-0 top-0 h-1 rounded-t-2xl bg-[hsl(var(--accent-primary))]" />
+                  <div aria-hidden="true" className="absolute left-0 right-0 top-0 h-1 bg-[hsl(var(--accent-primary))]" />
                 )}
-                <div className="flex items-start justify-between mb-3 pt-1">
+                <div className="flex items-start justify-between gap-3 mb-3 pt-1 lg:min-h-36">
                   <div>
                     <h2 className="text-xl font-semibold text-[hsl(var(--text-primary))]">
                       {getLocalizedPlanDisplayName({ ...plan, tier: plan.name }, i18n.language)}
@@ -404,9 +412,10 @@ export default function PricingPage() {
                     </div>
                   )}
                 </div>
-                <div className="mt-4">
+                <div className="mt-auto pt-4">
                   <Button
                     className="w-full"
+                    size="touch"
                     onClick={plan.price_monthly_cents > 0 ? handleUpgradeCta : handlePrimaryCta}
                     variant={plan.price_monthly_cents > 0 ? "primary" : "secondary"}
                   >
@@ -450,7 +459,7 @@ export default function PricingPage() {
                 ? t("home:nav.goDashboard", "进入工作台")
                 : t("dashboard:billing.ctaFreeStart", "免费开始")}
             </Button>
-            <Button onClick={handleUpgradeCta} variant="outline">
+            <Button onClick={handleUpgradeCta} variant="outline" disabled={!proPlan || isError}>
               {upgradeCtaLabel}
             </Button>
           </section>
@@ -460,12 +469,12 @@ export default function PricingPage() {
       {isMobile && (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[hsl(var(--border-color))] bg-[hsl(var(--bg-secondary)/0.95)] backdrop-blur-sm">
           <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-2">
-            <Button className="flex-1" onClick={handlePrimaryCta} rightIcon={<ArrowRight className="w-4 h-4" />}>
+            <Button size="touch" className="flex-1" onClick={handlePrimaryCta} rightIcon={<ArrowRight className="w-4 h-4" />}>
               {user
                 ? t("home:nav.goDashboard", "进入工作台")
                 : t("dashboard:billing.ctaFreeStart", "免费开始")}
             </Button>
-            <Button className="flex-1" onClick={handleUpgradeCta} variant="outline">
+            <Button size="touch" className="flex-1" onClick={handleUpgradeCta} variant="outline" disabled={!proPlan || isError}>
               {upgradeCtaLabel}
             </Button>
           </div>
