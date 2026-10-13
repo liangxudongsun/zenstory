@@ -31,6 +31,11 @@ function pairForOrigin(origin: string): SitePair | undefined {
   return pairs.find((pair) => pair.siteOrigin === origin || pair.appOrigin === origin)
 }
 
+export function getWorkbenchHomeUrl(href: string): string {
+  const pair = pairForOrigin(new URL(href).origin)
+  return pair ? `${pair.appOrigin}/` : '/'
+}
+
 export function isManagedOrigin(href: string): boolean {
   return Boolean(pairForOrigin(new URL(href).origin))
 }

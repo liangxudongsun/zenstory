@@ -115,12 +115,12 @@ export const langSwitch = (lang, links) => `<div class="lang-switch" role="group
  * Site header. `section` is the active top-level route ('/projects', '/guides'
  * or null; the glossary is reached from the footer and /guides); `switchLinks` are the two language destinations.
  */
-export const nav = (lang, { section = null, switchLinks }) => {
+export const nav = (lang, { section = null, switchLinks, brandHref = localized(lang, '/') }) => {
   const item = (route, label) => `<a href="${localized(lang, route)}"${section === route ? ' aria-current="page"' : ''}>${label}</a>`
   return `
 <header class="top">
   <div class="wrap top-row">
-    <a class="brand" href="${localized(lang, '/')}">${brandMark(28)}<span class="wordmark">ZenStory AI</span></a>
+    <a class="brand" href="${esc(brandHref)}">${brandMark(28)}<span class="wordmark">ZenStory AI</span></a>
     <nav aria-label="${t(lang, 'Site', '站点')}">
       ${item('/projects', t(lang, 'Projects', '项目'))}
       ${item('/guides', t(lang, 'Guides', '指南'))}
@@ -178,7 +178,7 @@ export const footer = (lang) => `
  * `pageId` marks `<body data-page>` for a page with its own visual system; `fonts`
  * is the Google Fonts stylesheet that system loads.
  */
-export const page = ({ lang, route, alternates = null, switchLinks = alternates, section = null, title, description, ogType = 'article', ld, body, head = '', pageId = null, fonts = FONTS }) => {
+export const page = ({ lang, route, alternates = null, switchLinks = alternates, section = null, brandHref, title, description, ogType = 'article', ld, body, head = '', pageId = null, fonts = FONTS }) => {
   if (!switchLinks) throw new Error(`${route}: a page needs alternates or switchLinks`)
   const other = lang === 'zh' ? 'en' : 'zh'
   return `<!doctype html>
@@ -215,7 +215,7 @@ ${head}${jsonld({ '@context': 'https://schema.org', '@graph': ld })}
 </head>
 <body${pageId ? ` data-page="${esc(pageId)}"` : ''}>
 <a class="skip" href="#main">${t(lang, 'Skip to content', '跳到正文')}</a>
-${nav(lang, { section, switchLinks })}
+${nav(lang, { section, switchLinks, brandHref })}
 <main id="main">
 ${body}
 </main>

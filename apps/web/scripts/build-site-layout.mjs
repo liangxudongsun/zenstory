@@ -8,6 +8,7 @@ import { readFileSync, writeFileSync, mkdirSync, renameSync, rmSync, readdirSync
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import assert from 'node:assert/strict'
+import { page as sitePage, orgNode } from './site-shell.mjs'
 
 const web = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const contract = JSON.parse(readFileSync(join(web, 'content/site-routing.json'), 'utf8'))
@@ -78,6 +79,7 @@ export const vercelConfig = {
 
 const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')
 const legalContent = JSON.parse(readFileSync(join(web, 'public/locales/en/privacy.json'), 'utf8'))
+const legalContentZh = JSON.parse(readFileSync(join(web, 'public/locales/zh/privacy.json'), 'utf8'))
 function pageHead(shell,route,origin,title) {
   return shell
     .replace(/<title>[^<]*<\/title>/,`<title>${esc(title)}</title>`)
@@ -91,20 +93,29 @@ function renderLegalValue(value, depth = 2) {
   if (!value || typeof value !== 'object') return ''
   const level = Math.min(depth, 6)
   const heading = value.title ? `<h${level}>${esc(String(value.title))}</h${level}>` : ''
-  const content = value.content ? `<p>${esc(String(value.content))}</p>` : ''
+  const content = typeof value.content === 'string' ? `<p>${esc(value.content)}</p>` : ''
   const children = Object.entries(value)
-    .filter(([key]) => !['title', 'content', 'lastUpdated'].includes(key))
+    .filter(([key, child]) => !['title', 'lastUpdated'].includes(key) && !(key === 'content' && typeof child === 'string'))
     .map(([key, child]) => typeof child === 'string' && ['note', 'email'].includes(key)
       ? `<p>${esc(child)}</p>`
-      : renderLegalValue(child, depth + 1))
+      : renderLegalValue(child, heading ? depth + 1 : depth))
     .join('')
   return `${heading}${content}${children}`
 }
-function legalPage(shell, route, title, document) {
-  const body = `<main><article><h1>${esc(String(document.title))}</h1>` +
-    (document.lastUpdated ? `<p>${esc(String(document.lastUpdated))}</p>` : '') +
-    `${renderLegalValue(document.sections)}</article></main>`
-  return pageHead(shell, route, SITE, title).replace('<div id="root"></div>', `<div id="root">${body}</div>`)
+function legalPage(route, title, document, documentZh) {
+  const article = (content, language) => `<article id="legal-${language}" lang="${language === 'zh' ? 'zh-CN' : 'en'}" class="prose article-body">
+    ${language === 'en' ? `<h2>${esc(content.title)}</h2>` : ''}
+    <p>${esc(content.lastUpdated ?? '')}</p>
+    ${renderLegalValue(content.sections, language === 'zh' ? 2 : 3)}
+  </article>`
+  return sitePage({
+    lang: 'zh', route, title, description: (document.sections.introduction ?? document.sections.acceptance).content,
+    switchLinks: { zh: '#legal-zh', en: '#legal-en' }, brandHref: `${APP}/`,
+    ogType: 'website',
+    ld: [orgNode, { '@type': 'WebPage', name: title, url: `${SITE}${route}`, inLanguage: ['zh-CN', 'en'], publisher: { '@id': orgNode['@id'] } }],
+    body: `<section class="page-hero"><div class="wrap"><h1>${esc(documentZh.title)}</h1></div></section>
+      <div class="wrap"><div class="docs-body page-body">${article(documentZh, 'zh')}${article(document, 'en')}</div></div>`,
+  })
 }
 /** English route of a site route (`/zh/x` → `/x`, `/zh` → `/`), or null when it is not a Chinese page. */
 const englishRoute=route=>route==='/zh' ? '/' : route.startsWith('/zh/') ? route.slice(3) : null
@@ -162,12 +173,12 @@ export function finalizeSite(outDir) {
   }
   walk(outDir)
   for(const name of ['_app','_site']) mkdirSync(join(outDir,name),{recursive:true})
-  for(const [route,title,document] of [
-    ['/privacy-policy','Privacy Policy — ZenStory',legalContent],
-    ['/terms-of-service','Terms of Service — ZenStory',legalContent.terms],
+  for(const [route,title,document,documentZh] of [
+    ['/privacy-policy','Privacy Policy — ZenStory',legalContent,legalContentZh],
+    ['/terms-of-service','Terms of Service — ZenStory',legalContent.terms,legalContentZh.terms],
   ]) {
     mkdirSync(join(outDir,route),{recursive:true})
-    writeFileSync(join(outDir,route,'index.html'),legalPage(shell,route,title,document))
+    writeFileSync(join(outDir,route,'index.html'),legalPage(route,title,document,documentZh))
     siteRoutes.push(route)
   }
   writeFileSync(join(outDir,'_app/home.html'),pageHead(shell,'/',APP,'ZenStory — AI 小说写作工作台'))

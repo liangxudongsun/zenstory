@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { getBoundaryDestination, getPublicCanonicalUrl } from '../site-domain'
+import { getBoundaryDestination, getPublicCanonicalUrl, getWorkbenchHomeUrl } from '../site-domain'
+
+describe('getWorkbenchHomeUrl', () => {
+  it('returns the matching workbench home from legal pages on both managed hosts', () => {
+    expect(getWorkbenchHomeUrl('https://zenstory.ai/privacy-policy')).toBe('https://app.zenstory.ai/')
+    expect(getWorkbenchHomeUrl('https://app.zenstory.ai/terms-of-service')).toBe('https://app.zenstory.ai/')
+    expect(getWorkbenchHomeUrl('https://geo-preview.zenstory.ai/privacy-policy')).toBe('https://app-preview.zenstory.ai/')
+    expect(getWorkbenchHomeUrl('https://app-preview.zenstory.ai/terms-of-service')).toBe('https://app-preview.zenstory.ai/')
+    expect(getWorkbenchHomeUrl('http://127.0.0.1:5183/privacy-policy')).toBe('/')
+  })
+})
 
 describe('getBoundaryDestination', () => {
   it('moves exact app route prefixes from the production site to the app', () => {

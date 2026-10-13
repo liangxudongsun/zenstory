@@ -74,6 +74,11 @@ const renderHeader = ({
   );
 
 describe("PublicHeader", () => {
+  it("exposes the logo as a home link in local development", () => {
+    renderHeader();
+    expect(screen.getByRole("link", { name: "返回首页" })).toHaveAttribute("href", "/");
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsMobile = false;
