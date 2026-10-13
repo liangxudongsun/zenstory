@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { Modal } from "../../components/ui/Modal";
+import { IconButton } from "../../components/ui/IconButton";
 import { useTranslation } from "react-i18next";
 import { LazyMarkdown } from "../../components/LazyMarkdown";
 import { Check, X, Zap, ChevronDown, ChevronUp, AlertTriangle, RefreshCw, EyeOff, FileText } from "lucide-react";
@@ -169,7 +171,7 @@ export default function SkillReviewPage() {
       </AdminSelect>
 
       {decisionError && (
-        <div role="alert" className="rounded-lg border border-[hsl(var(--error)/0.3)] bg-[hsl(var(--error)/0.08)] p-4 text-sm text-[hsl(var(--error))]">
+        <div role="alert" className="rounded-lg border border-[hsl(var(--error)/0.3)] bg-[hsl(var(--error)/0.08)] p-4 text-sm text-[hsl(var(--error-text))]">
           {decisionError}
         </div>
       )}
@@ -177,9 +179,9 @@ export default function SkillReviewPage() {
       {loadError && skills.length > 0 && (
         <div className="mb-4 rounded-lg border border-[hsl(var(--error)/0.3)] bg-[hsl(var(--error)/0.08)] p-4 text-sm">
           <div className="flex items-start gap-3">
-            <AlertTriangle className="h-5 w-5 text-[hsl(var(--error))] mt-0.5 shrink-0" />
+            <AlertTriangle className="h-5 w-5 text-[hsl(var(--error-text))] mt-0.5 shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="font-medium text-[hsl(var(--error))]">
+              <p className="font-medium text-[hsl(var(--error-text))]">
                 {t("admin:dashboard.loadError", "加载失败，请重试")}
               </p>
               <p className="mt-1 text-[hsl(var(--text-secondary))] break-words">{loadError}</p>
@@ -300,14 +302,14 @@ function SkillReviewCard({
 
   return (
     <div className="bg-[hsl(var(--bg-secondary))] rounded-xl border border-[hsl(var(--border-color))] p-4">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col items-start justify-between gap-4 sm:flex-row">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-2">
             <div className="w-10 h-10 rounded-lg bg-[hsl(var(--bg-tertiary))] flex items-center justify-center">
               <Zap className="w-5 h-5 text-[hsl(var(--text-secondary))]" />
             </div>
-            <div>
-              <h3 className="font-semibold text-[hsl(var(--text-primary))]">
+            <div className="min-w-0 break-words">
+              <h3 className="text-sm font-semibold text-[hsl(var(--text-primary))]">
                 {skill.name}
               </h3>
               <p className="text-xs text-[hsl(var(--text-tertiary))]">
@@ -325,7 +327,7 @@ function SkillReviewCard({
               {skill.category}
             </span>
             {resourceCount > 0 && (
-              <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-[hsl(var(--warning)/0.12)] text-[hsl(var(--warning))]">
+              <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-[hsl(var(--warning)/0.12)] text-[hsl(var(--warning-text))]">
                 <FileText className="w-3 h-3" />
                 {t("admin:skills.resourceCount", { count: resourceCount, defaultValue: "{{count}} 个资源文件" })}
               </span>
@@ -336,13 +338,13 @@ function SkillReviewCard({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center gap-2 sm:w-auto">
           {skill.status === "pending" && (
             <>
               <button
                 onClick={onApprove}
                 disabled={processing}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success))] hover:bg-[hsl(var(--success)/0.2)] transition-colors disabled:opacity-50"
+                className="inline-flex min-h-11 items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[hsl(var(--success)/0.1)] text-[hsl(var(--success-text))] hover:bg-[hsl(var(--success)/0.2)] transition-colors disabled:opacity-50 max-sm:flex-1"
               >
                 {processing ? (
                   <div className="w-5 h-5 animate-spin rounded-full border-2 border-[hsl(var(--success))] border-t-transparent" />
@@ -354,7 +356,7 @@ function SkillReviewCard({
               <button
                 onClick={onReject}
                 disabled={processing}
-                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[hsl(var(--error)/0.1)] text-[hsl(var(--error))] hover:bg-[hsl(var(--error)/0.2)] transition-colors disabled:opacity-50"
+                className="inline-flex min-h-11 items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[hsl(var(--error)/0.1)] text-[hsl(var(--error-text))] hover:bg-[hsl(var(--error)/0.2)] transition-colors disabled:opacity-50 max-sm:flex-1"
               >
                 <X className="w-5 h-5" />
                 {t("admin:skills.reject", "拒绝")}
@@ -365,22 +367,20 @@ function SkillReviewCard({
             <button
               onClick={onUnpublish}
               disabled={processing}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[hsl(var(--error)/0.1)] text-[hsl(var(--error))] hover:bg-[hsl(var(--error)/0.2)] transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[hsl(var(--error)/0.1)] text-[hsl(var(--error-text))] hover:bg-[hsl(var(--error)/0.2)] transition-colors disabled:opacity-50"
             >
               <EyeOff className="w-5 h-5" />
               {t("admin:skills.unpublish", "下架")}
             </button>
           )}
-          <button
+          <IconButton
             onClick={() => setExpanded(!expanded)}
             aria-expanded={expanded}
-            aria-label={expanded
+            label={expanded
               ? t("admin:skills.collapseDetails", "收起详情")
               : t("admin:skills.expandDetails", "展开详情")}
-            className="p-2 rounded-lg text-[hsl(var(--text-secondary))] hover:bg-[hsl(var(--bg-tertiary))] transition-colors"
-          >
-            {expanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
-          </button>
+            icon={expanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+          />
         </div>
       </div>
 
@@ -530,7 +530,7 @@ function SkillReviewMaterials({
         {resourceCount === 0 ? (
           <p className="text-xs text-[hsl(var(--text-tertiary))]">{t("admin:skills.none", "无")}</p>
         ) : resourcesError ? (
-          <p role="alert" className="text-xs text-[hsl(var(--error))]">{resourcesError}</p>
+          <p role="alert" className="text-xs text-[hsl(var(--error-text))]">{resourcesError}</p>
         ) : resources === null ? (
           <p className="text-xs text-[hsl(var(--text-tertiary))]">
             {t("admin:skills.loadingResources", "正在加载资源文件...")}
@@ -582,40 +582,49 @@ function ReasonModal({
   const { t } = useTranslation(["admin", "common"]);
 
   return (
-    <div className="modal-overlay flex items-center justify-center p-4" onClick={() => { if (!processing) onCancel(); }}>
-      <div className="modal w-full max-w-md animate-scale-in" onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))] mb-4">
-          {title}
-        </h2>
-        {description && (
-          <p className="text-sm text-[hsl(var(--text-secondary))] mb-4">{description}</p>
-        )}
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-1">
-            {label}
-          </label>
-          <textarea
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            className="input w-full min-h-[100px] resize-y"
-            placeholder={placeholder}
-            maxLength={500}
-          />
-        </div>
-        <div className="flex gap-3">
-          <button onClick={onCancel} disabled={processing} className="btn-ghost flex-1 h-11">
-            {t("common:cancel")}
-          </button>
-          <button
-            onClick={onConfirm}
-            disabled={processing}
-            className="btn-danger flex-1 h-11 flex items-center justify-center gap-2"
-          >
-            {processing && <div className="w-4 h-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
-            {confirmLabel}
-          </button>
-        </div>
+    <Modal
+      open
+      ariaLabel={title}
+      onClose={onCancel}
+      closeOnEscape={!(processing)}
+      closeOnBackdropClick={!(processing)}
+      showCloseButton={false}
+      bodyClassName="p-6"
+      className="admin-shell rounded-xl!"
+      size="md"
+    >
+      <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))] mb-4">
+        {title}
+      </h2>
+      {description && (
+        <p className="text-sm text-[hsl(var(--text-secondary))] mb-4">{description}</p>
+      )}
+      <div className="mb-4">
+        <label htmlFor="admin-skill-review-reason" className="block text-sm font-medium text-[hsl(var(--text-secondary))] mb-1">
+          {label}
+        </label>
+        <textarea
+          id="admin-skill-review-reason"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          className="input w-full min-h-[100px] resize-y"
+          placeholder={placeholder}
+          maxLength={500}
+        />
       </div>
-    </div>
+      <div className="flex gap-3">
+        <button onClick={onCancel} disabled={processing} className="btn-ghost flex-1 h-11">
+          {t("common:cancel")}
+        </button>
+        <button
+          onClick={onConfirm}
+          disabled={processing}
+          className="btn-danger flex-1 h-11 flex items-center justify-center gap-2"
+        >
+          {processing && <div className="w-4 h-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
+          {confirmLabel}
+        </button>
+      </div>
+    </Modal>
   );
 }

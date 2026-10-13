@@ -1,5 +1,5 @@
-import React, { useRef, useState } from "react";
-import { Outlet } from "react-router-dom";
+import React, { useLayoutEffect, useRef, useState } from "react";
+import { Outlet, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { AdminSidebar } from "./AdminSidebar";
 import { AdminHeader } from "./AdminHeader";
@@ -12,25 +12,33 @@ export const AdminLayout: React.FC = () => {
   const isMobile = useIsMobile();
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const mobileSidebarRef = useRef<HTMLDivElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  const { pathname } = useLocation();
+  const menuOpen = isMobile && sidebarOpen;
+
+  useLayoutEffect(() => {
+    if (mainRef.current) mainRef.current.scrollTop = 0;
+  }, [pathname]);
 
   useDialogInteractions({
-    open: isMobile && sidebarOpen,
+    open: menuOpen,
     dialogRef: mobileSidebarRef,
     returnFocusRef: menuButtonRef,
     onEscape: () => setSidebarOpen(false),
+    initialFocusSelector: 'nav [aria-current="page"]',
   });
 
   return (
-    <div className="fixed inset-0 flex h-dvh flex-col overflow-hidden bg-[hsl(var(--bg-primary))] text-[hsl(var(--text-primary))]">
+    <div className="admin-shell ui-sans-headings fixed inset-0 flex h-dvh flex-col overflow-hidden bg-[hsl(var(--bg-primary))] text-[hsl(var(--text-primary))]">
       <AdminHeader
         onMenuClick={() => setSidebarOpen((open) => !open)}
-        menuOpen={sidebarOpen}
+        menuOpen={menuOpen}
         menuButtonRef={menuButtonRef}
       />
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {!isMobile ? (
-          <aside className="w-64 shrink-0 overflow-y-auto border-r border-[hsl(var(--separator-color))] bg-[hsl(var(--bg-secondary)/0.7)] backdrop-blur-xl lg:w-72">
+          <aside className="w-60 shrink-0 overflow-y-auto border-r border-[hsl(var(--separator-color))] bg-[hsl(var(--bg-secondary))] lg:w-64">
             <AdminSidebar />
           </aside>
         ) : (
@@ -60,7 +68,7 @@ export const AdminLayout: React.FC = () => {
           </>
         )}
 
-        <main className="flex-1 min-w-0 min-h-0 overflow-y-auto bg-[radial-gradient(140%_120%_at_0%_0%,hsl(var(--bg-tertiary)/0.3),transparent_58%)]">
+        <main ref={mainRef} inert={menuOpen ? true : undefined} aria-hidden={menuOpen ? true : undefined} className="flex-1 min-w-0 min-h-0 overflow-y-auto">
           <div className="mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-4 md:px-6 md:py-6">
             <Outlet />
           </div>

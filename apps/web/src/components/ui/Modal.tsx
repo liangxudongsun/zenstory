@@ -18,6 +18,7 @@ import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useDialogInteractions } from './dialogFocus';
 import { IconButton } from './IconButton';
+import { cn } from '../../lib/utils';
 
 /**
  * Props for the Modal component.
@@ -46,6 +47,12 @@ export interface ModalProps {
    * Used for accessibility labeling.
    */
   description?: React.ReactNode;
+
+  /** Accessible name when the caller renders its own visible header. */
+  ariaLabel?: string;
+
+  /** Override body spacing for callers with their own header, body and footer layout. */
+  bodyClassName?: string;
 
   /**
    * Main content of the modal.
@@ -236,6 +243,8 @@ export const Modal: React.FC<ModalProps> & {
   onClose,
   title,
   description,
+  ariaLabel,
+  bodyClassName,
   children,
   footer,
   size = 'md',
@@ -316,6 +325,7 @@ export const Modal: React.FC<ModalProps> & {
           role="dialog"
           tabIndex={-1}
           aria-modal="true"
+          aria-label={ariaLabel}
           aria-labelledby={title ? titleId : undefined}
           aria-describedby={description ? descriptionId : undefined}
         >
@@ -352,7 +362,7 @@ export const Modal: React.FC<ModalProps> & {
           )}
 
           {/* Main content - scrollable */}
-          <div className="flex-1 overflow-y-auto px-6 pb-4">{children}</div>
+          <div className={cn("flex-1 overflow-y-auto px-6 pb-4", bodyClassName)}>{children}</div>
 
           {/* Footer */}
           {footer && (

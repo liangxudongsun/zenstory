@@ -101,7 +101,7 @@ export default function AdminDashboard() {
           </p>
         </div>
         <button
-          className="btn-ghost flex items-center gap-2 text-sm"
+          className="btn-ghost flex min-h-11 items-center gap-2 text-sm text-[hsl(var(--text-primary))]!"
           onClick={() => {
             void Promise.all([queryClient.invalidateQueries({queryKey: ['admin', 'dashboard', 'growth']}), refetch(), refetchActivationFunnel(), refetchUpgradeFunnel(), refetchUpgradeConversion()]);
           }}
@@ -129,7 +129,7 @@ export default function AdminDashboard() {
               aria-pressed={selectedWindowDays === days}
               className={`min-h-11 px-3 rounded-md text-sm transition-colors ${
                 selectedWindowDays === days
-                  ? 'bg-[hsl(var(--accent-primary))] text-white'
+                  ? 'bg-[hsl(var(--accent-primary)/0.15)] font-medium text-[var(--admin-accent-text)]'
                   : 'bg-[hsl(var(--bg-tertiary))] text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))]'
               }`}
             >
@@ -225,7 +225,7 @@ export default function AdminDashboard() {
             )}
 
             {!activationFunnelLoading && activationFunnelError && (
-              <p className="text-sm text-[hsl(var(--error))]">
+              <p className="text-sm text-[hsl(var(--error-text))]">
                 {t('admin:dashboard.loadError', '加载失败，请重试')}
               </p>
             )}
@@ -260,7 +260,7 @@ export default function AdminDashboard() {
             )}
 
             {!upgradeFunnelLoading && upgradeFunnelError && (
-              <p className="text-sm text-[hsl(var(--error))]">
+              <p className="text-sm text-[hsl(var(--error-text))]">
                 {t('admin:dashboard.loadError', '加载失败，请重试')}
               </p>
             )}
@@ -314,7 +314,7 @@ export default function AdminDashboard() {
                   )}
 
                   {allUpgradeSources.length > 0 && (
-                    <div className="overflow-x-auto rounded-md border border-[hsl(var(--separator-color)/0.45)]">
+                    <div tabIndex={0} className="overflow-x-auto rounded-md border border-[hsl(var(--separator-color)/0.45)]">
                       <table className="w-full min-w-[760px] text-sm">
                         <thead className="bg-[hsl(var(--bg-tertiary))] text-[hsl(var(--text-secondary))]">
                           <tr>
@@ -355,7 +355,7 @@ export default function AdminDashboard() {
                   {hasMoreUpgradeSources && (
                     <button
                       type="button"
-                      className="text-sm text-[hsl(var(--accent-primary))] hover:underline"
+                      className="text-sm text-[var(--admin-accent-text)] hover:underline"
                       onClick={() => setShowAllUpgradeSources((prev) => !prev)}
                     >
                       {showAllUpgradeSources
@@ -386,7 +386,7 @@ export default function AdminDashboard() {
               )}
 
               {!upgradeConversionLoading && upgradeConversionError && (
-                <p className="mt-2 text-sm text-[hsl(var(--error))]">
+                <p className="mt-2 text-sm text-[hsl(var(--error-text))]">
                   {t('admin:dashboard.loadError', '加载失败，请重试')}
                 </p>
               )}
@@ -480,7 +480,7 @@ export default function AdminDashboard() {
                   )}
 
                   {allConversionSources.length > 0 && (
-                    <div className="overflow-x-auto rounded-md border border-[hsl(var(--separator-color)/0.45)]">
+                    <div tabIndex={0} className="overflow-x-auto rounded-md border border-[hsl(var(--separator-color)/0.45)]">
                       <table className="w-full min-w-[560px] text-sm">
                         <thead className="bg-[hsl(var(--bg-tertiary))] text-[hsl(var(--text-secondary))]">
                           <tr>
@@ -515,7 +515,7 @@ export default function AdminDashboard() {
                   {hasMoreConversionSources && (
                     <button
                       type="button"
-                      className="text-sm text-[hsl(var(--accent-primary))] hover:underline"
+                      className="text-sm text-[var(--admin-accent-text)] hover:underline"
                       onClick={() => setShowAllConversionSources((prev) => !prev)}
                     >
                       {showAllConversionSources

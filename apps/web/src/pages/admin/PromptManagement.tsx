@@ -1,3 +1,4 @@
+import { Modal } from "../../components/ui/Modal";
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -138,7 +139,7 @@ export const PromptManagement: React.FC = () => {
                   <span
                     className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
                       prompt.is_active
-                        ? "bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))]"
+                        ? "bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success-text))]"
                         : "bg-[hsl(var(--bg-tertiary))] text-[hsl(var(--text-secondary))]"
                     }`}
                   >
@@ -197,42 +198,50 @@ export const PromptManagement: React.FC = () => {
 
       {/* Delete Confirmation Modal */}
       {deletingPrompt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-[hsl(var(--bg-primary))] border border-[hsl(var(--separator-color))] rounded-lg shadow-xl w-full max-w-md">
-            <div className="flex items-center gap-3 px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
-              <AlertTriangle size={24} className="text-red-500" />
-              <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
-                {t("prompts.delete")}
-              </h2>
-            </div>
-
-            <div className="px-4 sm:px-6 py-4">
-              <p className="text-[hsl(var(--text-secondary))]">
-                {t("prompts.deleteConfirm")}
-              </p>
-              <p className="mt-2 text-sm text-[hsl(var(--text-primary))] font-medium">
-                {deletingPrompt.project_type}
-              </p>
-            </div>
-
-            <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
-              <button
-                onClick={() => setDeletingPrompt(null)}
-                disabled={deleteMutation.isPending}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))] disabled:opacity-50"
-              >
-                {t("common:cancel")}
-              </button>
-              <button
-                onClick={handleDeleteConfirm}
-                disabled={deleteMutation.isPending}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--error))] text-white rounded-lg hover:bg-[hsl(var(--error)/0.9)] active:scale-95 transition-all text-sm disabled:opacity-50"
-              >
-                {deleteMutation.isPending ? t("common:loading") : t("common:confirm")}
-              </button>
-            </div>
+        <Modal
+          open
+          ariaLabel={t("prompts.delete")}
+          onClose={() => setDeletingPrompt(null)}
+          closeOnEscape={!(deleteMutation.isPending)}
+          closeOnBackdropClick={false}
+          showCloseButton={false}
+          bodyClassName="p-0"
+          className="admin-shell rounded-xl!"
+          size="md"
+        >
+          <div className="flex items-center gap-3 px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
+            <AlertTriangle size={24} className="text-red-500" />
+            <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
+              {t("prompts.delete")}
+            </h2>
           </div>
-        </div>
+
+          <div className="px-4 sm:px-6 py-4">
+            <p className="text-[hsl(var(--text-secondary))]">
+              {t("prompts.deleteConfirm")}
+            </p>
+            <p className="mt-2 text-sm text-[hsl(var(--text-primary))] font-medium">
+              {deletingPrompt.project_type}
+            </p>
+          </div>
+
+          <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
+            <button
+              onClick={() => setDeletingPrompt(null)}
+              disabled={deleteMutation.isPending}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))] disabled:opacity-50"
+            >
+              {t("common:cancel")}
+            </button>
+            <button
+              onClick={handleDeleteConfirm}
+              disabled={deleteMutation.isPending}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--error))] text-white rounded-lg hover:bg-[hsl(var(--error)/0.9)] active:scale-95 transition-all text-sm disabled:opacity-50"
+            >
+              {deleteMutation.isPending ? t("common:loading") : t("common:confirm")}
+            </button>
+          </div>
+        </Modal>
       )}
 
     </div>

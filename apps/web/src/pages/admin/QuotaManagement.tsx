@@ -173,13 +173,13 @@ export const QuotaManagement: React.FC = () => {
               <span className="font-medium text-[hsl(var(--text-primary))]">
                 {userQuota?.username ?? "-"}
               </span>
-              <span className="px-2 py-0.5 rounded text-xs font-medium bg-[hsl(var(--accent-primary)/0.15)] text-[hsl(var(--accent-primary))]">
+              <span className="px-2 py-0.5 rounded text-xs font-medium bg-[hsl(var(--accent-primary)/0.15)] text-[var(--admin-accent-text)]">
                 {userQuota?.plan_display_name || userQuota?.plan_name || "-"}
               </span>
               {userQuota?.user_id && (
                 <Link
                   to={adminUserPath(userQuota.user_id)}
-                  className="ml-auto text-sm text-[hsl(var(--accent-primary))] hover:underline"
+                  className="ml-auto text-sm text-[var(--admin-accent-text)] hover:underline"
                 >
                   {t("users.viewDetails")}
                 </Link>

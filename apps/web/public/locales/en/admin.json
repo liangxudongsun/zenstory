@@ -445,6 +445,7 @@
     }
   },
   "plans": {
+    "enablePlan": "Enable this plan",
     "title": "Subscription Plans",
     "subtitle": "Set prices and features for each plan",
     "monthly": "Monthly",

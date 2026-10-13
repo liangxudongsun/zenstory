@@ -1,3 +1,4 @@
+import { Modal } from "../../components/ui/Modal";
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -9,6 +10,7 @@ import { AdminUserLink } from "../../components/admin/AdminUserLink";
 import { formatAdminDateTime } from "../../lib/dateUtils";
 import { toast } from "../../lib/toast";
 import { useAuth } from "../../contexts/AuthContext";
+import { IconButton } from "../../components/ui/IconButton";
 
 export const UserManagement: React.FC = () => {
   const { t } = useTranslation(["admin", "common"]);
@@ -196,7 +198,7 @@ export const UserManagement: React.FC = () => {
           {/* 桌面端表格视图 */}
           <div className="hidden lg:block admin-table-shell">
             <div className="overflow-x-auto">
-              <table className="w-full">
+              <table className="w-full min-w-[880px]">
                 <thead>
                   <tr className="border-b border-[hsl(var(--separator-color))]">
                     <th className="px-4 py-3 text-left text-sm font-semibold text-[hsl(var(--text-primary))]">
@@ -225,17 +227,17 @@ export const UserManagement: React.FC = () => {
                       key={user.id}
                       className="border-b border-[hsl(var(--separator-color))] hover:bg-[hsl(var(--bg-tertiary))]"
                     >
-                      <td className="px-4 py-3 text-sm text-[hsl(var(--text-primary))]">
+                      <td className="min-w-44 max-w-60 break-words px-4 py-3 text-sm text-[hsl(var(--text-primary))]">
                         <AdminUserLink userId={user.id}>{user.username}</AdminUserLink>
                       </td>
-                      <td className="px-4 py-3 text-sm text-[hsl(var(--text-primary))]">
+                      <td className="min-w-60 max-w-80 break-words px-4 py-3 text-sm text-[hsl(var(--text-primary))]">
                         {user.email}
                       </td>
                       <td className="px-4 py-3 text-sm">
                         <span
                           className={`px-2 py-1 rounded text-xs font-medium ${
                             user.is_active
-                              ? "bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success))]"
+                              ? "bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success-text))]"
                               : "bg-[hsl(var(--bg-tertiary))] text-[hsl(var(--text-secondary))]"
                           }`}
                         >
@@ -245,27 +247,23 @@ export const UserManagement: React.FC = () => {
                       <td className="px-4 py-3 text-sm text-[hsl(var(--text-primary))]">
                         {user.is_superuser ? t("users.yes") : t("users.no")}
                       </td>
-                      <td className="px-4 py-3 text-sm text-[hsl(var(--text-secondary))]">
+                      <td className="whitespace-nowrap px-4 py-3 text-sm text-[hsl(var(--text-secondary))]">
                         {formatDate(user.created_at)}
                       </td>
                       <td className="px-4 py-3 text-sm">
                         <div className="flex items-center gap-2">
-                          <button
+                          <IconButton
                             onClick={() => handleEditClick(user)}
-                            className="p-1.5 hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
-                            title={t("users.edit")}
-                          >
-                            <Edit size={16} className="text-[hsl(var(--text-primary))]" />
-                          </button>
+                            label={t("users.edit")}
+                            icon={<Edit size={16} />}
+                          />
                           {canDeactivate(user) && (
-                            <button
+                            <IconButton
                               onClick={() => handleDeactivateClick(user)}
-                              className="p-1.5 hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
-                              title={t("users.deactivate")}
-                              aria-label={t("users.deactivate")}
-                            >
-                              <UserX size={16} className="text-red-500" />
-                            </button>
+                              label={t("users.deactivate")}
+                              tone="danger"
+                              icon={<UserX size={16} />}
+                            />
                           )}
                         </div>
                       </td>
@@ -312,127 +310,143 @@ export const UserManagement: React.FC = () => {
 
       {/* 编辑对话框 */}
       {editingUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-[hsl(var(--bg-primary))] border border-[hsl(var(--separator-color))] rounded-lg shadow-xl w-full max-w-md">
-            {/* 对话框头部 */}
-            <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
-              <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
-                {t("users.editUser")}
-              </h2>
-              <button
-                onClick={() => setEditingUser(null)}
-                disabled={updateMutation.isPending}
-                aria-label={t("common:close")}
-                className="p-2.5 touch-target hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
-              >
-                <X size={20} className="text-[hsl(var(--text-secondary))]" />
-              </button>
+        <Modal
+          open
+          ariaLabel={t("users.editUser")}
+          onClose={() => setEditingUser(null)}
+          closeOnEscape={!(updateMutation.isPending)}
+          closeOnBackdropClick={false}
+          showCloseButton={false}
+          bodyClassName="p-0"
+          className="admin-shell rounded-xl!"
+          size="md"
+        >
+          {/* 对话框头部 */}
+          <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
+            <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
+              {t("users.editUser")}
+            </h2>
+            <button
+              onClick={() => setEditingUser(null)}
+              disabled={updateMutation.isPending}
+              aria-label={t("common:close")}
+              className="p-2.5 touch-target hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
+            >
+              <X size={20} className="text-[hsl(var(--text-secondary))]" />
+            </button>
+          </div>
+
+          {/* 表单 */}
+          <div className="px-4 sm:px-6 py-4 space-y-4 max-h-[60vh] overflow-y-auto">
+            <div>
+              <label htmlFor="admin-users-username" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                {t("users.username")}
+              </label>
+              <input id="admin-users-username"
+                type="text"
+                value={formData.username}
+                onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))]"
+              />
             </div>
 
-            {/* 表单 */}
-            <div className="px-4 sm:px-6 py-4 space-y-4 max-h-[60vh] overflow-y-auto">
-              <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                  {t("users.username")}
-                </label>
-                <input
-                  type="text"
-                  value={formData.username}
-                  onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                  className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
-                  {t("users.email")}
-                </label>
-                <input
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))]"
-                />
-              </div>
-
-              <div className="space-y-3">
-                <TouchCheckbox
-                  checked={formData.is_active ?? false}
-                  disabled={editingUser.id === currentUser?.id || updateMutation.isPending}
-                  onChange={(checked) => setFormData({ ...formData, is_active: checked })}
-                  label={t("users.isActive")}
-                />
-                <TouchCheckbox
-                  checked={formData.is_superuser ?? false}
-                  disabled={editingUser.id === currentUser?.id || updateMutation.isPending}
-                  onChange={(checked) => setFormData({ ...formData, is_superuser: checked })}
-                  label={t("users.isSuperuser")}
-                />
-              </div>
+            <div>
+              <label htmlFor="admin-users-email" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                {t("users.email")}
+              </label>
+              <input id="admin-users-email"
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                className="w-full px-3 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary))] text-[hsl(var(--text-primary))]"
+              />
             </div>
 
-            {/* 对话框底部 */}
-            <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
-              <button
-                onClick={() => setEditingUser(null)}
-                disabled={updateMutation.isPending}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))] disabled:opacity-50"
-              >
-                {t("common:cancel")}
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={updateMutation.isPending}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--accent-primary))] text-white rounded-lg hover:opacity-90 active:scale-95 transition-all text-sm disabled:opacity-50"
-              >
-                {updateMutation.isPending ? t("common:loading") : t("common:save")}
-              </button>
+            <div className="space-y-3">
+              <TouchCheckbox
+                checked={formData.is_active ?? false}
+                disabled={editingUser.id === currentUser?.id || updateMutation.isPending}
+                onChange={(checked) => setFormData({ ...formData, is_active: checked })}
+                label={t("users.isActive")}
+              />
+              <TouchCheckbox
+                checked={formData.is_superuser ?? false}
+                disabled={editingUser.id === currentUser?.id || updateMutation.isPending}
+                onChange={(checked) => setFormData({ ...formData, is_superuser: checked })}
+                label={t("users.isSuperuser")}
+              />
             </div>
           </div>
-        </div>
+
+          {/* 对话框底部 */}
+          <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
+            <button
+              onClick={() => setEditingUser(null)}
+              disabled={updateMutation.isPending}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))] disabled:opacity-50"
+            >
+              {t("common:cancel")}
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={updateMutation.isPending}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--accent-primary))] text-white rounded-lg hover:opacity-90 active:scale-95 transition-all text-sm disabled:opacity-50"
+            >
+              {updateMutation.isPending ? t("common:loading") : t("common:save")}
+            </button>
+          </div>
+        </Modal>
       )}
 
       {/* 停用确认对话框 */}
       {deactivatingUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-[hsl(var(--bg-primary))] border border-[hsl(var(--separator-color))] rounded-lg shadow-xl w-full max-w-md">
-            {/* 对话框头部 */}
-            <div className="flex items-center gap-3 px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
-              <AlertTriangle size={24} className="text-red-500" />
-              <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
-                {t("users.deactivate")}
-              </h2>
-            </div>
-
-            {/* 确认信息 */}
-            <div className="px-4 sm:px-6 py-4">
-              <p className="text-[hsl(var(--text-secondary))]">
-                {t("users.deactivateConfirm")}
-              </p>
-              <p className="mt-2 text-sm text-[hsl(var(--text-primary))] font-medium">
-                {deactivatingUser.username} ({deactivatingUser.email})
-              </p>
-            </div>
-
-            {/* 对话框底部 */}
-            <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
-              <button
-                onClick={() => setDeactivatingUser(null)}
-                disabled={deactivateMutation.isPending}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))] disabled:opacity-50"
-              >
-                {t("common:cancel")}
-              </button>
-              <button
-                onClick={handleDeactivateConfirm}
-                disabled={deactivateMutation.isPending}
-                className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--error))] text-white rounded-lg hover:bg-[hsl(var(--error)/0.9)] active:scale-95 transition-all text-sm disabled:opacity-50"
-              >
-                {deactivateMutation.isPending ? t("common:loading") : t("users.confirmDeactivate")}
-              </button>
-            </div>
+        <Modal
+          open
+          ariaLabel={t("users.deactivate")}
+          onClose={() => setDeactivatingUser(null)}
+          closeOnEscape={!(deactivateMutation.isPending)}
+          closeOnBackdropClick={false}
+          showCloseButton={false}
+          bodyClassName="p-0"
+          className="admin-shell rounded-xl!"
+          size="md"
+        >
+          {/* 对话框头部 */}
+          <div className="flex items-center gap-3 px-4 sm:px-6 py-4 border-b border-[hsl(var(--separator-color))]">
+            <AlertTriangle size={24} className="text-red-500" />
+            <h2 className="text-lg font-semibold text-[hsl(var(--text-primary))]">
+              {t("users.deactivate")}
+            </h2>
           </div>
-        </div>
+
+          {/* 确认信息 */}
+          <div className="px-4 sm:px-6 py-4">
+            <p className="text-[hsl(var(--text-secondary))]">
+              {t("users.deactivateConfirm")}
+            </p>
+            <p className="mt-2 text-sm text-[hsl(var(--text-primary))] font-medium">
+              {deactivatingUser.username} ({deactivatingUser.email})
+            </p>
+          </div>
+
+          {/* 对话框底部 */}
+          <div className="flex flex-col-reverse sm:flex-row items-center justify-end gap-2 px-4 sm:px-6 py-4 border-t border-[hsl(var(--separator-color))]">
+            <button
+              onClick={() => setDeactivatingUser(null)}
+              disabled={deactivateMutation.isPending}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] active:scale-95 transition-all text-sm text-[hsl(var(--text-primary))] disabled:opacity-50"
+            >
+              {t("common:cancel")}
+            </button>
+            <button
+              onClick={handleDeactivateConfirm}
+              disabled={deactivateMutation.isPending}
+              className="w-full sm:w-auto px-4 py-2.5 min-h-11 bg-[hsl(var(--error))] text-white rounded-lg hover:bg-[hsl(var(--error)/0.9)] active:scale-95 transition-all text-sm disabled:opacity-50"
+            >
+              {deactivateMutation.isPending ? t("common:loading") : t("users.confirmDeactivate")}
+            </button>
+          </div>
+        </Modal>
       )}
 
     </div>

@@ -122,7 +122,7 @@ describe("AuditLogPage", () => {
     expect(screen.getByText("auditLogs.detailTitle")).toBeInTheDocument();
     expect(screen.getByText("127.0.0.1")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "common:close" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "common:close" })[0]);
     expect(screen.queryByText("auditLogs.detailTitle")).not.toBeInTheDocument();
   });
 

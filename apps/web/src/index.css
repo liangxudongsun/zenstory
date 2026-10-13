@@ -522,6 +522,30 @@ code, pre, .font-mono {
     }
 
     /* Admin primitives */
+    .admin-shell {
+        --text-secondary: 0 0% 65%;
+        --text-tertiary: var(--text-secondary);
+        --admin-accent-text: hsl(var(--accent-light));
+    }
+
+    .light .admin-shell {
+        --text-secondary: 215 20% 40%;
+        --admin-accent-text: color-mix(in srgb, hsl(var(--accent-dark)) 85%, #000);
+    }
+
+    .admin-shell :is(button.btn-primary, button[class*="bg-[hsl(var(--accent-primary))]"]) {
+        background-color: color-mix(in srgb, hsl(var(--accent-dark)) 85%, #000) !important;
+    }
+
+    .admin-shell :is(button.btn-danger, button[class*="bg-[hsl(var(--error))]"]) {
+        background-color: color-mix(in srgb, hsl(var(--error)) 80%, #000) !important;
+    }
+
+    .admin-shell button[class~="p-2.5"] {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
     .admin-page {
         @apply mx-auto w-full space-y-6;
         max-width: 1280px;
@@ -546,7 +570,7 @@ code, pre, .font-mono {
         @apply rounded-xl border;
         border-color: hsl(var(--separator-color));
         background-color: hsl(var(--bg-secondary));
-        box-shadow: 0 1px 2px hsl(0 0% 0% / 0.08), 0 8px 20px hsl(0 0% 0% / 0.08);
+        box-shadow: 0 1px 2px hsl(0 0% 0% / 0.05);
     }
 
     .admin-surface {
@@ -555,6 +579,23 @@ code, pre, .font-mono {
 
     .admin-table-shell {
         overflow: hidden;
+    }
+
+    .admin-table-shell th {
+        white-space: nowrap;
+    }
+
+    .admin-table-shell td > span[class*="rounded"] {
+        display: inline-flex;
+        white-space: nowrap;
+    }
+
+    @media (max-width: 767px) {
+        .admin-shell input:not([type="checkbox"]):not([type="radio"]),
+        .admin-shell select,
+        .admin-shell textarea {
+            font-size: 16px !important;
+        }
     }
 
     /* Range Input */

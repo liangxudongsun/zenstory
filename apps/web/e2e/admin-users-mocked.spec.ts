@@ -148,7 +148,7 @@ test.describe('Admin users (mocked)', () => {
     await expect.poll(() => searchedTerms.includes('writer')).toBe(true);
 
     await row.locator('button').first().click();
-    const editModal = page.locator('.fixed.inset-0.z-50').first();
+    const editModal = page.getByRole('dialog');
     await editModal.locator('input[type="text"]').fill('writer-updated');
     await editModal.getByRole('button', { name: /保存|save/i }).click();
 
@@ -161,7 +161,7 @@ test.describe('Admin users (mocked)', () => {
     });
 
     await row.getByRole('button', { name: /^(停用用户|Deactivate user)$/i }).click();
-    const deactivateModal = page.locator('.fixed.inset-0.z-50').last();
+    const deactivateModal = page.getByRole('dialog');
     await expect(deactivateModal).not.toContainText(/无法恢复|can't be undone/i);
     await deactivateModal.getByRole('button', { name: /^(停用|Deactivate)$/i }).click();
     await expect.poll(() => deleteCalled).toBe(1);

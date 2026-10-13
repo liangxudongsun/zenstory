@@ -50,9 +50,9 @@ function Segmented<T extends string | number>({
           type="button"
           aria-pressed={value === option}
           onClick={() => onChange(option)}
-          className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${
+          className={`min-h-11 rounded-lg px-3 py-1.5 text-sm transition-colors ${
             value === option
-              ? "bg-[hsl(var(--accent-primary)/0.14)] font-semibold text-[hsl(var(--accent-primary))]"
+              ? "bg-[hsl(var(--accent-primary)/0.14)] font-semibold text-[var(--admin-accent-text)]"
               : "text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))]"
           }`}
         >
@@ -437,7 +437,7 @@ export default function UsageCostPage() {
                       <td className={cellClass}>
                         <button
                           type="button"
-                          className="text-left text-[hsl(var(--accent-primary))] hover:underline"
+                          className="text-left text-[var(--admin-accent-text)] hover:underline"
                           onClick={() => openUser(row)}
                         >
                           {row.username}
@@ -477,6 +477,7 @@ export default function UsageCostPage() {
       </section>
 
       <Modal
+        className="admin-shell"
         open={selectedUserId !== null}
         onClose={closeUser}
         title={detail.data?.username ?? selectedName ?? t("usage.userDetail")}

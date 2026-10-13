@@ -1,6 +1,8 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Shield } from "lucide-react";
+import { ArrowLeft, Menu, Shield } from "lucide-react";
+import { IconButton } from "../ui/IconButton";
+import { Button } from "../ui/Button";
 import { UserAvatar } from "../UserMenu";
 import { useAuth } from "../../contexts/AuthContext";
 import { useTranslation } from "react-i18next";
@@ -21,59 +23,48 @@ export const AdminHeader: React.FC<AdminHeaderProps> = ({ onMenuClick, menuOpen,
   };
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-[hsl(var(--separator-color))] bg-[linear-gradient(180deg,hsl(var(--bg-secondary)/0.96),hsl(var(--bg-secondary)/0.84))] px-3 shadow-[0_1px_0_hsl(var(--separator-color)),0_8px_24px_hsl(0_0%_0%_/_0.12)] backdrop-blur-xl sm:px-4">
+    <header inert={menuOpen ? true : undefined} aria-hidden={menuOpen ? true : undefined} className="flex h-14 shrink-0 items-center justify-between border-b border-[hsl(var(--separator-color))] bg-[hsl(var(--bg-secondary))] px-3 sm:px-4">
       <div className="flex items-center gap-3">
-        <button
+        <IconButton
           ref={menuButtonRef}
           onClick={onMenuClick}
-          className="rounded-lg p-2 text-[hsl(var(--text-primary))] transition-colors hover:bg-[hsl(var(--bg-tertiary))] md:hidden"
-          aria-label={menuOpen ? t("header.closeMenu", "关闭管理菜单") : t("header.openMenu", "打开管理菜单")}
+          className="md:hidden"
+          tone="strong"
+          label={t("header.openMenu", "打开管理菜单")}
+          icon={<Menu size={20} />}
           aria-expanded={menuOpen}
           aria-controls="admin-mobile-navigation"
           type="button"
-        >
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <line x1="3" y1="12" x2="21" y2="12" />
-            <line x1="3" y1="6" x2="21" y2="6" />
-            <line x1="3" y1="18" x2="21" y2="18" />
-          </svg>
-        </button>
+        />
 
         <div className="flex items-center gap-2">
-          <button
+          <Button
             onClick={handleBackToApp}
-            className="hidden items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm text-[hsl(var(--text-secondary))] transition-colors hover:bg-[hsl(var(--bg-tertiary))] sm:flex"
+            variant="ghost"
+            size="touch"
+            className="px-2.5"
+            aria-label={t("header.backToApp", "返回应用")}
             title={t("header.backToApp", "返回应用")}
           >
-            <ArrowLeft size={16} />
-            <span>{t("header.back", "返回")}</span>
-          </button>
+            <span className="flex items-center gap-1.5"><ArrowLeft size={16} /><span className="hidden sm:inline">{t("header.back", "返回")}</span></span>
+          </Button>
 
           <div className="hidden h-7 w-px bg-[hsl(var(--separator-color))] sm:block" />
 
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[hsl(var(--accent-primary)/0.16)] ring-1 ring-[hsl(var(--accent-primary)/0.28)]">
-              <Shield size={17} className="text-[hsl(var(--accent-primary))]" />
+            <div className="hidden h-8 w-8 items-center justify-center rounded-lg bg-[hsl(var(--accent-primary)/0.12)] sm:flex">
+              <Shield size={17} className="text-[var(--admin-accent-text)]" />
             </div>
-            <h1 className="hidden text-sm font-semibold tracking-wide text-[hsl(var(--text-primary))] sm:block">
+            <span className="text-sm font-semibold text-[hsl(var(--text-primary))]">
               {t("header.title", "管理后台")}
-            </h1>
+            </span>
           </div>
         </div>
       </div>
 
       <div className="flex items-center gap-2">
         {user && (
-          <div className="flex items-center gap-2 rounded-lg border border-[hsl(var(--separator-color))] bg-[hsl(var(--bg-tertiary)/0.28)] px-2 py-1.5">
+          <div className="flex items-center gap-2 px-1 py-1.5">
             <span className="hidden text-sm text-[hsl(var(--text-secondary))] md:block">
               {user.username}
             </span>

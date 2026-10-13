@@ -1,6 +1,7 @@
 import React from "react";
-import { useNavigate, useLocation } from "react-router-dom";
-import { LayoutDashboard, Users, FileText, Zap, Ticket, CreditCard, Lightbulb, ScrollText, Package, Coins, CalendarCheck, Gift, ChartBar, Bug, Activity, Receipt, type LucideIcon } from "lucide-react";
+import { Link, useLocation } from "react-router-dom";
+import { ArrowLeft, X, LayoutDashboard, Users, FileText, Zap, Ticket, CreditCard, Lightbulb, ScrollText, Package, Coins, CalendarCheck, Gift, ChartBar, Bug, Activity, Receipt, type LucideIcon } from "lucide-react";
+import { IconButton } from "../ui/IconButton";
 import { useTranslation } from "react-i18next";
 import { inspirationsConfig } from "../../config/inspirations";
 
@@ -22,7 +23,6 @@ interface MenuGroup {
 }
 
 export const AdminSidebar: React.FC<AdminSidebarProps> = ({ onClose }) => {
-  const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation("admin");
 
@@ -90,14 +90,10 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({ onClose }) => {
       ? location.pathname === "/admin" || location.pathname === "/admin/"
       : location.pathname === path || location.pathname.startsWith(`${path}/`);
 
-  const handleNavigate = (path: string) => {
-    navigate(path);
-    onClose?.();
-  };
-
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-[hsl(var(--separator-color))] bg-[linear-gradient(180deg,hsl(var(--bg-tertiary)/0.45),transparent)] px-5 py-4">
+      <div className="relative shrink-0 border-b border-[hsl(var(--separator-color))] px-5 py-4">
+        {onClose && <IconButton className="absolute right-2 top-2" label={t("header.closeMenu", "关闭管理菜单")} icon={<X size={20} />} onClick={onClose} />}
         <h2 className="text-base font-semibold tracking-wide text-[hsl(var(--text-primary))]">
           {t("sidebar.title", "管理后台")}
         </h2>
@@ -122,18 +118,19 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({ onClose }) => {
 
                 return (
                   <li key={item.key}>
-                    <button
-                      onClick={() => handleNavigate(item.path)}
+                    <Link
+                      to={item.path}
+                      onClick={onClose}
                       aria-current={isActive ? "page" : undefined}
-                      className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-sm transition-all ${
+                      className={`flex min-h-10 w-full items-center gap-3 rounded-lg border px-3 py-2 text-sm transition-colors max-md:min-h-11 ${
                         isActive
-                          ? "border-[hsl(var(--accent-primary)/0.32)] bg-[hsl(var(--accent-primary)/0.14)] font-semibold text-[hsl(var(--accent-primary))] shadow-[0_4px_14px_hsl(var(--accent-primary)/0.2)]"
-                          : "border-transparent text-[hsl(var(--text-secondary))] hover:border-[hsl(var(--separator-color))] hover:bg-[hsl(var(--bg-tertiary)/0.7)] hover:text-[hsl(var(--text-primary))]"
+                          ? "border-transparent! bg-[hsl(var(--accent-primary)/0.15)] font-semibold text-[var(--admin-accent-text)]"
+                          : "border-transparent! text-[hsl(var(--text-secondary))] hover:bg-[hsl(var(--bg-tertiary))] hover:text-[hsl(var(--text-primary))]"
                       }`}
                     >
-                      <Icon size={17} />
+                      <Icon size={17} className="shrink-0" />
                       <span className="truncate">{item.label}</span>
-                    </button>
+                    </Link>
                   </li>
                 );
               })}
@@ -141,6 +138,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({ onClose }) => {
           </section>
         ))}
       </nav>
+      {onClose && <div className="shrink-0 border-t border-[hsl(var(--separator-color))] p-3"><Link to="/dashboard" onClick={onClose} className="flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm text-[hsl(var(--text-secondary))] hover:bg-[hsl(var(--bg-tertiary))]"><ArrowLeft size={17} />{t("header.backToApp", "返回应用")}</Link></div>}
     </div>
   );
 };

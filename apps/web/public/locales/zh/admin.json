@@ -445,6 +445,7 @@
     }
   },
   "plans": {
+    "enablePlan": "启用该计划",
     "title": "订阅计划",
     "subtitle": "设置各套餐的价格和权益",
     "monthly": "月付",

@@ -37,11 +37,11 @@ export function UserCard({ user, onEdit, onDeactivate, t }: UserCardProps) {
     <div className="admin-surface space-y-3 p-4">
       {/* 用户名和邮箱 */}
       <div className="space-y-1">
-        <div className="flex items-center justify-between">
-          <h3 className="text-base font-semibold text-[hsl(var(--text-primary))]">
+        <div className="flex flex-wrap items-start gap-2">
+          <h3 className="min-w-0 flex-1 break-words text-sm font-semibold text-[hsl(var(--text-primary))]">
             <AdminUserLink userId={user.id}>{user.username}</AdminUserLink>
           </h3>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
             {/* 超级用户标识 */}
             {user.is_superuser && (
               <span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-medium">
@@ -52,7 +52,7 @@ export function UserCard({ user, onEdit, onDeactivate, t }: UserCardProps) {
             <span
               className={`px-2 py-1 rounded text-xs font-medium ${
                 user.is_active
-                  ? "bg-[hsl(var(--success-light))] text-[hsl(var(--success))] border border-[hsl(var(--success) / 0.3)]"
+                  ? "bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success-text))] border border-[hsl(var(--success)/0.3)]"
                   : "bg-[hsl(var(--muted))] text-[hsl(var(--foreground-muted))] border border-[hsl(var(--separator-color) / 0.3)]"
               }`}
             >
@@ -60,7 +60,7 @@ export function UserCard({ user, onEdit, onDeactivate, t }: UserCardProps) {
             </span>
           </div>
         </div>
-        <p className="text-sm text-[hsl(var(--text-secondary))]">{user.email}</p>
+        <p className="break-words text-sm text-[hsl(var(--text-secondary))]">{user.email}</p>
       </div>
 
       {/* 创建时间 */}
@@ -80,7 +80,7 @@ export function UserCard({ user, onEdit, onDeactivate, t }: UserCardProps) {
         {onDeactivate && (
           <button
             onClick={() => onDeactivate(user)}
-            className="flex-1 flex items-center justify-center gap-2 min-h-11 py-2.5 px-4 bg-[hsl(var(--error) / 0.05)] border border-[hsl(var(--error) / 0.3)] rounded-lg hover:bg-[hsl(var(--error) / 0.1)] active:scale-95 transition-all text-sm text-[hsl(var(--error))] hover:text-[hsl(var(--error) / 0.8)]"
+            className="flex-1 flex items-center justify-center gap-2 min-h-11 py-2.5 px-4 bg-[hsl(var(--error) / 0.05)] border border-[hsl(var(--error) / 0.3)] rounded-lg hover:bg-[hsl(var(--error) / 0.1)] active:scale-95 transition-all text-sm text-[hsl(var(--error-text))] hover:text-[hsl(var(--error) / 0.8)]"
           >
             <UserX size={16} />
             <span>{t("users.deactivate")}</span>

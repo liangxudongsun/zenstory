@@ -98,3 +98,10 @@ Evidence: `AdminDashboard.tsx`, `StatsCard.tsx`, `AdminPageState.tsx`, admin HSL
 - Cards adapt from two columns on phones to four on desktop; controls have 44px touch targets, selected state, visible keyboard focus. Loading/error/retry are independent of legacy operational statistics.
 - Copy is bilingual and factual, explicitly labels incomplete days, cohort observation windows, estimates and event counts. No invented visitors, retention, profit or attribution. Local component, API contract, type/lint and build checks precede publication.
 - [ ] Embedding account funding is external; provider balance must be restored before reindexing can recover missing search entries. Owner: operator.
+
+## Admin controls
+Keep the six task groups, real route links and existing metric definitions. Only the selected navigation row carries the accent tint; ordinary rows have no visible border or elevation. Mobile navigation has an internal close control and an app-return link, isolates the background while open, and returns focus to the trigger. A new pathname resets the independent main scroll; query-filter changes do not.
+
+Admin section/card/dialog headings are sans, while page H1 stays serif. Panels use a fine border and restrained shadow; non-interactive metric cards have no pointer cursor. Table headings and status badges stay on one line; long user names and emails wrap in their own columns/cards. Secondary and accent text remain legible in both themes and follow the selected accent hue. Mobile form text is at least 16px and primary navigation/retry controls are at least 44px.
+
+Legacy admin overlays reuse `ui/Modal` with their original content and pending rules. A custom visible header supplies the dialog's accessible name; body spacing can be overridden when the caller owns the header/body/footer layout. Keep focus containment, Escape, return focus and scroll locking; block Escape during submission and preserve each caller's backdrop policy. Visible field labels must identify their controls, including wrapped selects.

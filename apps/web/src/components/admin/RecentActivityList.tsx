@@ -74,7 +74,7 @@ export function RecentActivityList() {
 
   if (error) {
     return (
-      <div className="rounded-xl border border-[hsl(var(--error)/0.28)] bg-[hsl(var(--error)/0.1)] p-4 text-sm text-[hsl(var(--error))]">
+      <div className="rounded-xl border border-[hsl(var(--error)/0.28)] bg-[hsl(var(--error)/0.1)] p-4 text-sm text-[hsl(var(--error-text))]">
         {t('admin:dashboard.loadError', '加载失败，请重试')}
       </div>
     );

@@ -53,7 +53,7 @@ export function GrowthOverview({ days }: { days: 7 | 14 | 30 }) {
           <div className="admin-surface p-4">
             <h3 className="font-semibold mb-2">{t('admin:growth.daily')}</h3>
             <p className="text-xs text-[hsl(var(--text-secondary))] mb-3">{t('admin:growth.dailyDefinition')}</p>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto" tabIndex={0} role="region" aria-label={t('admin:growth.daily')}>
               <table className="w-full min-w-[600px] text-sm">
                 <thead><tr className="text-[hsl(var(--text-secondary))]">
                   <th scope="col" className="text-left py-2">{t('admin:growth.date')}</th>
