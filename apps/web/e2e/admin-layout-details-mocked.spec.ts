@@ -59,6 +59,27 @@ async function assertLocalContent(page: Page, label: string) {
 
 test.describe('Admin detailed responsive layout', () => {
   test.setTimeout(180_000);
+  for (const language of ['zh', 'en']) {
+    for (const width of [390, 768]) {
+      test(`${language} ${width}px: feedback status remains fully readable next to a long identity`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 844 });
+        await page.addInitScript(lang => localStorage.setItem('zenstory-language', lang), language);
+        await bootstrapAdminSession(page);
+        await page.goto('/admin/feedback');
+        await expect(page.getByText(longText, { exact: true })).toBeVisible();
+        const select = page.locator('select').last();
+        const geometry = await select.evaluate(el => {
+          const style = getComputedStyle(el);
+          const canvas = document.createElement('canvas');
+          const context = canvas.getContext('2d')!;
+          context.font = style.font;
+          return { available: el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+            text: context.measureText(el.selectedOptions[0].text).width };
+        });
+        expect(geometry.available).toBeGreaterThanOrEqual(geometry.text);
+      });
+    }
+  }
   test('phone admin filter chevrons remain inside their select borders', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await bootstrapAdminSession(page);

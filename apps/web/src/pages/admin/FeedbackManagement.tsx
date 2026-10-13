@@ -275,7 +275,7 @@ export default function FeedbackManagement() {
                 className="rounded-xl border border-[hsl(var(--separator-color))] bg-[hsl(var(--bg-secondary))] p-4 shadow-sm"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium text-[hsl(var(--text-primary))]">
                       <AdminUserLink userId={feedback.user_id}>{feedback.username}</AdminUserLink> · {feedback.email}
                     </div>
@@ -284,11 +284,13 @@ export default function FeedbackManagement() {
                     </div>
                   </div>
                   <AdminSelect
+                    aria-label={t("feedback.columns.status")}
+                    wrapperClassName="w-36 shrink-0"
                     value={feedback.status}
                     onChange={(event) =>
                       handleStatusChange(feedback, event.target.value as AdminFeedbackStatus)
                     }
-                    className="h-9 text-xs"
+                    className="min-h-11 text-sm"
                   >
                     {statusOrder.map((status) => (
                       <option key={status} value={status}>
