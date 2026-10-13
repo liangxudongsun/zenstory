@@ -727,6 +727,9 @@ async def test_edit_file_forwards_continue_on_error():
         edits=[{"op": "append", "text": "x"}],
         continue_on_error=True,
         normalize_quotes=True,
+        read_snapshot_fn=None,
+        exact_only=True,
+        report_author_edits=True,
     )
 
 
@@ -753,6 +756,9 @@ async def test_edit_file_accepts_file_id_alias():
         edits=[{"op": "append", "text": "x"}],
         continue_on_error=False,
         normalize_quotes=True,
+        read_snapshot_fn=None,
+        exact_only=True,
+        report_author_edits=True,
     )
 
 

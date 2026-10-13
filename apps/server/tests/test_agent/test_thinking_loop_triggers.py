@@ -328,10 +328,11 @@ async def test_reviewer_is_told_which_files_author_edit_protection_refused():
 
     assert len(reviewer_messages) == 1
     assert "outline-1" in reviewer_messages[0]
-    assert "没改成" in reviewer_messages[0]
-    # 只说发生了什么，不承诺本请求后面工具一定拒绝：作者中途 steering 同意后守卫会放行。
+    # 2026-10-12 起只有删除 / 整份重写会被拒；只说发生了什么，修改照常用 edit_file。
+    assert "删除或整份重写" in reviewer_messages[0] and "不要因此要求返工" in reviewer_messages[0]
     assert "工具不会修改" not in reviewer_messages[0]
-    assert "以作者的话为准" in reviewer_messages[0]
+    # 不引导用 edit_file 把新内容写进作者那一集（整份覆盖仍受保护）。
+    assert "edit_file" not in reviewer_messages[0]
 
 
 @pytest.mark.asyncio

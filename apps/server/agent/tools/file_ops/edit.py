@@ -12,7 +12,7 @@ Extracted from the monolithic file_executor.py for better maintainability.
 
 import asyncio
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
 
@@ -104,11 +104,14 @@ EDIT_ERROR_NO_CHANGE = "no_change"
 EDIT_ERROR_FILE_BUSY = "file_busy"
 EDIT_ERROR_PERMISSION_DENIED = "permission_denied"
 EDIT_ERROR_GENERIC = "edit_failed"
+# 模型读过这个文件之后正文又变了（多半是作者在编辑器里改的）：不在旧正文上改。
+EDIT_ERROR_STALE_CONTENT = "stale_content"
 
 EDIT_ERROR_USER_MESSAGES: dict[str, str] = {
     EDIT_ERROR_ANCHOR_NOT_FOUND: "AI 没在原文里找到要改的那一段，正在重新定位。",
     EDIT_ERROR_ANCHOR_AMBIGUOUS: "要改的这句话在文中出现了好几次，AI 正在确认是哪一处。",
     EDIT_ERROR_FILE_NOT_FOUND: "这个文件已经不存在了，可能刚被删除。",
+    EDIT_ERROR_STALE_CONTENT: "这个文件在 AI 读过之后又被改过（多半是你刚改的），AI 没有在旧内容上改，这一步没有改动。",
 }
 EDIT_ERROR_GENERIC_USER_MESSAGE = "这一步没做成，AI 会换个方式继续。"
 
@@ -144,6 +147,61 @@ class EditFileError(ValueError):
             "edits_applied": 0,
             "mutation_applied": False,
         }
+
+
+class StaleContentError(EditFileError):
+    """模型读到的正文和锁内重读的当前正文不一致：不写库、不重试，把新改动告诉模型。
+
+    complete：读过之后的改动都完整列出来了（处数没超、没有因为太长只显示改动附近）。这时调用方可以把
+    「模型看到的正文」更新为当前正文；否则要模型先读全文。
+    """
+
+    MAX_LISTED = 6
+
+    def __init__(self, seen: str, current: str):
+        self.current_content = current
+        changes, truncated = _line_changes(seen, current)
+        self.complete = len(changes) <= self.MAX_LISTED and not truncated
+        listed = "\n".join(changes[: self.MAX_LISTED])
+        if self.complete:
+            tail = "请基于现在的正文重新给出修改，新改的地方保留，不要改回去。"
+        else:
+            tail = (
+                "改动没有全部列出（不完整）。先用 query_files 按 id 读一次全文，"
+                "再基于现在的正文给出修改，新改的地方保留。"
+            )
+        super().__init__(
+            "这个文件在你读过之后又被改过（可能是作者刚在编辑器里改的，也可能是本请求里别的步骤写的），"
+            f"这次修改没有执行，一处都没改。读过之后的改动：\n{listed}\n{tail}",
+            error_type=EDIT_ERROR_STALE_CONTENT,
+        )
+
+
+def _line_changes(before: str, after: str) -> tuple[list[str], bool]:
+    """两份正文之间逐段落的改动说明，以及有没有因为太长只显示了改动附近。"""
+    import difflib
+
+    from agent.tools.author_changes import pair_clip
+
+    old_lines, new_lines = before.split("\n"), after.split("\n")
+    out: list[str] = []
+    truncated = False
+    matcher = difflib.SequenceMatcher(None, old_lines, new_lines, autojunk=False)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        removed, added, cut = pair_clip(
+            "\n".join(line for line in old_lines[i1:i2] if line.strip()),
+            "\n".join(line for line in new_lines[j1:j2] if line.strip()),
+        )
+        truncated = truncated or cut
+        if removed and added:
+            out.append(f"- 「{removed}」→「{added}」")
+        elif added:
+            out.append(f"- 新加了：「{added}」")
+        elif removed:
+            out.append(f"- 删掉了：「{removed}」")
+    return out or ["- 只改了空白或换行"], truncated
 
 
 class EditBatchError(EditFileError):
@@ -361,6 +419,50 @@ def stage_pre_ai_write_backup(session: Session, file_id: str, current_content: s
         return False
 
 
+def attach_author_edits_for_agent(session: Session, file: Any, row: dict[str, Any]) -> None:
+    """应用内 agent 按 id 读全文时，在返回行里附上作者在 AI 之后的手改（agent/tools/author_changes.py）。
+
+    只在请求上下文里有快照容器（应用内对话）时算，外部 Agent API 与列表查询不受影响；出错时什么也不加。
+    """
+    try:
+        from agent.tools.mcp_tools import ToolContext
+
+        if not ToolContext.tracks_reads():
+            return
+        from agent.tools.author_changes import author_changes, author_edits_payload
+
+        changes = author_changes(session, file)
+        if changes is not None:
+            row["author_edits"] = author_edits_payload(changes)
+    except Exception as exc:  # pragma: no cover - 防御：辅助信息不能拖垮读取
+        logger.debug("Failed to attach author edits", extra={"file_id": getattr(file, "id", ""), "error": str(exc)})
+
+
+@contextmanager
+def written_snapshot_for_commit(file_id: str, content: str | None, *, full: bool = False) -> Iterator[None]:
+    """包住本请求的提交：提交前就把快照更新成要写下的正文，提交失败再还原。
+
+    PostgreSQL 上提交即放锁，同一文件的下一个并行写入立刻拿到锁、在锁内比对快照；
+    提交之后才记快照，它会把这次自己的写入误判成「别人改了」。没有请求上下文时什么也不做。
+    """
+    from agent.tools.mcp_tools import ToolContext
+
+    state = None
+    try:
+        state = ToolContext.written_snapshot_state(file_id)
+        ToolContext.record_written_snapshot(file_id, content, full=full)
+    except Exception as exc:  # pragma: no cover - 防御：辅助信息不能拖垮写入
+        logger.debug("Failed to record written snapshot", extra={"file_id": file_id, "error": str(exc)})
+    try:
+        yield
+    except BaseException:
+        try:
+            ToolContext.restore_written_snapshot(file_id, state)
+        except Exception as exc:  # pragma: no cover
+            logger.debug("Failed to restore written snapshot", extra={"file_id": file_id, "error": str(exc)})
+        raise
+
+
 def remember_pre_write_content(file_id: str, content: str | None) -> None:
     """记下本请求第一次写入前的正文；失败只记 DEBUG，不影响写入。"""
     try:
@@ -399,6 +501,9 @@ class FileEditor:
         edits: list[dict[str, Any]],
         continue_on_error: bool = False,
         normalize_quotes: bool = False,
+        read_snapshot_fn: Callable[[], str | None] | None = None,
+        exact_only: bool = False,
+        report_author_edits: bool = False,
     ) -> dict[str, Any]:
         """
         Apply precise edits to a file's content.
@@ -429,6 +534,17 @@ class FileEditor:
                 normalize double quotes in each edit's new text (replace new,
                 insert/append/prepend text) to the file's quote style; text
                 outside the edits is never touched.
+            read_snapshot_fn: In-app agent writes only. Returns the content the
+                model last saw for this file; called after the locked re-read
+                (so an earlier write of the same request is already recorded).
+                When it differs, raise StaleContentError instead of editing an
+                outdated copy.
+            exact_only: In-app agent writes only, for files the model has not
+                seen this request: locating ops (replace/delete/insert_*) only
+                match the old/anchor text verbatim, whatever match_mode says.
+            report_author_edits: In-app agent writes only. Add
+                ``author_edits_touched`` when the edit rewrote or removed
+                paragraphs the author wrote after the AI (agent/tools/author_changes.py).
 
         Returns:
             Dict with edit results:
@@ -454,15 +570,20 @@ class FileEditor:
         # 时布尔会被序列化成 "false"/"0"），朴素真值判断会把它们判真。
         continue_on_error = coerce_bool(continue_on_error, default=False)
 
+        options = {
+            "read_snapshot_fn": read_snapshot_fn,
+            "exact_only": exact_only,
+            "report_author_edits": report_author_edits,
+        }
         if is_postgres:
-            return self._edit_file_impl(id, edits, continue_on_error, normalize_quotes)
+            return self._edit_file_impl(id, edits, continue_on_error, normalize_quotes, **options)
         # SQLite has no row locks: serialize same-file read-modify-write with
         # the in-process per-file lock so a concurrent edit (parallel_execute
         # runs each task on its own session/thread) cannot interleave between
         # our read and commit. 获取方式见 acquire_file_write_lock：事件循环线程
         # 上只做有界等待，避免整个进程陪着一个工作线程的长事务停摆。
         with acquire_file_write_lock(id):
-            return self._edit_file_impl(id, edits, continue_on_error, normalize_quotes)
+            return self._edit_file_impl(id, edits, continue_on_error, normalize_quotes, **options)
 
     def _edit_file_impl(
         self,
@@ -470,6 +591,10 @@ class FileEditor:
         edits: list[dict[str, Any]],
         continue_on_error: bool,
         normalize_quotes: bool = False,
+        *,
+        read_snapshot_fn: Callable[[], str | None] | None = None,
+        exact_only: bool = False,
+        report_author_edits: bool = False,
     ) -> dict[str, Any]:
         # Get file. On PostgreSQL take a row lock so concurrent edit_file tasks
         # (parallel_execute runs each on its own session) targeting the SAME file
@@ -479,6 +604,15 @@ class FileEditor:
         # UPDATE) so the version snapshot's FK insert from its independent
         # session (KEY SHARE on this row) is not blocked by the held lock.
         from database import is_postgres
+
+        # 作者在 AI 之后亲手写的段落（改到了要如实告诉模型和作者）；只在本应用的 agent 写入时算。
+        # 回放版本链较慢，放在加锁之前，不拖长同一文件上其它写入的等待；锁内正文变了再重算。
+        author_blame = None
+        blamed_content: str | None = None
+        if report_author_edits:
+            blamed_content = self.session.exec(select(File.content).where(File.id == id)).first()
+            if blamed_content is not None:
+                author_blame = self._author_blame(id, blamed_content)
 
         if is_postgres:
             file = self.session.exec(
@@ -509,6 +643,14 @@ class FileEditor:
         check_file_access_in_tool_context(self.session, file, self.user_id)
 
         old_content = file.content or ""
+        # 锁内重读的正文和模型看到的不一样：作者（或别的写入）在模型读过之后又改了。
+        # 不在旧正文上做近似匹配，否则作者刚改的字可能被模型的旧写法覆盖。快照在锁内取：
+        # 本请求里先拿到锁的那次写入已经把快照更新成它写下的正文，不会误判成别人改的。
+        read_snapshot = read_snapshot_fn() if read_snapshot_fn is not None else None
+        if read_snapshot is not None and read_snapshot != old_content:
+            raise StaleContentError(read_snapshot, old_content)
+        if report_author_edits and blamed_content != old_content:
+            author_blame = self._author_blame(file.id, old_content)
         content = old_content
         applied_edits = []
         failed_edits: list[dict[str, Any]] = []
@@ -606,6 +748,10 @@ class FileEditor:
 
                 # Persist normalized op for subsequent logic
                 edit["op"] = op
+                if exact_only and op in ("replace", "delete", "insert_after", "insert_before"):
+                    # 本请求没读过这个文件：old / anchor 只按逐字匹配，不拿可能过时的记忆去
+                    # 模糊命中作者刚改过的字（模型给了 match_mode 也一样）。
+                    edit["match_mode"] = "exact"
 
                 if op in ("append", "prepend", "insert_after", "insert_before"):
                     self._require_insert_text(edit, i, op, warnings)
@@ -661,6 +807,8 @@ class FileEditor:
                 error_text = str(e)
                 if not error_text.startswith(f"Edit {i}"):
                     error_text = f"Edit {i}: {error_text}"
+                if exact_only and failed_op in ("replace", "delete", "insert_after", "insert_before"):
+                    error_text += "（本请求还没读过这个文件，只按逐字匹配：先用 query_files 按 id 读一次，再照现在的正文改）"
                 failed_edits.append({
                     "index": i,
                     "error": error_text,
@@ -712,7 +860,8 @@ class FileEditor:
                     exc_info=True,
                     extra={"file_id": id, "error": str(exc)},
                 )
-            self.session.commit()
+            with written_snapshot_for_commit(file.id, content):
+                self.session.commit()
             self.session.refresh(file)
             if before_version_number is not None:
                 undo = {
@@ -749,7 +898,27 @@ class FileEditor:
         }
         if undo is not None:
             result["undo"] = undo
+        if content != old_content and author_blame is not None:
+            from agent.tools.author_changes import touched_author_text
+
+            touched = touched_author_text(author_blame, old_content, content)
+            if touched:
+                result["author_edits_touched"] = touched
         return result
+
+    def _author_blame(self, file_id: str, content: str) -> Any:
+        """content 每一段是谁写的；出错时返回 None（只是少了「改到了作者的字」的提示）。
+
+        在 savepoint 里读：可选信息的查询出错不能让写事务失效。
+        """
+        try:
+            from agent.tools.author_changes import line_blame
+
+            with self.session.begin_nested():
+                return line_blame(self.session, file_id, content)
+        except Exception:
+            logger.warning("Author blame failed; edit continues without it", exc_info=True, extra={"file_id": file_id})
+            return None
 
     @staticmethod
     def _normalize_placed_spans(content: str, spans: list[tuple[int, int]], quote_style: str | None) -> str:

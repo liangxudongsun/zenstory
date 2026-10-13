@@ -990,6 +990,45 @@ describe('Editor', () => {
     expect(api.fileApi.update).not.toHaveBeenCalled()
   })
 
+  it('saves an accepted natural-polish review as AI polish, not as the author\'s own edits', async () => {
+    // The server counts "AI edit (reviewed)" (after the agent wrote the file) as the author's choice;
+    // a polish review's diff is AI text the author accepted.
+    const enterDiffReview = vi.fn()
+    const exitDiffReview = vi.fn()
+    const applyDiffReviewChanges = vi.fn().mockReturnValue('Polished content')
+    vi.mocked(api.fileApi.update).mockResolvedValue({ ...mockFile, content: 'Polished content' })
+    mockProjectContext = createMockProjectContext({
+      selectedItem: { id: 'file-1', type: 'draft', title: 'Test Chapter' },
+      enterDiffReview,
+      exitDiffReview,
+      applyDiffReviewChanges,
+    })
+    const UnmemoizedEditor = (Editor as unknown as { type: React.ComponentType }).type
+    const { rerender } = render(<UnmemoizedEditor />)
+    await waitFor(() => expect(screen.getByTestId('content-input')).toHaveValue('Test content'))
+
+    fireEvent.click(screen.getByTestId('natural-polish-review-button'))
+    mockProjectContext = {
+      ...mockProjectContext,
+      diffReviewState: {
+        isReviewing: true,
+        fileId: 'file-1',
+        originalContent: 'Test content',
+        modifiedContent: 'Polished content',
+        pendingEdits: [{ id: 'edit-0', op: 'replace', oldText: 'Test', newText: 'Polished', status: 'accepted' }],
+      },
+    }
+    rerender(<UnmemoizedEditor />)
+    fireEvent.click(screen.getByTestId('finish-review-button'))
+
+    await waitFor(() =>
+      expect(api.fileApi.update).toHaveBeenCalledWith(
+        'file-1',
+        expect.objectContaining({ change_type: 'ai_edit', change_summary: 'AI polish (reviewed)' })
+      )
+    )
+  })
+
   it('writes the original back when every agent edit is rejected', async () => {
     // edit_file 已经把 AI 文本落库，编辑器也重新加载成了 AI 文本。
     vi.mocked(api.fileApi.get).mockResolvedValue({ ...mockFile, content: 'AI content', updated_at: 'server-v2' })

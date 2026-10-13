@@ -69,7 +69,7 @@ export function describeVersionSummary(summary: string | null | undefined, t: Tr
   if (text === 'Before AI edit') {
     return t('versions:summary.beforeAiEdit', { defaultValue: 'AI 修改前自动备份' });
   }
-  if (text === 'AI edit (reviewed)') {
+  if (text === 'AI edit (reviewed)' || text === 'AI polish (reviewed)') {
     return t('versions:summary.aiEditReviewed', { defaultValue: 'AI 修改（已审阅）' });
   }
   if (text === 'Snapshot baseline version' || text === 'Snapshot synchronized live content') {

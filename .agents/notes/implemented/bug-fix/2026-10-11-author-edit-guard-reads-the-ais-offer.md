@@ -82,3 +82,5 @@ AI 把几个改法分节列出（「**改法一｜…**」「**改法二｜…**
 ### 补充（2026-10-12 复测，场景 C2）
 
 这次改法写成加粗的编号小标题（「**1. 悬念前置：…**」），下面各带「效果 / 保留 / 风险」小点，结尾是一句不带问号的话，`previous_offer_items` 一项都没认出来，作者回「1」又被拒。分节方案标题现在也认加粗或 Markdown 标题格式的编号小节（`_NUMBERED_HEADING_RE`），只看原始行的格式，普通的「1. …」列表行不当小节。回归用例 `test_bold_numbered_headings_are_the_offer_items`（改动前失败）。
+
+> 2026-10-12：edit_file 不再走这套放行（作者改了什么交给模型，见 [author-edits-shown-not-guessed](../architecture/2026-10-12-author-edits-shown-not-guessed.md)）；提议解析只剩 create_file 复用同名剧集（整份覆盖）在用。

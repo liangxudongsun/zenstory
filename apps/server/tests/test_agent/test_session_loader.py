@@ -822,7 +822,7 @@ class TestCrossTurnWorkingSet:
         session_loader_test_data,
     ):
         """审计 P1-3：作者把 AI 写的第 3 章「老周」手改成「老秦」，下一轮 AI 把它改了回去。
-        工作集里要告诉 agent 这份正文是作者改过的、以作者为准。"""
+        工作集里要告诉 agent 这份正文是作者改过的，<author_edits> 里列出具体改了什么。"""
         from services.features.file_version_service import FileVersionService
 
         project = session_loader_test_data["project"]
@@ -849,13 +849,30 @@ class TestCrossTurnWorkingSet:
 
         loader = SessionLoader(project_id=project.id, user_id=session_loader_test_data["user"].id)
         result = loader.load_chat_session(db_session)
+        loader.attach_author_edits(db_session, result)
         loader.attach_working_set(db_session, result)
         text = result.working_set_context
 
         edited_line = next(line for line in text.splitlines() if edited.id in line)
         untouched_line = next(line for line in text.splitlines() if untouched.id in line)
-        assert "作者手动改过" in edited_line and "以作者为准" in edited_line
-        assert "作者手动改过" not in untouched_line
+        assert "亲手改过" in edited_line and "<author_edits>" in edited_line
+        assert "亲手改过" not in untouched_line
+        # 具体改了什么：AI 写的原句 → 作者的写法；没改过的文件不列。
+        assert "「老周在收摊。」→「老秦在收摊。」" in result.author_edits_context
+        assert untouched.id not in result.author_edits_context
+        # 本轮开始时模型看到全文的正文：edit_file 据此拒绝基于旧正文的修改。
+        assert result.read_snapshots == {edited.id: "老秦在收摊。", untouched.id: "老周的摊子。"}
+
+        # 超出工作集预算、只列了标题的文件：模型没看到全文，不记快照（它的 edit_file 只按逐字匹配）。
+        seen: dict[str, str] = {}
+        loader._build_working_set_context(
+            session=db_session,
+            refs=result.working_set_refs,
+            full_in_context_ids=set(),
+            max_files=1,
+            rendered_full_contents=seen,
+        )
+        assert len(seen) == 1
 
     def test_working_set_labels_use_the_editor_word_count_not_characters(
         self,

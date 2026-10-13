@@ -48,6 +48,7 @@ const mockT = vi.fn((key: string, options?: Record<string, unknown>) => {
     'chat:tool.failed': 'Tool failed',
     'chat:tool.no_files_found': 'No files found',
     'chat:tool.edit_success': 'Edit success',
+    'chat:tool.edit_touched_author_edits': 'Changed text you edited yourself',
     'chat:tool.view_edit_details': 'View edit details',
     'chat:tool.status_updated': 'Status updated',
     'chat:tool.processing_ellipsis': 'Processing...',
@@ -299,6 +300,76 @@ describe('ToolResultCard', () => {
         />
       )
       expect(screen.getByText('Edit success')).toBeInTheDocument()
+    })
+
+    it('says when an edit rewrote text the author wrote and opens the details', () => {
+      const { container } = render(
+        <ToolResultCard
+          type="tool_result"
+          toolName="edit_file"
+          result={{
+            data: {
+              id: 'file-1',
+              author_edits_touched: [{ before: '你也配问这个？', after: '你也配？' }],
+              details: [
+                // Fuzzy match: the card shows the text that was actually replaced, not the model's quote.
+                { op: 'replace', old_preview: '你配吗。', matched_original: '你也配问这个？', new_preview: '你也配？' },
+              ],
+            },
+          }}
+        />
+      )
+      expect(screen.getByText('Changed text you edited yourself')).toBeInTheDocument()
+      expect(container.querySelector('details')?.open).toBe(true)
+      expect(screen.getByText('你也配问这个？')).toBeInTheDocument()
+      expect(screen.queryByText('你配吗。')).not.toBeInTheDocument()
+    })
+
+    it('says when a parallel edit_file subtask rewrote text the author wrote', () => {
+      render(
+        <ToolResultCard
+          type="tool_result"
+          toolName="parallel_execute"
+          result={{
+            data: {
+              total_tasks: 2,
+              completed: 2,
+              failed: 0,
+              tasks: [
+                { id: 't1', type: 'edit_file', status: 'completed', description: '第2集',
+                  result: { status: 'success', data: { author_edits_touched: [{ before: 'a', after: 'b' }] } } },
+                { id: 't2', type: 'edit_file', status: 'completed', description: '第3集',
+                  result: { status: 'success', data: {} } },
+              ],
+            },
+          }}
+        />
+      )
+      expect(screen.getAllByText('Changed text you edited yourself')).toHaveLength(1)
+    })
+
+    it('shows a stale-content refusal as redoing on the author\'s text, not as a failure', () => {
+      render(
+        <ToolResultCard
+          type="tool_result"
+          toolName="edit_file"
+          result={{ status: 'error', error_type: 'stale_content', error: 'internal text for the model' }}
+        />
+      )
+      expect(screen.queryByText(/failed/i)).not.toBeInTheDocument()
+      expect(screen.queryByText('internal text for the model')).not.toBeInTheDocument()
+    })
+
+    it('keeps an ordinary edit card collapsed without the note', () => {
+      const { container } = render(
+        <ToolResultCard
+          type="tool_result"
+          toolName="edit_file"
+          result={{ data: { id: 'file-1', details: [{ op: 'append', text_preview: '续写' }] } }}
+        />
+      )
+      expect(screen.queryByText('Changed text you edited yourself')).not.toBeInTheDocument()
+      expect(container.querySelector('details')?.open).toBe(false)
     })
 
     it('shows undo only for an edit_file result with immutable provenance', async () => {
@@ -999,6 +1070,7 @@ describe('ToolResultCard', () => {
       )
       expect(screen.getByText('chat:tool.taskNotCompleted')).toBeInTheDocument()
       expect(screen.queryByText('File not found')).not.toBeInTheDocument()
+      expect(document.querySelector('.border-\\[hsl\\(var\\(--warning\\)\\)\\]')).not.toBeNull()
     })
 
     it("shows a failed sub-task's user_message when the tool provided one", () => {
@@ -1020,6 +1092,36 @@ describe('ToolResultCard', () => {
       )
       expect(screen.getByText('这个文件已经不存在了')).toBeInTheDocument()
       expect(screen.queryByText('File not found')).not.toBeInTheDocument()
+    })
+
+    it('shows a stale-content sub-task as an intentional skip, not a failure', () => {
+      const { container } = render(
+        <ToolResultCard
+          type="tool_result"
+          toolName="parallel_execute"
+          result={{
+            ...parallelResult,
+            tasks: [
+              parallelResult.tasks[0],
+              {
+                ...parallelResult.tasks[1],
+                type: 'edit_file',
+                description: '改第二章',
+                result: { status: 'error', error_type: 'stale_content', error: '这个文件在你读过之后又被改过' },
+              },
+            ],
+          }}
+        />
+      )
+      expect(screen.getByText('改第二章')).toBeInTheDocument()
+      expect(screen.getByText('chat:tool.failureHint.authorChanged')).toBeInTheDocument()
+      // 标题不把「没动」算成失败。
+      expect(screen.getByText('chat:tool.parallel_summary_with_skipped')).toBeInTheDocument()
+      expect(screen.queryByText('chat:tool.parallel_summary')).not.toBeInTheDocument()
+      expect(screen.queryByText('chat:tool.taskNotCompleted')).not.toBeInTheDocument()
+      expect(screen.queryByText(/这个文件在你读过之后又被改过/)).not.toBeInTheDocument()
+      // 只有有意跳过时不标警告边框。
+      expect(container.querySelector('.border-\\[hsl\\(var\\(--warning\\)\\)\\]')).toBeNull()
     })
 
     it('renders all-success runs without an error row', () => {

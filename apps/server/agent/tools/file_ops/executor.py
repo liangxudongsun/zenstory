@@ -212,6 +212,9 @@ class FileToolExecutor:
         edits: list[dict[str, Any]],
         continue_on_error: bool = False,
         normalize_quotes: bool = False,
+        read_snapshot_fn: Any = None,
+        exact_only: bool = False,
+        report_author_edits: bool = False,
     ) -> dict[str, Any]:
         """
         Apply precise edits to a file's content.
@@ -251,6 +254,9 @@ class FileToolExecutor:
             edits=edits,
             continue_on_error=continue_on_error,
             normalize_quotes=normalize_quotes,
+            read_snapshot_fn=read_snapshot_fn,
+            exact_only=exact_only,
+            report_author_edits=report_author_edits,
         )
 
     # ========== Project Operations ==========

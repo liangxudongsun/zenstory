@@ -39,6 +39,7 @@ const CASES: Array<[string, string]> = [
   ['Restored from snapshot 0f8fad5b-d9cb-469f-a165-70867728950e', '从项目快照恢复'],
   ['Before AI edit', 'AI 修改前自动备份'],
   ['AI edit (reviewed)', 'AI 修改（已审阅）'],
+  ['AI polish (reviewed)', 'AI 修改（已审阅）'],
   ['Snapshot baseline version', '拍项目快照时自动保存'],
   ['Snapshot synchronized live content', '拍项目快照时自动保存'],
   ['AI 对话完成 - 文件已修改', 'AI 修改后自动存档'],

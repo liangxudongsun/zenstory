@@ -43,6 +43,7 @@ from agent.tools.file_ops.edit import (
     EDIT_ERROR_PERMISSION_DENIED,
     EditFileError,
     FileWriteBusyError,
+    StaleContentError,
     edit_error_user_message,
 )
 from agent.tools.file_ops.project import author_message_asks_rename
@@ -399,6 +400,105 @@ class _PreWriteContents:
             return self._contents.get(file_id)
 
 
+class _ReadSnapshots:
+    """本次请求里模型看到的文件正文（跨子任务/线程共享，原因同上）。
+
+    三个来源，取最近的一次：本轮开始时以全文给出的（上下文 [全文]、工作集全文块）、本请求自己写下的、
+    当前这个 agent 这一程读到的（query_files 按 id 读全文、陈旧写入错误里完整列出的新改动）。
+    读到的正文要等下一次模型调用才算数（promote_pending_reads，由 run hooks 的 on_llm_start 调用）：
+    同一条回复里排在读取后面的修改是模型在看到结果之前写的。
+    换下一个 agent 时清掉「读到的」：工具结果不跨 agent 回放，下一个 agent 没看到那些新正文。
+    edit_file 在锁内重读后与它比较：不一致说明作者（或别的写入）在模型看过之后又改了，拒绝这次修改，
+    不让基于旧正文的修改把新改动覆盖掉。
+
+    「看过」（seen）比「有快照」窄：只用 edit_file 往一个没读过的文件里追加，模型知道自己写了什么，
+    却没看到文件里原有的字；这时仍有快照做陈旧检查，但 old / anchor 只按逐字匹配。
+    """
+
+    __slots__ = ("_full_writes", "_lock", "_pending", "_seq", "_sources")
+
+    def __init__(self, initial: dict[str, str] | None = None) -> None:
+        self._lock = threading.Lock()
+        self._seq = 0
+        self._sources: dict[str, dict[str, tuple[int, str]]] = {
+            "initial": {
+                str(file_id): (0, content or "") for file_id, content in (initial or {}).items() if file_id
+            },
+            "written": {},
+            "read": {},
+        }
+        self._pending: dict[str, tuple[int, str]] = {}
+        self._full_writes: set[str] = set()
+
+    def ticket(self) -> int:
+        """读库之前先取的序号：读到的正文按读库的时刻排序，不按记下来的时刻。"""
+        with self._lock:
+            self._seq += 1
+            return self._seq
+
+    def record(
+        self, file_id: str, content: str | None, *, kind: str, full: bool = False, seq: int | None = None
+    ) -> None:
+        if not file_id or kind not in ("written", "read"):
+            return
+        with self._lock:
+            self._seq += 1
+            if kind == "read":
+                order = seq if seq is not None else self._seq
+                previous = self._pending.get(file_id)
+                if previous is None or previous[0] <= order:
+                    self._pending[file_id] = (order, content or "")
+                return
+            self._sources["written"][file_id] = (self._seq, content or "")
+            if full:
+                self._full_writes.add(file_id)
+
+    def written_state(self, file_id: str) -> tuple[tuple[int, str] | None, bool]:
+        with self._lock:
+            return self._sources["written"].get(file_id), file_id in self._full_writes
+
+    def restore_written(self, file_id: str, state: Any) -> None:
+        if not isinstance(state, tuple) or len(state) != 2:
+            return
+        entry, full = state
+        with self._lock:
+            if entry is None:
+                self._sources["written"].pop(file_id, None)
+            else:
+                self._sources["written"][file_id] = entry
+            if full:
+                self._full_writes.add(file_id)
+            else:
+                self._full_writes.discard(file_id)
+
+    def discard_pending_read(self, file_id: str) -> None:
+        with self._lock:
+            self._pending.pop(file_id, None)
+
+    def promote_pending_reads(self) -> None:
+        with self._lock:
+            self._sources["read"].update(self._pending)
+            self._pending.clear()
+
+    def begin_agent_run(self) -> None:
+        with self._lock:
+            self._sources["read"].clear()
+            self._pending.clear()
+
+    def get(self, file_id: str) -> str | None:
+        with self._lock:
+            found = [source[file_id] for source in self._sources.values() if file_id in source]
+        return max(found)[1] if found else None
+
+    def seen(self, file_id: str) -> bool:
+        with self._lock:
+            return (
+                file_id in self._sources["initial"]
+                or file_id in self._sources["read"]
+                or file_id in self._full_writes
+            )
+
+
 class ToolContext:
     """
     Holds session and user_id for tool execution.
@@ -422,10 +522,10 @@ class ToolContext:
         author_steering: list[str] | None = None,
         focus_file_id: str | None = None,
         referenced_file_ids: Iterable[str] | None = None,
-        author_confirmed_file_ids: Iterable[str] | None = None,
         author_edit_refusals: AuthorEditRefusals | None = None,
         author_previous_offer: Iterable[OfferItem] | None = None,
         author_previous_offer_context: Iterable[str] | None = None,
+        read_snapshots: dict[str, str] | None = None,
     ) -> None:
         """Set the execution context for tools (request-scoped).
 
@@ -436,18 +536,18 @@ class ToolContext:
                 同一个 list 对象，运行中会继续追加），和 author_message 一起判断。
             focus_file_id: 作者正开着的文件。
             referenced_file_ids: 作者本轮附加的文件、引用的选中文本所在的文件。
-            author_confirmed_file_ids: 上一轮因为作者手改过而问过作者要不要改的文件，
-                本轮放行（作者这一轮就是在回答）。
-            author_edit_refusals: 本轮因为作者手改过而没改成的文件（service 持有，
-                落库到 routing，下一轮放行）。
+            author_edit_refusals: 本轮因为作者手改过而没删 / 没整份重写的文件（service 持有，
+                交接给下一个 agent 时说明它们保持原样）。
             author_previous_offer: 上一轮 AI 收尾时给作者的提议（选项 / 问句），作者答应或选中
-                改某个文件的那一项时放行它。
+                整份重写某个文件的那一项时放行它。
             author_previous_offer_context: 上一轮 AI 回复和作者上一条话的原文；提议没点名
                 文件时，据此找上一轮在谈的那个文件。以上几项见 agent/tools/author_edit_guard.py。
             recorded_skill_ids: 本次请求里已记录过用量的技能（显式选择的技能），
                 load_skill 不再为它们重复记用量。
             skill_tokens_used: 显式选择的技能注入 system prompt 时已占用的技能内容 token，
                 从本次请求的技能内容预算里先扣掉。
+            read_snapshots: 本轮开始时以全文给模型看的文件正文（file_id → 正文），edit_file 的
+                陈旧检查以它为起点（_ReadSnapshots）；None 表示不跟踪（外部调用路径）。
         """
         cls._cleanup_owned_session()
         _tool_context_var.set({
@@ -464,9 +564,6 @@ class ToolContext:
             "author_steering": author_steering,
             "focus_file_id": focus_file_id or None,
             "referenced_file_ids": frozenset(str(item) for item in (referenced_file_ids or []) if item),
-            "author_confirmed_file_ids": frozenset(
-                str(item) for item in (author_confirmed_file_ids or []) if item
-            ),
             "author_edit_refusals": author_edit_refusals,
             "author_previous_offer": tuple(
                 item for item in (author_previous_offer or ()) if isinstance(item, OfferItem)
@@ -475,6 +572,7 @@ class ToolContext:
                 item for item in (author_previous_offer_context or ()) if isinstance(item, str) and item
             ),
             "pre_write_contents": _PreWriteContents(),
+            "read_snapshots": _ReadSnapshots(read_snapshots) if read_snapshots is not None else None,
         })
         _owned_session_var.set(None)
         _pending_empty_file_var.set(None)
@@ -591,13 +689,11 @@ class ToolContext:
             return None
         focus = context.get("focus_file_id")
         referenced = context.get("referenced_file_ids")
-        confirmed = context.get("author_confirmed_file_ids")
         offer = context.get("author_previous_offer")
         offer_context = context.get("author_previous_offer_context")
         return AuthorScope(
             messages=tuple(cls.get_author_messages()),
             referenced_file_ids=referenced if isinstance(referenced, frozenset) else frozenset(),
-            confirmed_file_ids=confirmed if isinstance(confirmed, frozenset) else frozenset(),
             focus_file_id=focus if isinstance(focus, str) and focus else None,
             previous_offer=offer if isinstance(offer, tuple) else (),
             previous_offer_context=offer_context if isinstance(offer_context, tuple) else (),
@@ -605,18 +701,99 @@ class ToolContext:
 
     @classmethod
     def record_author_edit_refusal(cls, file_id: str) -> None:
-        """记下本轮因为作者手改过而没改成的文件。"""
+        """记下本轮因为作者手改过而没删 / 没整份重写的文件。"""
         holder = cls._get_context().get("author_edit_refusals")
         if isinstance(holder, AuthorEditRefusals):
             holder.add(file_id)
 
     @classmethod
     def author_edit_refused_file_ids(cls) -> list[str]:
-        """本请求里因为作者手改过而没改成的文件 id（按先后）；没有上下文时为空。"""
+        """本请求里因为作者手改过而没删 / 没整份重写的文件 id（按先后）；没有上下文时为空。"""
         holder = cls._get_context().get("author_edit_refusals")
         if isinstance(holder, AuthorEditRefusals):
             return holder.file_ids()
         return []
+
+    @classmethod
+    def tracks_reads(cls) -> bool:
+        """当前是应用内对话（有快照容器）：读文件时要记快照、附作者手改。"""
+        return isinstance(cls._get_context().get("read_snapshots"), _ReadSnapshots)
+
+    @classmethod
+    def read_snapshot(cls, file_id: str) -> str | None:
+        """模型在本请求里最后看到（或自己写下）的这个文件的正文；都没有（或没有上下文）时为 None。"""
+        holder = cls._get_context().get("read_snapshots")
+        if isinstance(holder, _ReadSnapshots):
+            return holder.get(str(file_id or ""))
+        return None
+
+    @classmethod
+    def has_seen_file(cls, file_id: str) -> bool:
+        """模型在本请求里看过这个文件的全文（上下文全文、按 id 读到、或整份写下的）。"""
+        holder = cls._get_context().get("read_snapshots")
+        if isinstance(holder, _ReadSnapshots):
+            return holder.seen(str(file_id or ""))
+        return False
+
+    @classmethod
+    def discard_pending_read(cls, file_id: str) -> None:
+        """刚读到的正文没有完整交给模型（结果被截断）：不算看过。"""
+        holder = cls._get_context().get("read_snapshots")
+        if isinstance(holder, _ReadSnapshots):
+            holder.discard_pending_read(str(file_id or ""))
+
+    @classmethod
+    def promote_pending_reads(cls) -> None:
+        """一次新的模型调用开始：上一条回复里读到的正文，模型现在看到了。"""
+        holder = cls._get_context().get("read_snapshots")
+        if isinstance(holder, _ReadSnapshots):
+            holder.promote_pending_reads()
+
+    @classmethod
+    def read_ticket(cls) -> int | None:
+        """读库之前调用：返回这次读取的序号，记快照时传回 record_read_snapshot。"""
+        holder = cls._get_context().get("read_snapshots")
+        if isinstance(holder, _ReadSnapshots):
+            return holder.ticket()
+        return None
+
+    @classmethod
+    def record_read_snapshot(cls, file_id: str, content: str | None, *, ticket: int | None = None) -> None:
+        """记下当前 agent 这一程读到的正文（下一次模型调用起算数）；没有请求上下文时什么也不做。
+
+        ticket：读库前取的序号。读库之后、记下之前本请求又写了这个文件时，写下的正文更新，不被这次读取盖过。
+        """
+        holder = cls._get_context().get("read_snapshots")
+        if isinstance(holder, _ReadSnapshots):
+            holder.record(str(file_id or ""), content or "", kind="read", seq=ticket)
+
+    @classmethod
+    def record_written_snapshot(cls, file_id: str, content: str | None, *, full: bool = False) -> None:
+        """记下本请求自己写下的正文（立即生效）；full=整份写下（创建 / 整份覆盖），模型知道全文。"""
+        holder = cls._get_context().get("read_snapshots")
+        if isinstance(holder, _ReadSnapshots):
+            holder.record(str(file_id or ""), content or "", kind="written", full=full)
+
+    @classmethod
+    def written_snapshot_state(cls, file_id: str) -> Any:
+        """写入前的快照状态，提交失败时用 restore_written_snapshot 还原。"""
+        holder = cls._get_context().get("read_snapshots")
+        if isinstance(holder, _ReadSnapshots):
+            return holder.written_state(str(file_id or ""))
+        return None
+
+    @classmethod
+    def restore_written_snapshot(cls, file_id: str, state: Any) -> None:
+        holder = cls._get_context().get("read_snapshots")
+        if isinstance(holder, _ReadSnapshots):
+            holder.restore_written(str(file_id or ""), state)
+
+    @classmethod
+    def begin_agent_run(cls) -> None:
+        """换下一个 agent（或同一 agent 的下一程）：上一程读到的正文它看不到，不再算「模型看到的」。"""
+        holder = cls._get_context().get("read_snapshots")
+        if isinstance(holder, _ReadSnapshots):
+            holder.begin_agent_run()
 
     @classmethod
     def remember_pre_write_content(cls, file_id: str, content: str | None) -> None:
@@ -1914,7 +2091,6 @@ def _author_edit_refusal(
     file_id: str,
     *,
     tool_name: str,
-    edits: list[Any] | None = None,
     recursive: bool = False,
 ) -> dict[str, Any] | None:
     """作者手改过、本轮又没点名的文件：返回拒绝结果；可以改时返回 None。
@@ -1930,7 +2106,7 @@ def _author_edit_refusal(
     if scope is None or not file_id:
         return None
     protected: tuple[str, str] | None = None  # (被保护文件的 id, 标题)
-    action = "rewrite" if tool_name == "create_file" else "edit"
+    action = "rewrite" if tool_name == "create_file" else "delete"
     try:
         from models import File
 
@@ -1968,7 +2144,6 @@ def _author_edit_refusal(
                     file_id=file.id,
                     title=title,
                     file_type=file_type,
-                    edits=edits,
                     offer_context_file=lambda: _offer_context_file_id(session, scope, file.project_id),
                 ):
                     return None
@@ -2023,6 +2198,7 @@ def _edit_file_sync(args: dict[str, Any]) -> dict[str, Any]:
     if project_id is None:
         return _make_error("project_id not set", tool_name=tool_name)
 
+    read_ticket: int | None = None
     try:
         file_id_raw = args.get("id") or args.get("file_id") or args.get("fileId")
         if isinstance(file_id_raw, str):
@@ -2052,9 +2228,12 @@ def _edit_file_sync(args: dict[str, Any]) -> dict[str, Any]:
                 error_type=EDIT_ERROR_INVALID_EDIT,
             )
 
-        refusal = _author_edit_refusal(file_id, tool_name=tool_name, edits=edits)
-        if refusal is not None:
-            return refusal
+        # 作者手改过的文件不再整份拒绝：作者改了什么见 <author_edits>，由模型保留或按作者的新要求改；
+        # 这里只核对事实。模型本请求里没看过这个文件的全文时，old / anchor 只按逐字匹配，
+        # 不拿可能过时的记忆去模糊匹配作者刚改过的字。有快照（看过或自己写过）就做陈旧检查。
+        has_snapshot = ToolContext.read_snapshot(file_id) is not None
+        has_seen = ToolContext.has_seen_file(file_id)
+        read_ticket = ToolContext.read_ticket()
 
         result = executor.edit_file(
             id=file_id,
@@ -2066,6 +2245,10 @@ def _edit_file_sync(args: dict[str, Any]) -> dict[str, Any]:
             continue_on_error=coerce_bool(args.get("continue_on_error")),
             # 只规范化各 edit 的新文本，未编辑的段落不动。
             normalize_quotes=True,
+            # 在锁内取快照：同一请求里先写的那一步已经把快照更新为它写下的正文。
+            read_snapshot_fn=(lambda: ToolContext.read_snapshot(file_id)) if has_snapshot else None,
+            exact_only=not has_seen,
+            report_author_edits=True,
         )
         _record_artifact_ledger(
             action=tool_name,
@@ -2090,6 +2273,12 @@ def _edit_file_sync(args: dict[str, Any]) -> dict[str, Any]:
             payload["error_type"] = error_type
             payload["user_message"] = edit_error_user_message(error_type)
         return _make_result(payload, tool_name=tool_name)
+    except StaleContentError as e:
+        # 新改动已经完整列给模型：它看到这条结果之后（下一次模型调用起）基于现在的正文改即可；
+        # 同一条回复里排在后面的修改仍按旧快照判陈旧。列不全时要模型先读全文。
+        if e.complete:
+            ToolContext.record_read_snapshot(file_id, e.current_content, ticket=read_ticket)
+        return _make_edit_error(str(e), **e.payload_fields())
     except EditFileError as e:
         # error 原样给模型（候选片段、occurrence 提示、全部失败项都在里面）；
         # error_type / user_message 给界面；edits_applied=0、mutation_applied=false
@@ -2253,6 +2442,7 @@ def _query_files_sync(args: dict[str, Any]) -> dict[str, Any]:
                     value = coerce_bool(value)
                 query_kwargs[key] = value
 
+        read_ticket = ToolContext.read_ticket() if has_id else None
         try:
             result = executor.query_files(**query_kwargs)
         except TypeError as exc:
@@ -2263,9 +2453,25 @@ def _query_files_sync(args: dict[str, Any]) -> dict[str, Any]:
                 query_kwargs.pop(key, None)
             result = executor.query_files(**query_kwargs)
 
-        return _make_result({"status": "success", "data": result}, tool_name=tool_name)
+        payload = {"status": "success", "data": result}
+        if has_id and len(json.dumps(payload, ensure_ascii=False)) <= TOOL_RESULT_MAX_CHARS:
+            # 结果超过上限会被截断，模型拿不到全文：那时不记快照。
+            _note_file_read(result, ticket=read_ticket)
+        return _make_result(payload, tool_name=tool_name)
     except Exception as e:
         return _make_error(str(e), tool_name=tool_name)
+
+
+def _note_file_read(result: Any, *, ticket: int | None = None) -> None:
+    """按 id 读到全文时记下模型看到的正文（edit_file 的陈旧检查）。作者手改差异由 crud 附在同一行里。"""
+    rows = result if isinstance(result, list) else []
+    if len(rows) != 1 or not isinstance(rows[0], dict):
+        return
+    row = rows[0]
+    file_id = str(row.get("id") or "")
+    content = row.get("content")
+    if file_id and isinstance(content, str) and not row.get("content_truncated"):
+        ToolContext.record_read_snapshot(file_id, content, ticket=ticket)
 
 
 def _is_query_files_param_mismatch(exc: TypeError) -> bool:
