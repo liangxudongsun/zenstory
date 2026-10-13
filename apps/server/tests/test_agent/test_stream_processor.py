@@ -312,8 +312,9 @@ def test_prod_split_empty_pair_after_close_is_dropped():
     results, proc = _drive(PROD_EMPTY_PAIR_CHUNKS)
     completed = [r for r in results if r.file_complete]
     assert len(completed) == 1
+    # <file> 行尾的那个换行不算正文。
     assert completed[0].final_content == (
-        "\n　　我叫温知夏。\n就没打算松开我的手。\n\n　　只是上一世，雨太大，我没看清。\n"
+        "　　我叫温知夏。\n就没打算松开我的手。\n\n　　只是上一世，雨太大，我没看清。\n"
     )
     chat, tail = _chat_through_eof(results, proc)
     assert chat == "\n\n"
@@ -378,7 +379,9 @@ def test_non_empty_stray_block_after_close_is_kept():
         (["<", "br>换行"], "<br>换行"),
         (["<file/>"], "<file/>"),
         (["<", "-- 注意"], "<-- 注意"),
-        (["<file>", "\n后面是叙述"], "<file>\n后面是叙述"),
+        # 独占一行的 <file> 不在任何捕获里：协议噪声，整行丢掉（叙述保留）
+        (["<file>", "\n后面是叙述"], "后面是叙述"),
+        (["行内提到 <file>", "\n后面是叙述"], "行内提到 <file>\n后面是叙述"),
     ],
 )
 def test_other_text_after_close_is_kept_verbatim(chunks, expected):
@@ -388,11 +391,20 @@ def test_other_text_after_close_is_kept_verbatim(chunks, expected):
     assert not proc.is_active
 
 
-@pytest.mark.parametrize("partial", ["\n<fi", "<file>\n</fi", "\n<file>\n", "<file></"])
-def test_unfinished_pair_prefix_is_released_at_stream_end(partial):
+@pytest.mark.parametrize(
+    "partial, expected",
+    [
+        ("\n<fi", "\n<fi"),
+        ("<file></", "<file></"),
+        # 独占一行的 <file> 丢掉，没写完的「</fi」不是完整标签，照样交还
+        ("<file>\n</fi", "</fi"),
+        ("\n<file>\n", "\n"),
+    ],
+)
+def test_unfinished_pair_prefix_is_released_at_stream_end(partial, expected):
     results, proc = _drive(["<file>正文</file>", partial])
     chat, _ = _chat_through_eof(results, proc)
-    assert chat == partial
+    assert chat == expected
     assert not proc.is_active
 
 
@@ -406,9 +418,9 @@ def test_overlong_whitespace_padded_prefix_is_not_held():
 
 def test_unfinished_prefix_is_released_before_next_capture():
     # 适配器在 create_file 前会 finalize（_flush_active_capture），暂扣前缀必须交还
-    results, proc = _drive(["<file>A</file>", "<file>\n"])
+    results, proc = _drive(["<file>A</file>", "<fi"])
     chat, _ = _chat_through_eof(results, proc)
-    assert chat == "<file>\n"
+    assert chat == "<fi"
     proc.start_file_write("file-2")
     r = proc.process_content("<file>B</file>")
     assert r.file_complete and r.final_content == "B"
@@ -416,10 +428,10 @@ def test_unfinished_prefix_is_released_before_next_capture():
 
 def test_eof_confirmed_close_releases_held_prefix():
     # 围栏未闭合使 </file> 悬置，流结束复扫才确认为真实收尾；其后的前缀照样交还
-    results, proc = _drive(["<file>```\n正文\n", "</file>\n<file>"])
+    results, proc = _drive(["<file>```\n正文\n", "</file>\n<fi"])
     tail = proc.finalize_on_stream_end()
     assert tail.file_complete and tail.final_content == "```\n正文\n"
-    assert _all_conversation(results + [tail]) == "\n<file>"
+    assert _all_conversation(results + [tail]) == "\n<fi"
     assert not proc.is_active
 
 
@@ -453,3 +465,34 @@ def test_draining_close_does_not_open_window():
     closing = proc.process_content("</file><file></file>")
     assert closing.conversation_content == "<file></file>"
     assert not proc.is_active
+
+
+# live run 2 场景 A：<file> 独占一行，紧跟的换行被当成正文，每个流式写入的文件都以空行开头。
+@pytest.mark.parametrize(
+    ("chunks", "expected"),
+    [
+        (["<file>\n1-1 写字楼门口 夜 外\n\n△ 暴雨。</file>"], "1-1 写字楼门口 夜 外\n\n△ 暴雨。"),
+        # 换行单独落在下一个 chunk（线上第3集的第一块 file_content 就只有一个 "\n"）。
+        (["<file>", "\n", "3-1 苏晓家楼下\n\n△ 风。", "</file>"], "3-1 苏晓家楼下\n\n△ 风。"),
+        (["<file>\r\n正文第一段。</file>"], "正文第一段。"),
+        (["<file>\r", "\n正文第一段。</file>"], "正文第一段。"),
+        # 只去掉一个：多出来的空行、正文开头的缩进照留。
+        (["<file>\n\n　　正文第一段。</file>"], "\n　　正文第一段。"),
+        (["<file>　　正文第一段。\n</file>"], "　　正文第一段。\n"),
+        (["<file>正文\n第二行</file>"], "正文\n第二行"),
+    ],
+)
+def test_one_line_break_right_after_the_start_marker_is_not_body(chunks, expected):
+    results, _ = _drive(chunks)
+    completed = next(r for r in results if r.file_complete)
+    assert completed.final_content == expected
+    streamed = "".join(r.file_content for r in results if r.file_id)
+    assert streamed == expected
+
+
+def test_line_break_after_the_start_marker_is_dropped_when_the_stream_is_cut_short():
+    proc = StreamProcessor()
+    proc.start_file_write("file-1")
+    proc.process_content("<file>\n半截正文")
+    result = proc.finalize_on_stream_end()
+    assert result.final_content == "半截正文"

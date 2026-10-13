@@ -28,6 +28,20 @@ from agent.graph.author_scope import (
 )
 
 
+def _edit_done() -> list[StreamEvent]:
+    """fake agent 说「改好了」前真的调用过一次 edit_file（成功）。"""
+    return [
+        StreamEvent(
+            type=StreamEventType.TOOL_USE,
+            data={"id": "edit-1", "name": "edit_file", "status": "complete", "input": {}},
+        ),
+        StreamEvent(
+            type=StreamEventType.TOOL_RESULT,
+            data={"tool_use_id": "edit-1", "name": "edit_file", "result": {}},
+        ),
+    ]
+
+
 def _route(payload: dict[str, object]) -> AsyncMock:
     return AsyncMock(
         return_value={"content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}]}
@@ -179,6 +193,8 @@ async def test_vague_reply_to_the_ais_question_is_not_asked_again():
     async def fake_agent(state, agent_type, **_kwargs):
         calls.append(agent_type)
         assert state.get("clarify_first") is not True
+        for event in _edit_done():
+            yield event
         yield StreamEvent(type=StreamEventType.TEXT, data={"text": "改好了。"})
 
     asked = [
@@ -224,6 +240,8 @@ async def test_vague_reply_to_a_single_proposed_edit_goes_ahead():
 
     async def fake_agent(state, agent_type, **_kwargs):
         seen["clarify_first"] = state.get("clarify_first")
+        for event in _edit_done():
+            yield event
         yield StreamEvent(type=StreamEventType.TEXT, data={"text": "改好了。"})
 
     history = [
@@ -512,3 +530,27 @@ def test_review_rule_jargon_is_not_shown_to_authors():
     assert cleaned.startswith("与第1章逐字重复47字")
     assert "时间线矛盾" in cleaned
     assert "阈值" not in author_facing_text("重复47字，超过15字阈值，按阻断处理，需要改")
+
+
+async def test_vague_reply_to_a_conditional_offer_goes_ahead():
+    """I06：AI 问「要不要我把大纲那一行同步改成新落点？」后又补一句「你说改我就改」，
+    结尾不是问号；作者回「改」就是答应这一处，不再先问一遍。"""
+    seen: dict[str, object] = {}
+
+    async def fake_agent(state, agent_type, **_kwargs):
+        seen["clarify_first"] = state.get("clarify_first")
+        yield StreamEvent(type=StreamEventType.TEXT, data={"text": "改好了。"})
+
+    history = [
+        {"role": "user", "content": "结局换成主角留在岛上"},
+        {
+            "role": "assistant",
+            "content": "结局改好了。核心大纲第七行还写着主角离岛。\n"
+            "要不要我把大纲那一行同步改成新落点？你说改我就改，不改就留着。",
+            "routing": _WRITER_ROUTING,
+        },
+    ]
+    route = _route({"agent_type": "writer", "workflow_type": "quick", "write_content": True})
+    await _run(route, fake_agent, message="改", messages=history)
+
+    assert seen["clarify_first"] is not True

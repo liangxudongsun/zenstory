@@ -54,7 +54,7 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 # 只读检索工具：结果体积大，且原文仍可按 id 重新读取，超预算时可安全折叠。
-DEFAULT_TRIMMABLE_TOOLS: frozenset[str] = frozenset({"query_files", "hybrid_search"})
+DEFAULT_TRIMMABLE_TOOLS: frozenset[str] = frozenset({"query_files"})
 DEFAULT_WRITE_TOOLS: frozenset[str] = frozenset({"create_file", "edit_file"})
 PARALLEL_TOOL = "parallel_execute"
 PARALLEL_KNOWN_TASKS = frozenset({"write_chapter", *DEFAULT_WRITE_TOOLS, *DEFAULT_TRIMMABLE_TOOLS})
@@ -117,7 +117,7 @@ class IntraRunToolOutputTrimmer:
             ``max_input_chars - target`` 同时是折叠量的量化台阶（滞回）。默认 0.7。
         min_compact_chars: 只折叠长度超过该值的载荷。默认 2000。
         preview_chars: 折叠摘要里保留的原文开头字符数。默认 400。
-        trimmable_tools: 可折叠结果的只读工具名，默认 ``{"query_files", "hybrid_search"}``。
+        trimmable_tools: 可折叠结果的只读工具名，默认 ``{"query_files"}``。
             控制流工具永远不在其中。
     """
 

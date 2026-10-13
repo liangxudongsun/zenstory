@@ -12,7 +12,7 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# NOTE: Keep in sync with require_agent_rate_limit() params in agent_api.py and vector_search.py
+# NOTE: Keep in sync with require_agent_rate_limit() params in agent_api.py and search.py
 RATE_LIMITS = {
     "read": "2000/hour",
     "write": "1000/hour",
@@ -26,18 +26,18 @@ RATE_LIMITS = {
 _DESCRIPTIONS = {
     "zh": (
         "ZenStory（AI 辅助小说写作工作台）的 Agent API 使用说明：用 API Key 读取和管理用户在 ZenStory 中的"
-        "小说项目、章节草稿、大纲、人物设定、世界观与素材，并提供混合搜索与写作上下文。"
+        "小说项目、章节草稿、大纲、人物设定、世界观与素材，并提供关键词搜索与写作上下文。"
         "当用户提到 ZenStory、自己存放在 ZenStory 的小说项目，或需要读写其中的章节、大纲、人物、设定时使用。"
     ),
     "en": (
         "Documents the ZenStory Agent API: reads and manages a user's novel projects in ZenStory "
-        "(chapter drafts, outlines, characters, lore, materials) with an API key, plus hybrid search "
+        "(chapter drafts, outlines, characters, lore, materials) with an API key, plus keyword search "
         "and AI-assembled writing context. Use when the user mentions ZenStory or a novel project stored "
         "there, or asks to read or write its chapters, outlines, characters or world-building."
     ),
 }
 _DEFAULT_API_BASE = "https://api.zenstory.ai/api/v1"
-_CAPABILITIES = "project_management, file_crud, file_tree, version_history, hybrid_search, writing_context"
+_CAPABILITIES = "project_management, file_crud, file_tree, version_history, keyword_search, writing_context"
 _FILE_TYPES = "outline, draft, character, lore, material"
 
 
@@ -54,7 +54,7 @@ _TABLE_HEADERS = {
 def _get_agent_routers():
     """Lazy-import agent API routers to avoid circular imports."""
     from api.agent_api import router as agent_router
-    from api.vector_search import router as search_router
+    from api.search import router as search_router
     return [agent_router, search_router]
 
 
@@ -340,7 +340,7 @@ metadata:
 
 # ZenStory Novel Writing Platform
 
-AI-assisted novel writing workbench with file management, semantic search, and writing context.
+AI-assisted novel writing workbench with file management, keyword search, and writing context.
 
 ## Recommended: use the ZenStory CLI (`zenstory`)
 

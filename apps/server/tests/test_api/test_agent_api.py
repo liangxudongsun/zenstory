@@ -638,7 +638,7 @@ async def test_search_service_unavailable(client: AsyncClient, db_session: Sessi
     project = create_test_project(db_session, user.id)
     _, plain_key = create_test_api_key(db_session, user.id)
 
-    with patch("services.llama_index.get_llama_index_service") as mock_service:
+    with patch("services.infra.file_search_service.FileSearchService") as mock_service:
         mock_service.side_effect = Exception("Service unavailable")
 
         response = await client.post(
@@ -688,9 +688,9 @@ async def test_search_success_with_mock(client: AsyncClient, db_session: Session
         )
     ]
 
-    with patch("services.llama_index.get_llama_index_service") as mock_service_factory:
+    with patch("services.infra.file_search_service.FileSearchService") as mock_service_factory:
         mock_service = mock_service_factory.return_value
-        mock_service.hybrid_search.return_value = mock_results
+        mock_service.search.return_value = mock_results
 
         response = await client.post(
             f"/api/v1/agent/projects/{project.id}/search",
@@ -712,56 +712,6 @@ async def test_search_success_with_mock(client: AsyncClient, db_session: Session
 
 
 @pytest.mark.integration
-async def test_search_returns_lexical_results_when_embeddings_disabled(
-    client: AsyncClient, db_session: Session, monkeypatch
-):
-    """The direct Agent search API remains usable while provider embeddings are paused."""
-    from services.infra import vector_search_service as vss
-
-    user = create_test_user(db_session, "search_user_embeddings_paused")
-    project = create_test_project(db_session, user.id)
-    _, plain_key = create_test_api_key(db_session, user.id)
-
-    monkeypatch.setenv("VECTOR_EMBEDDINGS_ENABLED", "false")
-    monkeypatch.setattr(vss, "HYBRID_ENABLE_LEXICAL", True)
-    monkeypatch.setattr(vss, "_LEXICAL_SEARCH_SEMAPHORE", threading.Semaphore(1))
-    with patch.object(vss.LlamaIndexService, "__init__", return_value=None):
-        service = vss.LlamaIndexService()
-    service.semantic_search = MagicMock()  # type: ignore[method-assign]
-    service._lexical_search = MagicMock(  # type: ignore[method-assign]
-        return_value=[
-            vss.SearchResult(
-                entity_type="draft",
-                entity_id="file-lexical",
-                title="Lexical result",
-                content="keyword context",
-                score=0.5,
-                snippet="keyword context",
-                line_start=1,
-                sources=["lexical"],
-            )
-        ]
-    )
-
-    import database
-
-    monkeypatch.setattr(database, "create_session", lambda: MagicMock())
-    with patch("services.llama_index.get_llama_index_service", return_value=service):
-        response = await client.post(
-            f"/api/v1/agent/projects/{project.id}/search",
-            headers={"X-Agent-API-Key": plain_key},
-            json={"query": "keyword", "include_content": True},
-        )
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["result_count"] == 1
-    assert data["results"][0]["title"] == "Lexical result"
-    assert data["results"][0]["sources"] == ["lexical"]
-    service.semantic_search.assert_not_called()
-
-
-@pytest.mark.integration
 async def test_search_offloads_sync_service_without_request_session(
     client: AsyncClient, db_session: Session
 ):
@@ -772,9 +722,9 @@ async def test_search_offloads_sync_service_without_request_session(
     async def run_inline(function, /, *args, **kwargs):
         return function(*args, **kwargs)
 
-    with patch("services.llama_index.get_llama_index_service") as mock_factory:
-        mock_factory.return_value.hybrid_search.return_value = []
-        with patch("api.vector_search.asyncio.to_thread", new_callable=AsyncMock) as to_thread:
+    with patch("services.infra.file_search_service.FileSearchService") as mock_factory:
+        mock_factory.return_value.search.return_value = []
+        with patch("api.search.asyncio.to_thread", new_callable=AsyncMock) as to_thread:
             to_thread.side_effect = run_inline
             response = await client.post(
                 f"/api/v1/agent/projects/{project.id}/search",
@@ -825,9 +775,9 @@ async def test_search_include_content_true(client: AsyncClient, db_session: Sess
         )
     ]
 
-    with patch("services.llama_index.get_llama_index_service") as mock_service_factory:
+    with patch("services.infra.file_search_service.FileSearchService") as mock_service_factory:
         mock_service = mock_service_factory.return_value
-        mock_service.hybrid_search.return_value = mock_results
+        mock_service.search.return_value = mock_results
 
         response = await client.post(
             f"/api/v1/agent/projects/{project.id}/search",

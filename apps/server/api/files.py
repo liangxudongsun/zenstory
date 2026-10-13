@@ -12,7 +12,7 @@ from collections.abc import Iterator
 from datetime import datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Form, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, Form, Query, Response, UploadFile
 from fastapi import File as FastAPIFile
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_core import PydanticCustomError
@@ -27,13 +27,13 @@ from core.error_codes import ErrorCode
 from core.error_handler import APIException
 from core.project_access import verify_project_ownership
 from database import get_session
-from middleware.rate_limit import require_user_rate_limit
 from models import (
     ACTIVATION_EVENT_FIRST_AI_ACTION_ACCEPTED,
     ACTIVATION_EVENT_FIRST_FILE_SAVED,
     File,
     User,
 )
+from models.file_model import MAX_FILE_TITLE_LENGTH
 from models.file_version import (
     CHANGE_SOURCE_AI,
     CHANGE_SOURCE_SYSTEM,
@@ -55,7 +55,6 @@ from services.file_tree_rules import (
     resolve_new_file_order,
     validate_parent_assignment,
 )
-from services.infra.single_flight_lock import acquire_single_flight, release_single_flight
 from utils.logger import get_logger, log_with_context
 from utils.text_metrics import count_words
 from utils.title_sequence import (
@@ -72,7 +71,7 @@ router = APIRouter(prefix="/api/v1", tags=["files"])
 # ==================== Material Upload Constants ====================
 MATERIAL_MAX_CHARS = 200_000  # Maximum 20万字
 MATERIAL_MAX_BYTES = 2_000_000  # 2MB hard byte cap
-ALLOWED_EXTENSIONS = {".txt"}  # Only .txt allowed
+ALLOWED_EXTENSIONS = {".txt", ".md"}  # 纯文本；.md 与导入正文一样按纯文本读，不解析 Markdown
 MATERIAL_AUTO_SPLIT_TRIGGER_CHARS = 20_000  # Auto-split long uploads above this size
 MATERIAL_AUTO_SPLIT_MAX_CHARS = 20_000  # Keep each generated snippet manageable
 
@@ -278,7 +277,7 @@ def _reject_embedded_nul(value: str | None) -> str | None:
 
 class FileCreate(BaseModel):
     """Request body for creating a file."""
-    title: str
+    title: str = Field(max_length=MAX_FILE_TITLE_LENGTH)
     file_type: str = "document"
     content: str = ""
     parent_id: str | None = None
@@ -290,6 +289,7 @@ class FileCreate(BaseModel):
 
 class FileUpdate(BaseModel):
     """Request body for updating a file."""
+    # 上限只在改名时检查（见 update_file）：历史长标题的文件只改正文仍要能保存。
     title: str | None = None
     content: str | None = None
     word_count: int | None = Field(
@@ -696,78 +696,6 @@ def get_files(
     return session.exec(query).all()
 
 
-# 整项目向量重建要对每个文件重新算 embedding（有厂商成本、占同步连接与线程池），
-# 按用户限流，并按项目单飞：同一项目同一时刻只跑一份重建。
-VECTOR_INDEX_REBUILD_RATE_LIMIT_MAX_REQUESTS = 1
-VECTOR_INDEX_REBUILD_RATE_LIMIT_WINDOW_SECONDS = 600
-# 单飞锁的兜底过期时间：持有者崩溃没释放时，到期自动解锁。
-VECTOR_INDEX_REBUILD_LOCK_TTL_SECONDS = 1800
-
-
-def _vector_index_rebuild_lock_name(project_id: str) -> str:
-    return f"vector_index_rebuild:{project_id}"
-
-
-def _rebuild_vector_index_task(project_id: str, lock_token: str | None = None) -> None:
-    """Background task: rebuild vector index for a project, then release its lock."""
-    from sqlmodel import Session
-
-    from database import sync_engine
-    from services.infra.vector_search_service import is_async_vector_index_enabled
-    from services.llama_index import get_llama_index_service
-
-    try:
-        if not is_async_vector_index_enabled():
-            return
-        with Session(sync_engine) as s:
-            svc = get_llama_index_service()
-            _ = svc.index_project(s, project_id)
-    finally:
-        if lock_token:
-            release_single_flight(_vector_index_rebuild_lock_name(project_id), lock_token)
-
-
-@router.post("/projects/{project_id}/vector-index/rebuild")
-def rebuild_vector_index(
-    project_id: str,
-    background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_active_user),
-    session: Session = Depends(get_session),
-    _rate_limit: int = Depends(
-        require_user_rate_limit(
-            "vector_index_rebuild",
-            VECTOR_INDEX_REBUILD_RATE_LIMIT_MAX_REQUESTS,
-            VECTOR_INDEX_REBUILD_RATE_LIMIT_WINDOW_SECONDS,
-        )
-    ),
-):
-    """Rebuild vector index in background (fire-and-forget)."""
-    verify_project_ownership(project_id, current_user, session)
-
-    from services.infra.vector_search_service import is_async_vector_index_enabled
-
-    if not is_async_vector_index_enabled():
-        return {
-            "message": "Vector index rebuild disabled",
-            "project_id": project_id,
-            "queued": False,
-        }
-
-    lock_token = acquire_single_flight(
-        _vector_index_rebuild_lock_name(project_id),
-        VECTOR_INDEX_REBUILD_LOCK_TTL_SECONDS,
-    )
-    if lock_token is None:
-        raise APIException(
-            error_code=ErrorCode.RESOURCE_CONFLICT,
-            status_code=409,
-            detail="A vector index rebuild for this project is already running",
-        )
-
-    background_tasks.add_task(_rebuild_vector_index_task, project_id, lock_token)
-    return {"message": "Vector index rebuild queued", "project_id": project_id, "queued": True}
-
-
 @router.get("/files/{file_id}", response_model=FileResponse)
 def get_file(
     file_id: str,
@@ -789,7 +717,6 @@ def get_file(
 def create_file(
     project_id: str,
     file_data: FileCreate,
-    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_active_user),
     session: Session = Depends(get_session)
 ):
@@ -842,44 +769,23 @@ def create_file(
     session.commit()
     session.refresh(file)
 
-    # Fire-and-forget vector index upsert
-    try:
-        from services.llama_index import schedule_index_upsert
-
-        extra_metadata = file_data.metadata or {}
-        if file.parent_id:
-            extra_metadata = {**extra_metadata, "parent_id": file.parent_id}
-
-        background_tasks.add_task(
-            schedule_index_upsert,
-            project_id=project_id,
-            entity_type=file.file_type,
-            entity_id=file.id,
-            title=file.title,
-            content=file.content or "",
-            extra_metadata=extra_metadata,
-            user_id=current_user.id,
-        )
-    except Exception as e:
-        # Indexing should never block file CRUD - log and continue
-        log_with_context(
-            logger,
-            logging.DEBUG,
-            "Vector index upsert failed (continuing)",
-            error=str(e),
-            project_id=project_id,
-            file_id=file.id,
-            operation="create_file_index",
-        )
 
     return file
+
+
+def _reject_renamed_title_too_long(new_title: str | None, current_title: str) -> None:
+    if new_title is not None and new_title != current_title and len(new_title) > MAX_FILE_TITLE_LENGTH:
+        raise APIException(
+            error_code=ErrorCode.VALIDATION_ERROR,
+            status_code=422,
+            detail=f"文件标题最多 {MAX_FILE_TITLE_LENGTH} 个字符",
+        )
 
 
 @router.put("/files/{file_id}", response_model=FileResponse)
 def update_file(
     file_id: str,
     file_data: FileUpdate,
-    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_active_user),
     session: Session = Depends(get_session)
 ):
@@ -927,6 +833,7 @@ def update_file(
         # 陈旧写入检测：必须在拿到锁、读到最新行之后做，否则校验的是过期快照。
         _assert_not_stale_write(file, file_data.base_updated_at)
 
+        _reject_renamed_title_too_long(file_data.title, file.title)
         prospective_title = file_data.title if file_data.title is not None else file.title
         prospective_content = file_data.content if file_data.content is not None else file.content
         pre_save_content = file.content
@@ -1152,47 +1059,6 @@ def update_file(
                 user_id=current_user.id,
             )
 
-    # Fire-and-forget vector index upsert
-    try:
-        from services.llama_index import schedule_index_upsert
-
-        extra_metadata = {}
-        if file.file_metadata:
-            try:
-                extra_metadata = json.loads(file.file_metadata)
-            except Exception as e:
-                # JSON parse failure - use empty metadata
-                log_with_context(
-                    logger,
-                    logging.DEBUG,
-                    "Failed to parse file metadata (using empty)",
-                    error=str(e),
-                    file_id=file.id,
-                )
-                extra_metadata = {}
-        if file.parent_id:
-            extra_metadata = {**extra_metadata, "parent_id": file.parent_id}
-
-        background_tasks.add_task(
-            schedule_index_upsert,
-            project_id=file.project_id,
-            entity_type=file.file_type,
-            entity_id=file.id,
-            title=file.title,
-            content=file.content or "",
-            extra_metadata=extra_metadata,
-            user_id=current_user.id,
-        )
-    except Exception as e:
-        # Indexing should never block file CRUD - log and continue
-        log_with_context(
-            logger,
-            logging.DEBUG,
-            "Vector index upsert failed (continuing)",
-            error=str(e),
-            file_id=file.id,
-            operation="update_file_index",
-        )
 
     response = FileResponse.model_validate(file)
     response.version_quota_exceeded = version_quota_exceeded
@@ -1202,7 +1068,6 @@ def update_file(
 @router.delete("/files/{file_id}")
 def delete_file(
     file_id: str,
-    background_tasks: BackgroundTasks,
     recursive: bool = Query(False, description="Delete children recursively"),
     current_user: User = Depends(get_current_active_user),
     session: Session = Depends(get_session)
@@ -1256,7 +1121,7 @@ def delete_file(
 
         # Commit expires ORM rows in the production Session. Capture index data
         # while loaded; enqueue only after commit succeeds.
-        index_deletes = tuple((item.project_id, item.file_type, item.id) for item in deleted_files)
+        deleted_count = len(deleted_files)
         user_id = current_user.id
         session.commit()
 
@@ -1266,41 +1131,10 @@ def delete_file(
         "File deleted successfully",
         user_id=user_id,
         file_id=file_id,
-        deleted_count=len(index_deletes),
+        deleted_count=deleted_count,
         recursive=recursive,
     )
 
-    # Fire-and-forget vector index delete
-    try:
-        if background_tasks is None:
-            # Shouldn't happen in FastAPI, but keep safe
-            from services.llama_index import schedule_index_delete
-            for project_id, file_type, entity_id in index_deletes:
-                schedule_index_delete(
-                    project_id=project_id,
-                    entity_type=file_type,
-                    entity_id=entity_id,
-                    user_id=user_id,
-                )
-        else:
-            from services.llama_index import schedule_index_delete
-            for project_id, file_type, entity_id in index_deletes:
-                background_tasks.add_task(
-                    schedule_index_delete,
-                    project_id=project_id,
-                    entity_type=file_type,
-                    entity_id=entity_id,
-                    user_id=user_id,
-                )
-    except Exception as e:
-        log_with_context(
-            logger,
-            logging.WARNING,
-            "Failed to schedule vector index delete",
-            file_id=file_id,
-            deleted_count=len(index_deletes),
-            error=str(e),
-        )
 
     return {"message": "File deleted successfully"}
 
@@ -1309,7 +1143,6 @@ def delete_file(
 def move_file(
     file_id: str,
     request: MoveFileRequest,
-    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_active_user),
     session: Session = Depends(get_session)
 ):
@@ -1360,34 +1193,6 @@ def move_file(
         new_parent_id=file.parent_id,
     )
 
-    # The vector index stores parent_id as metadata; re-upsert so it follows the move.
-    try:
-        from services.llama_index import schedule_index_upsert
-
-        extra_metadata = file.get_metadata()
-        if file.parent_id:
-            extra_metadata = {**extra_metadata, "parent_id": file.parent_id}
-
-        background_tasks.add_task(
-            schedule_index_upsert,
-            project_id=file.project_id,
-            entity_type=file.file_type,
-            entity_id=file.id,
-            title=file.title,
-            content=file.content or "",
-            extra_metadata=extra_metadata,
-            user_id=current_user.id,
-        )
-    except Exception as e:
-        # Indexing should never block file CRUD - log and continue
-        log_with_context(
-            logger,
-            logging.DEBUG,
-            "Vector index upsert failed (continuing)",
-            error=str(e),
-            file_id=file.id,
-            operation="move_file_index",
-        )
 
     return file
 
@@ -1653,10 +1458,10 @@ def upload_material(
     session: Session = Depends(get_session)
 ):
     """
-    Upload a .txt file as a material (snippet) in the project.
+    Upload a .txt / .md file as a material (snippet) in the project.
 
     Constraints:
-    - Only .txt files allowed
+    - Only .txt and .md files allowed (both read as plain text)
     - Maximum 200,000 characters (约 20 万字)
     - File will be created as snippet(s) under the material folder
     - Long uploads (>2万字) are auto-split (chapter-aware when possible)
@@ -1780,7 +1585,6 @@ def upload_drafts(
     parent_id: str | None = Form(None),
     current_user: User = Depends(get_current_active_user),
     session: Session = Depends(get_session),
-    background_tasks: BackgroundTasks = BackgroundTasks(),
 ):
     """
     Upload .txt/.md files as draft(s) in the project.
@@ -1937,23 +1741,7 @@ def upload_drafts(
     user_id = current_user.id
     session.commit()
     if file_responses:
-        # 6. Background tasks: vector index + dashboard cache
-        for f in file_responses:
-            try:
-                from services.llama_index import schedule_index_upsert
-
-                background_tasks.add_task(
-                    schedule_index_upsert,
-                    project_id=project_id,
-                    user_id=user_id,
-                    entity_type=f.file_type,
-                    entity_id=f.id,
-                    content=f.content,
-                    title=f.title,
-                    extra_metadata={"parent_id": f.parent_id} if f.parent_id else {},
-                )
-            except Exception:
-                pass
+        # 6. Refresh the dashboard cache after the committed upload.
 
         try:
             from services.infra.dashboard_cache import dashboard_cache

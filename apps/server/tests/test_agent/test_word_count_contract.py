@@ -13,6 +13,7 @@ import pytest
 
 from agent.core.workflow_events import StreamEvent, StreamEventType
 from models import File
+from tests.test_agent.body_write_events import edit_file_events
 from utils.text_metrics import count_words
 
 # 2234 字（编辑器口径），字符数明显更多：标点、全角空格、换行都不算字。
@@ -117,20 +118,8 @@ def _text(text: str) -> StreamEvent:
 
 
 def _write_done(call_id: str) -> list[StreamEvent]:
-    return [
-        StreamEvent(
-            type=StreamEventType.TOOL_USE,
-            data={"id": call_id, "name": "edit_file", "status": "complete"},
-        ),
-        StreamEvent(
-            type=StreamEventType.TOOL_RESULT,
-            data={
-                "tool_use_id": call_id,
-                "name": "edit_file",
-                "result": {"content": [{"type": "text", "text": '{"status": "success"}'}]},
-            },
-        ),
-    ]
+    # 一次写进正文（draft）的成功 edit_file：自动质检门只看正文类文件的写入字数。
+    return edit_file_events(call_id, "林晚推开门，雨还在下。" * 30)
 
 
 @pytest.mark.asyncio

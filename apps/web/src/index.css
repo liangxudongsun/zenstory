@@ -155,6 +155,7 @@
 
     --text-primary: 225 18% 16%;
     --text-secondary: 220 9% 42%;
+    --foreground-subtle: 225 18% 30%;
 
     --border-color: 220 14% 90%;
     --separator-color: 220 14% 93%; /* Panel separators */

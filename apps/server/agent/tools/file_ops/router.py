@@ -161,8 +161,6 @@ def execute_file_tool_call(
             data = crud.delete_file(**tool_args)
         elif tool_name == "query_files":
             data = crud.query_files(**tool_args)
-        elif tool_name == "hybrid_search":
-            data = crud.hybrid_search(**tool_args)
         elif tool_name == "edit_file":
             data = editor.edit_file(**tool_args)
         elif tool_name == "update_project_status":

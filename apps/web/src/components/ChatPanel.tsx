@@ -86,7 +86,7 @@ import { StreamActivityLine } from "./StreamActivityLine";
 import { createProseCounter, isWriteToolResult } from "../lib/agentRoundProgress";
 import { LeaveWhileGeneratingDialog } from "./LeaveWhileGeneratingDialog";
 import { useQuotaRefreshAfterLeave } from "../hooks/useQuotaRefreshAfterLeave";
-import { hasSubstantiveDisplayItems, parseRoundStopOutcome } from "../lib/chatRoundEnd";
+import { formatSavedFiles, hasSubstantiveDisplayItems, parseRoundStopOutcome, type RoundWrittenFile } from "../lib/chatRoundEnd";
 import type { QuotaResponse } from "../types/subscription";
 
 const parseMessageStatusCardsFromMetadata = (metadataRaw?: string | null): Message["statusCards"] | undefined => {
@@ -261,6 +261,9 @@ const CHAT_INPUT_PANEL_MAX_RATIO = 0.45;
 /** Minimum height reserved for the messages list in pixels */
 const CHAT_INPUT_PANEL_MIN_MESSAGES_PX = 160;
 
+// 历史加载完后这么久之内，列表变高（懒加载的 Markdown 渲染完）还继续贴底。
+const HISTORY_SETTLE_FOLLOW_MS = 5000;
+
 const isNearBottom = (el: HTMLElement, thresholdPx = 48) => {
   return el.scrollHeight - el.scrollTop - el.clientHeight < thresholdPx;
 };
@@ -386,7 +389,7 @@ const findUnassignedAssistantMessage = (
  * <ChatPanel />
  */
 const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
-  const { t } = useTranslation(['chat', 'common', 'dashboard', 'home', 'editor', 'versions']);
+  const { t, i18n } = useTranslation(['chat', 'common', 'dashboard', 'home', 'editor', 'versions']);
   const chatQuotaUpgradePrompt = getUpgradePromptDefinition("chat_quota_blocked");
   const fileVersionUpgradePrompt = getUpgradePromptDefinition("file_version_quota_blocked");
 
@@ -471,7 +474,13 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
   } | null>(null);
   const [streamStartedAt, setStreamStartedAt] = useState<number | null>(null);
   // 作者点了「停止生成」后的结束说明，按项目隔离，下一轮开始或新建会话时清空。
-  const [userStop, setUserStop] = useState<{ projectId: string; wroteFiles: boolean; counted: boolean } | null>(null);
+  const [userStop, setUserStop] = useState<{
+    projectId: string;
+    wroteFiles: boolean;
+    counted: boolean;
+    /** The files the server says this round wrote (done.written_files); empty from older servers. */
+    writtenFiles: RoundWrittenFile[];
+  } | null>(null);
   /**
    * What this round has done so far, for the stop note and the leave dialog: a write
    * left text in a file / the server charged / real output exists (a write, or a reply
@@ -484,6 +493,14 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
   const stopRequestedProjectRef = useRef<string | null>(null);
   /** Reentrancy guard: two sends in the same tick (closure isStreaming still stale) start one round. */
   const sendLockRef = useRef(false);
+  /**
+   * 「新对话」 is waiting for the stopped round to wrap up. After `done` isStreaming is already
+   * false while the stream is still open, so sending stays blocked on this too: a message sent
+   * then would start in the old session and be cut off by the new chat's reset().
+   * The ref guards same-tick calls; the state drives the input.
+   */
+  const newChatAfterStopRef = useRef(false);
+  const [newChatPending, setNewChatPending] = useState(false);
   const pendingMaterialClearRef = useRef(false);
   const pendingQuoteClearRef = useRef(false);
   const currentAgentSessionIdRef = useRef<string | null>(null);
@@ -544,6 +561,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
   const messageListRef = useRef<MessageListRef>(null);
   const messagesScrollContainerRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
+  const followLoadedHistoryUntilRef = useRef(0);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const autoScrollFrameRef = useRef<number | null>(null);
   const lastLoadedProjectRef = useRef<string | null>(null);
@@ -996,7 +1014,13 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
       const { wroteFiles, charged } = roundProgressRef.current;
       // The server's own verdict when the done carries it; otherwise the same rule locally.
       const producedOutput = completionMeta?.producedOutput ?? roundProgressRef.current.producedOutput;
-      setUserStop({ projectId: currentProjectId, wroteFiles, counted: charged && producedOutput });
+      const writtenFiles = completionMeta?.writtenFiles ?? [];
+      setUserStop({
+        projectId: currentProjectId,
+        wroteFiles: wroteFiles || writtenFiles.length > 0,
+        counted: charged && producedOutput,
+        writtenFiles,
+      });
     }
 
     finalizePendingContextClears();
@@ -1069,6 +1093,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     stop,
     isStopping,
     reset,
+    whenStreamClosed,
     isStreaming,
     isThinking,
     thinkingContent,
@@ -1321,7 +1346,10 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
   const userStopNote = userStop && userStop.projectId === currentProjectId && !isStreaming && !stopRefunded
     ? [
         t('chat:panel.userStopped', { defaultValue: '已停止' }),
-        userStop.wroteFiles ? t('chat:panel.userStoppedSaved', { defaultValue: '已写入的内容已保存' }) : null,
+        // Names the files like the end-of-round line after a refresh (RoundEndNote) does.
+        userStop.writtenFiles.length > 0
+          ? formatSavedFiles(t, userStop.writtenFiles, i18n?.language)
+          : userStop.wroteFiles ? t('chat:panel.userStoppedSaved', { defaultValue: '已写入的内容已保存' }) : null,
         // Counts only with real output (server rule); Pro has no daily count to mention.
         userStop.counted && showDailyCount
           ? t('chat:panel.userStoppedCounted', { defaultValue: '本条计入今日 AI 消息' })
@@ -1529,6 +1557,42 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     };
   }, [currentProjectId]);
 
+  // 刷新 / 重新登录后，历史消息的 Markdown 在第一次贴底之后才渲染完、把列表撑高，
+  // 列表就停在倒数第二轮（2026-10-12 生产审计）。历史加载完的几秒内、作者还没动过
+  // 这个列表时，内容变高就继续贴底；作者一滚动、点按或按键就不再跟。
+  useEffect(() => {
+    if (!isLoadingHistory) {
+      followLoadedHistoryUntilRef.current = performance.now() + HISTORY_SETTLE_FOLLOW_MS;
+    }
+  }, [isLoadingHistory]);
+
+  useEffect(() => {
+    const scrollEl = messagesScrollContainerRef.current;
+    const contentEl = scrollEl?.firstElementChild;
+    if (!scrollEl || !contentEl || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const stopFollowing = () => {
+      followLoadedHistoryUntilRef.current = 0;
+    };
+    const observer = new ResizeObserver(() => {
+      if (shouldAutoScrollRef.current && performance.now() < followLoadedHistoryUntilRef.current) {
+        messageListRef.current?.scrollToBottom(false);
+      }
+    });
+    observer.observe(contentEl);
+    const interactions = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+    for (const type of interactions) {
+      scrollEl.addEventListener(type, stopFollowing, { passive: true });
+    }
+    return () => {
+      observer.disconnect();
+      for (const type of interactions) {
+        scrollEl.removeEventListener(type, stopFollowing);
+      }
+    };
+  }, [currentProjectId]);
+
   const handleJumpToLatest = useCallback(() => {
     shouldAutoScrollRef.current = true;
     setShowJumpToLatest(false);
@@ -1560,7 +1624,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     request: Omit<AgentRequest, "project_id">,
     options: { userBubble: boolean },
   ): boolean => {
-    if (sendLockRef.current || isStreaming) return false;
+    if (sendLockRef.current || isStreaming || newChatAfterStopRef.current) return false;
     // Held until the next task: by then React has re-rendered with isStreaming = true,
     // which guards every later click.
     sendLockRef.current = true;
@@ -1618,7 +1682,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     selectedSkillIds?: string[],
     extraMetadata?: Record<string, unknown>,
   ) => {
-    if (!message.trim() || isStreaming || sendLockRef.current) return;
+    if (!message.trim() || isStreaming || sendLockRef.current || newChatAfterStopRef.current) return;
 
     // Used up for today: keep the words as the draft and explain, instead of sending.
     if (aiSendBlocked) {
@@ -1916,9 +1980,12 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
 
   /** A stop is waiting for the editor's save: further clicks must not send a second stop. */
   const stopAfterSavePendingRef = useRef(false);
-  // Stop button: the server ends the round on the open stream (see useAgentStream.stop).
-  const handleCancel = () => {
-    if (stopAfterSavePendingRef.current) return;
+  /**
+   * The author stops this round: the server ends it on the open stream (see
+   * useAgentStream.stop). Resolves once the stop request has settled (not the round).
+   */
+  const stopRound = (): Promise<void> => {
+    if (stopAfterSavePendingRef.current) return Promise.resolve();
     // The note itself waits for the end of the round (onCompleteHandler): the round may
     // still finish on its own before the stop reaches the server. Marked before stop():
     // a stop pressed before run_started ends the round synchronously inside stop().
@@ -1928,15 +1995,60 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     // and it can only see text that has been saved. When that save fails or times out, the
     // stop names the open file so the server keeps it.
     const editorSaved = flushOpenEditor();
-    if (editorSaved) {
-      stopAfterSavePendingRef.current = true;
-      void editorSaved.then((result) => {
-        stopAfterSavePendingRef.current = false;
-        void stop(keepUnsavedFile(result));
-      });
-    } else {
-      void stop();
+    if (!editorSaved) return stop();
+    stopAfterSavePendingRef.current = true;
+    return editorSaved.then((result) => {
+      stopAfterSavePendingRef.current = false;
+      return stop(keepUnsavedFile(result));
+    });
+  };
+  // Stop button.
+  const handleCancel = () => {
+    void stopRound();
+  };
+
+  // 「新对话」 mid-round. Dropping the stream right away (reset) would leave the server to
+  // settle the round as a lost connection; ask first, like leaving the page, then stop the
+  // round through the server and start the new chat once its stream has closed, so the round
+  // is an author stop under the usual refund rule.
+  const [newChatConfirmOpen, setNewChatConfirmOpen] = useState(false);
+  const handleNewSessionRef = useRef(handleNewSession);
+  useEffect(() => {
+    handleNewSessionRef.current = handleNewSession;
+  });
+  const startNewChatAfterRound = async (stopFirst: boolean) => {
+    const projectId = currentProjectId;
+    if (!projectId || newChatAfterStopRef.current) return;
+    // Further presses do nothing, and nothing can be sent until the new chat has started.
+    newChatAfterStopRef.current = true;
+    setNewChatPending(true);
+    try {
+      if (stopFirst) await stopRound();
+      await whenStreamClosed();
+    } finally {
+      newChatAfterStopRef.current = false;
+      setNewChatPending(false);
     }
+    if (currentProjectIdRef.current !== projectId) return;
+    await handleNewSessionRef.current();
+  };
+  const requestNewChat = () => {
+    if (newChatAfterStopRef.current) return;
+    if (!isStreaming) {
+      void handleNewSession();
+      return;
+    }
+    // Already stopping: nothing left to ask, start over once the round has wrapped up.
+    if (isStopping) {
+      void startNewChatAfterRound(false);
+      return;
+    }
+    setNewChatConfirmOpen(true);
+  };
+  const confirmNewChat = () => {
+    setNewChatConfirmOpen(false);
+    // The round may have ended while the dialog was open: then there is nothing to stop.
+    void startNewChatAfterRound(isStreaming && !isStopping);
   };
 
   /**
@@ -2143,7 +2255,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
             <Database size={isMobile ? 18 : 16} />
           </button>
           <button
-            onClick={handleNewSession}
+            onClick={requestNewChat}
             className={`flex items-center justify-center text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))] hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-primary)/0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-[hsl(var(--bg-primary))] ${isMobile ? 'p-2 min-h-[44px] min-w-[44px]' : 'p-1.5 min-h-0 min-w-0'}`}
             title={t('chat:panel.newSession')}
           >
@@ -2424,17 +2536,18 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
             onSend={handleSendMessage}
             // Allow drafting while AI is streaming/thinking, but prevent sending until it finishes.
             disabled={isLoadingHistory}
-            sendDisabled={isStreaming || isThinking || isLoadingHistory}
+            sendDisabled={isStreaming || isThinking || isLoadingHistory || newChatPending}
             // Quota used up: drafting stays possible; send / Enter explains instead of sending.
             onBlockedSend={aiSendBlocked ? () => setShowQuotaUpgradeModal(true) : undefined}
-            onCancel={isStreaming ? handleCancel : undefined}
-            isStopping={isStopping}
+            // Waiting for the round to wrap up before a new chat: still 「正在停止…」.
+            onCancel={isStreaming || newChatPending ? handleCancel : undefined}
+            isStopping={isStopping || newChatPending}
             // Steering: while streaming with an active session, the user can send
             // a follow-up instruction that the agent picks up at its next step.
             onSteer={handleSteer}
             canSteer={isStreaming && !!sessionId}
             placeholder={
-              isStreaming || isThinking
+              isStreaming || isThinking || newChatPending
                 ? t("chat:input.placeholderWhileProcessing")
                 : aiSendBlocked
                   ? t("chat:input.placeholderQuotaExhausted")
@@ -2529,6 +2642,17 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
         showDailyCount={showDailyCount}
         onStay={leaveGuard.cancelLeave}
         onLeave={handleConfirmLeave}
+      />
+
+      {/* 新对话 mid-round stops this round first. */}
+      <LeaveWhileGeneratingDialog
+        intent="newChat"
+        open={newChatConfirmOpen}
+        roundEnded={newChatConfirmOpen && !isStreaming}
+        producedOutput={roundProgressRef.current.producedOutput}
+        showDailyCount={showDailyCount}
+        onStay={() => setNewChatConfirmOpen(false)}
+        onLeave={confirmNewChat}
       />
 
       {/* AI Memory Dialog */}

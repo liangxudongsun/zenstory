@@ -113,6 +113,13 @@ BUFFER_MAX_SIZE = 1024 * 1024
 _EMPTY_FILE_PAIR_COMPACT = "<file></file>"
 _EMPTY_FILE_PAIR_PATTERN = re.compile(r"<\s*file\s*>\s*<\s*/\s*file\s*>", re.IGNORECASE)
 
+# IDLE 下（没有进行中的捕获）独占一行的 <file> / </file>：协议标记，不是对话。
+# 生产 10-10 U082：rework 前的总结末尾单独一行「</file>」进了作者看到的回复。
+# 只认整行就是一个标签（允许首尾空白和标签内空白）；行内提到的标签、反引号
+# 包着的、``` 围栏里的都原样保留。
+_LONE_FILE_TAG_LINE_PATTERN = re.compile(r"[ \t]*<\s*/?\s*file\s*>[ \t]*", re.IGNORECASE)
+_LONE_FILE_TAG_PREFIXES: tuple[str, ...] = ("<file>", "</file>")
+
 # 悬置（ambiguous）标记候选的等待上限：一个 </file> 候选因反引号/围栏未闭合被
 # 挂起后，若其后又累积了这么多字符仍无法判定，就按真实结束标记处理。没有这个
 # 上限时，一个永远等不到闭合围栏的候选会把其后的全部叙述扣在缓冲里，直到流
@@ -249,10 +256,24 @@ class StreamProcessor:
     prev_char: str = ""
     fence_open: bool = False
 
+    # 刚进入 WRITING、正文还一个字都没收下：<file> 独占一行，紧跟着的那一个换行是标记行的
+    # 行尾，不是正文（live run 2 场景 A：每个流式写入的文件都以空行开头）。只去掉这一个。
+    at_body_start: bool = False
+
     # 刚以真实 </file> 收尾的窗口（见 _EMPTY_FILE_PAIR_PATTERN）及其中暂扣的
     # "可能是空标签对"的前缀
     after_close: bool = False
     idle_hold: str = ""
+
+    # IDLE 对话里逐行识别独占一行的 <file> / </file>（见 _LONE_FILE_TAG_LINE_PATTERN）：
+    # 当前行到目前为止的文字还可能是这样一个标签时先扣在 idle_line_hold；
+    # idle_at_line_start 表示下一个字符位于行首；idle_line_head 记当前行开头的
+    # 几个非空白字符（判断这一行是不是 ``` 围栏行）；idle_fence_open 是对话里
+    # ``` 围栏的开合状态。
+    idle_line_hold: str = ""
+    idle_at_line_start: bool = True
+    idle_line_head: str = ""
+    idle_fence_open: bool = False
 
     def reset(self) -> None:
         """Reset processor to idle state."""
@@ -263,8 +284,16 @@ class StreamProcessor:
         self.history_buffer = ""
         self.prev_char = ""
         self.fence_open = False
+        self.at_body_start = False
         self.after_close = False
         self.idle_hold = ""
+        self._reset_idle_lines()
+
+    def _reset_idle_lines(self) -> None:
+        self.idle_line_hold = ""
+        self.idle_at_line_start = True
+        self.idle_line_head = ""
+        self.idle_fence_open = False
 
     def start_file_write(self, file_id: str) -> None:
         """
@@ -280,8 +309,10 @@ class StreamProcessor:
         self.history_buffer = ""
         self.prev_char = ""
         self.fence_open = False
+        self.at_body_start = False
         self.after_close = False
         self.idle_hold = ""
+        self._reset_idle_lines()
 
         log_with_context(
             logger,
@@ -300,7 +331,12 @@ class StreamProcessor:
         create_file 前 / 流结束时都会据此调用 finalize_on_stream_end，把窗口里
         暂扣的文字交还对话，保证不丢字。
         """
-        return self.state != StreamState.IDLE or self.after_close or bool(self.idle_hold)
+        return (
+            self.state != StreamState.IDLE
+            or self.after_close
+            or bool(self.idle_hold)
+            or bool(self.idle_line_hold)
+        )
 
     def process_content(self, content: str) -> StreamResult:
         """
@@ -314,8 +350,8 @@ class StreamProcessor:
         if self.state == StreamState.IDLE:
             # Not in file writing mode - return as conversation
             if self.after_close:
-                return StreamResult(conversation_content=self._filter_after_close(content))
-            return StreamResult(conversation_content=content)
+                content = self._filter_after_close(content)
+            return StreamResult(conversation_content=self._filter_lone_tag_lines(content))
 
         if self.state == StreamState.WAITING_START:
             return self._process_waiting_start(content)
@@ -375,6 +411,91 @@ class StreamProcessor:
         self.after_close = False
         return held
 
+    @staticmethod
+    def _could_be_lone_tag(text: str) -> bool:
+        """这一行到目前为止的文字是否还可能是独占一行的 <file> / </file>。"""
+        if len(text) > MAX_MARKER_LEN:
+            return False
+        compact = re.sub(r"\s+", "", text).lower()
+        return any(prefix.startswith(compact) for prefix in _LONE_FILE_TAG_PREFIXES)
+
+    def _is_lone_tag_line(self, line: str) -> bool:
+        return (
+            not self.idle_fence_open
+            and bool(line.strip())
+            and _LONE_FILE_TAG_LINE_PATTERN.fullmatch(line) is not None
+        )
+
+    def _note_line_head(self, text: str) -> None:
+        if len(self.idle_line_head) < len(FENCE):
+            self.idle_line_head = (self.idle_line_head + text).lstrip()[: len(FENCE)]
+
+    def _filter_lone_tag_lines(self, text: str) -> str:
+        """IDLE 对话：丢掉独占一行的 <file> / </file>（不在 ``` 围栏里时），其余原样返回。
+
+        逐行判断，跨 chunk 时行首可能是标签的前缀（如 "</fi"）先扣在 idle_line_hold，
+        这一行一旦不可能是单独的标签就立即放行，所以普通文字不会被延后；扣着的前缀
+        在换行、流/agent 结束或新捕获开始前（_release_line_hold）判定。
+        """
+        if not text:
+            return ""
+        out: list[str] = []
+        for piece in re.split(r"(\n)", text):
+            if piece == "\n":
+                held = self.idle_line_hold
+                self.idle_line_hold = ""
+                if self.idle_at_line_start and self._is_lone_tag_line(held):
+                    log_with_context(
+                        logger,
+                        30,  # WARNING
+                        "Dropping a lone <file>/</file> line outside any file capture",
+                        project_id=self.project_id,
+                        user_id=self.user_id,
+                    )
+                else:
+                    out.append(held + "\n")
+                if self.idle_line_head.startswith(FENCE):
+                    self.idle_fence_open = not self.idle_fence_open
+                self.idle_at_line_start = True
+                self.idle_line_head = ""
+                continue
+            if not piece:
+                continue
+            self._note_line_head(piece)
+            if self.idle_at_line_start and not self.idle_fence_open:
+                candidate = self.idle_line_hold + piece
+                if self._could_be_lone_tag(candidate):
+                    self.idle_line_hold = candidate
+                    continue
+                self.idle_line_hold = ""
+                self.idle_at_line_start = False
+                out.append(candidate)
+                continue
+            self.idle_at_line_start = False
+            out.append(self.idle_line_hold + piece)
+            self.idle_line_hold = ""
+        return "".join(out)
+
+    def _release_line_hold(self) -> str:
+        """流/agent 结束、新捕获开始前：扣着的行首判定完交还，并清掉逐行状态。"""
+        held = self.idle_line_hold
+        drop = self.idle_at_line_start and self._is_lone_tag_line(held)
+        self._reset_idle_lines()
+        if drop:
+            log_with_context(
+                logger,
+                30,  # WARNING
+                "Dropping a lone <file>/</file> line outside any file capture",
+                project_id=self.project_id,
+                user_id=self.user_id,
+            )
+            return ""
+        return held
+
+    def _release_idle_holds(self) -> str:
+        """交还 IDLE 下所有暂扣的文字（空标签对前缀、行首标签前缀）。"""
+        return self._filter_lone_tag_lines(self._release_after_close()) + self._release_line_hold()
+
     def _process_waiting_start(self, content: str) -> StreamResult:
         """Process content while waiting for <file> marker."""
         self.temp_buffer += content
@@ -395,6 +516,7 @@ class StreamProcessor:
             self.temp_buffer = after_marker
             self.prev_char = ""
             self.fence_open = False
+            self.at_body_start = True
 
             log_with_context(
                 logger,
@@ -490,9 +612,24 @@ class StreamProcessor:
         self.temp_buffer += content
         return self._scan_writing_buffer(at_eof=False)
 
+    def _drop_marker_line_break(self, at_eof: bool) -> None:
+        """正文开头紧跟 <file> 的那一个换行（\\n 或 \\r\\n）不算正文；其余原样保留。"""
+        if not self.at_body_start:
+            return
+        buffer = self.temp_buffer
+        if buffer.startswith("\r\n"):
+            self.temp_buffer = buffer[2:]
+        elif buffer.startswith("\n"):
+            self.temp_buffer = buffer[1:]
+        elif not buffer or (buffer == "\r" and not at_eof):
+            # 换行可能在下一个 chunk 里。
+            return
+        self.at_body_start = False
+
     def _scan_writing_buffer(self, at_eof: bool) -> StreamResult:
         """扫描 WRITING 缓冲：跳过代码上下文中的字面量标记，转义真实的
         嵌套 <file>，在真实 </file> 处完成文件。"""
+        self._drop_marker_line_break(at_eof)
         buffer = self.temp_buffer
         pos = 0
         fence_open = self.fence_open
@@ -607,7 +744,7 @@ class StreamProcessor:
         # 只有真实 </file> 收尾才打开窗口；自动补全 / DRAINING / WAITING_START
         # 的收尾路径都不经过这里
         self.after_close = True
-        after_marker = self._filter_after_close(after_marker)
+        after_marker = self._filter_lone_tag_lines(self._filter_after_close(after_marker))
 
         return StreamResult(
             file_content=file_content,
@@ -756,7 +893,7 @@ class StreamProcessor:
         - WRITING: auto-complete file content even without </file>
         """
         if self.state == StreamState.IDLE:
-            return StreamResult(conversation_content=self._release_after_close())
+            return StreamResult(conversation_content=self._release_idle_holds())
 
         if self.state == StreamState.DRAINING:
             # File was already force-completed at the size cap; discard the
@@ -776,6 +913,7 @@ class StreamProcessor:
                 self.temp_buffer = self.temp_buffer[start_match.end():]
                 self.prev_char = ""
                 self.fence_open = False
+                self.at_body_start = True
                 result = self.finalize_on_stream_end()
                 if before_marker:
                     result.conversation_content = (
@@ -801,7 +939,7 @@ class StreamProcessor:
             # 此前因歧义挂起的 </file> 到这里可确认为真实结束标记
             scanned = self._scan_writing_buffer(at_eof=True)
             if scanned.file_complete:
-                scanned.conversation_content_after_file += self._release_after_close()
+                scanned.conversation_content_after_file += self._release_idle_holds()
                 return scanned
 
             trailing = self.temp_buffer

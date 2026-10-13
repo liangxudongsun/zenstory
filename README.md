@@ -155,7 +155,7 @@ docker compose exec -e ZENSTORY_ADMIN_EMAIL=you@example.com \
 # 官方技能也只存数据库，不再附带源码种子；维护见 docs/agent-writing-guidance.md。
 ```
 
-打开 <http://localhost:5173> 登录，API 文档在 <http://localhost:8000/docs>。数据库是 SQLite，和上传文件、向量索引一起放在 Docker 卷里，`docker compose down` 和重新构建都不会清掉。
+打开 <http://localhost:5173> 登录，API 文档在 <http://localhost:8000/docs>。数据库是 SQLite，和上传文件一起放在 Docker 卷里，`docker compose down` 和重新构建都不会清掉。
 
 每个账号（包括管理员）默认都是免费套餐：每天 10 条 AI 消息（北京时间 00:00 重置）、最多 3 个项目。要放开，先运行 `docker compose exec server python scripts/seed_subscription_plans.py` 创建 Pro 套餐（也会建好免费套餐这一行），再在管理后台「订阅管理」里给账号开通 Pro，或在「订阅计划」里改免费套餐的额度。
 
@@ -166,7 +166,6 @@ docker compose exec -e ZENSTORY_ADMIN_EMAIL=you@example.com \
 
 | 功能 | 需要的配置 |
 | --- | --- |
-| 项目内语义检索（Agent 的 `hybrid_search` 和每轮自动带上的相关片段） | `ZHIPU_EMBEDDINGS_API_KEY` |
 | 让别人注册 | 默认要邀请码，管理员在「设置 → 邀请」生成；不要邀请码就设 `AUTH_REGISTER_INVITE_CODE_OPTIONAL=true` |
 | 邮箱注册的验证码 | `REDIS_URL`、`RESEND_API_KEY`、`RESEND_FROM_EMAIL`；快速启动不带 Redis，要用 `docker-compose.full.yml` |
 | 重启后保持登录 | `JWT_SECRET_KEY`（至少 32 字符；快速启动时可以写进根目录的 `.env`） |
@@ -400,7 +399,7 @@ zenstory/
 | 前端 | React 19 · TypeScript · Vite 7 · Tailwind CSS 4 · Zustand · TanStack Query |
 | 后端 | FastAPI · SQLModel · Server-Sent Events |
 | AI | DeepSeek `deepseek-flash`（DeepSeek-V4.1-Flash，OpenAI 兼容接口）· openai-agents-python |
-| 检索 | LlamaIndex · ChromaDB · 智谱 embedding-3，向量与关键词结果按 RRF 融合 |
+| 检索 | 数据库关键词匹配、相关片段与行号；文件编辑后立即可搜，无索引任务 |
 | 数据 | SQLite（默认）/ PostgreSQL · Redis · Alembic |
 | 部署 | Docker Compose；在线版前端在 Vercel，后端与 Prefect 在 Railway |
 

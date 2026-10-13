@@ -15,6 +15,7 @@ from typing import Any
 from core.error_codes import ErrorCode
 from models.file_model import FILE_TYPE_FOLDER
 from utils.logger import get_logger, log_with_context
+from utils.text_metrics import count_words
 
 from .constants import coerce_bool
 from .core.events import (
@@ -41,8 +42,8 @@ from .core.events import (
 )
 from .core.stream_errors import error_message_for, stream_error_from_event_data
 from .core.stream_processor import StreamProcessor, StreamResult
+from .core.workflow_events import CHAT_HOLD_BEGIN, CHAT_HOLD_DISCARD, StreamEventType
 from .core.workflow_events import StreamEvent as WorkflowStreamEvent
-from .core.workflow_events import StreamEventType
 
 logger = get_logger(__name__)
 
@@ -152,6 +153,11 @@ class StreamAdapter:
         # Fatal stream error flag (e.g. file content persistence failure)
         self._fatal_stream_error = False
         self._file_mutated = False
+        self._abort_capture: tuple[str, int, asyncio.Task[bool]] | None = None
+        # 图发来 CHAT_HOLD begin 之后的对话文字（StreamProcessor 判定为对话的部分，
+        # 正文不扣）：等图决定丢掉（discard）还是在下一个边界事件前放出。
+        self._chat_hold_active = False
+        self._held_chat: list[str] = []
 
         log_with_context(
             logger,
@@ -164,6 +170,7 @@ class StreamAdapter:
     def reset(self) -> None:
         """Reset adapter state for new conversation turn."""
         self._stream_processor.reset()
+        self._abort_capture = None
         self._pending_file_write = None
         self._content_started = False
         self._current_tool_calls.clear()
@@ -172,6 +179,8 @@ class StreamAdapter:
         self._matched_skill_ids = set(self.config.matched_skill_ids)
         self._fatal_stream_error = False
         self._file_mutated = False
+        self._chat_hold_active = False
+        self._held_chat = []
 
     # usage 键别名 → 规范键。Chat Completions 用 prompt/completion，
     # Responses/SDK 用 input/output；两族键名若同时进同一个累加字典，
@@ -357,6 +366,10 @@ class StreamAdapter:
             self._pending_file_write = None
             self._clear_pending_empty_file_guard()
 
+        # 扣着的对话文字在收尾时照常放出（只有图明确 discard 的才丢）。
+        for sse_event in self._release_held_chat():
+            yield sse_event
+
         # Ensure content_end is sent if content was started
         if self._content_started:
             yield content_end_event()
@@ -393,6 +406,16 @@ class StreamAdapter:
         event_type = event.type
         data = event.data
         event_type_value = event_type.value if hasattr(event_type, "value") else str(event_type)
+
+        if event_type == StreamEventType.CHAT_HOLD:
+            for sse_event in self._handle_chat_hold(data):
+                yield sse_event
+            return
+
+        if event_type_value in _CHAT_HOLD_RELEASE_EVENT_TYPES:
+            # 下一个 agent、交接、收尾 / 出错：被扣着的对话文字没被图丢掉，就按原顺序放出。
+            for sse_event in self._release_held_chat():
+                yield sse_event
 
         if event_type == StreamEventType.TEXT:
             # Text content
@@ -911,9 +934,25 @@ class StreamAdapter:
             content_length=len(content),
         )
         task = asyncio.create_task(self._save_file_content(file_id, content, record_mutation=False))
+        self._abort_capture = (file_id, count_words(content), task)
         _ABORT_SAVE_TASKS.add(task)
         task.add_done_callback(_ABORT_SAVE_TASKS.discard)
         return task
+
+    async def settle_aborted_capture(self) -> dict[str, int | None]:
+        """等待本轮残稿补存，返回包含未发出尾部缓冲的实际保存字数。
+
+        service 可能在 adapter 生成器关闭之前进入取消收尾；此时在这里补全捕获。
+        保存任务仍沿用原有超时与独立 session，不把历史落库当成正文已落库。
+        """
+        if self._stream_processor.is_active:
+            self._persist_active_capture_in_background()
+        capture = self._abort_capture
+        if capture is None:
+            return {}
+        file_id, words, task = capture
+        saved = await asyncio.shield(task)
+        return {file_id: words if saved else None}
 
     async def _flush_active_capture(self) -> AsyncIterator[SSEEvent]:
         """收尾仍在进行中的流式捕获，并发出对应的 SSE 事件。
@@ -951,11 +990,47 @@ class StreamAdapter:
         async for sse_event in self._emit_stream_result(result):
             yield sse_event
 
+    def _handle_chat_hold(self, data: Any) -> Iterable[SSEEvent]:
+        """图的 CHAT_HOLD 控制事件：begin 开始扣对话文字，discard 丢掉扣着的文字。"""
+        action = data.get("action") if isinstance(data, dict) else None
+        if action == CHAT_HOLD_BEGIN:
+            self._chat_hold_active = True
+            return []
+        if action == CHAT_HOLD_DISCARD:
+            dropped = "".join(self._held_chat)
+            if dropped:
+                log_with_context(
+                    logger,
+                    20,  # INFO
+                    "Discarding chat text superseded by the next agent's reply",
+                    dropped_length=len(dropped),
+                    reason=(data.get("reason") if isinstance(data, dict) else None),
+                )
+            self._held_chat = []
+            self._chat_hold_active = False
+            return []
+        return self._release_held_chat()
+
+    def _release_held_chat(self) -> list[SSEEvent]:
+        """放出扣着的对话文字并结束扣留。"""
+        held = "".join(self._held_chat)
+        self._held_chat = []
+        self._chat_hold_active = False
+        return [content_event(held)] if held else []
+
+    def _conversation_events(self, text: str) -> list[SSEEvent]:
+        if not text:
+            return []
+        if self._chat_hold_active:
+            self._held_chat.append(text)
+            return []
+        return [content_event(text)]
+
     async def _emit_stream_result(self, result: StreamResult) -> AsyncIterator[SSEEvent]:
         """Emit SSE events mapped from StreamProcessor result."""
         # Emit conversation content
-        if result.conversation_content:
-            yield content_event(result.conversation_content)
+        for sse_event in self._conversation_events(result.conversation_content):
+            yield sse_event
 
         # Emit file content chunk
         if result.file_content and result.file_id:
@@ -967,8 +1042,8 @@ class StreamAdapter:
                 yield sse_event
 
         # Emit any post-file conversation content after file completion.
-        if result.conversation_content_after_file:
-            yield content_event(result.conversation_content_after_file)
+        for sse_event in self._conversation_events(result.conversation_content_after_file):
+            yield sse_event
 
     async def _complete_file_write(self, result: StreamResult) -> AsyncIterator[SSEEvent]:
         """Persist finalized file content and emit file completion event."""
@@ -992,8 +1067,8 @@ class StreamAdapter:
             )
             warning_text = (
                 f"\n\n[系统提醒] 《{title or result.file_id}》的流式写入没有收到结尾的 "
-                f"</file>，本次只收到 {len(result.final_content)} 字，而该文件已有 "
-                f"{original_length} 字正文。为避免覆盖已完成的内容，本次内容未保存，"
+                f"</file>，本次只收到 {len(result.final_content)} 个字符，而该文件已有 "
+                f"{original_length} 个字符的正文。为避免覆盖已完成的内容，本次内容未保存，"
                 "原文保持不变。请用 edit_file 继续补写，或重新完整输出并以 </file> 结尾。"
             )
             if not self._content_started:
@@ -1270,6 +1345,21 @@ class StreamAdapter:
     def get_history_buffer(self) -> str:
         """Get content buffer for LLM history."""
         return self._stream_processor.get_history_buffer()
+
+
+# 这些事件之前，图没有丢掉的扣留文字照常放出（保持在本 agent 的段落里）。
+# 只放 agent run 的边界事件：STEERING_RECEIVED 会在 writer run 中途（工具边界）出现，
+# 那时放出并结束扣留，之后的总结就会直接流给作者，送审时又多一份审稿人的总结。
+_CHAT_HOLD_RELEASE_EVENT_TYPES: frozenset[str] = frozenset(
+    {
+        StreamEventType.AGENT_SELECTED.value,
+        StreamEventType.HANDOFF.value,
+        StreamEventType.WORKFLOW_STOPPED.value,
+        StreamEventType.WORKFLOW_COMPLETE.value,
+        StreamEventType.ITERATION_EXHAUSTED.value,
+        StreamEventType.ERROR.value,
+    }
+)
 
 
 def create_stream_adapter(

@@ -32,6 +32,7 @@ from agent.core.events import EventType, StreamEvent, done_event, error_event
 from agent.core.round_outcome import (
     STOP_KIND_CLIENT_DISCONNECTED,
     STOP_KIND_USER_STOPPED,
+    RoundWrittenFiles,
     RunOutcome,
     build_stop_outcome,
     record_round_outcome,
@@ -548,13 +549,20 @@ async def stream_request(
         removed_files: list[dict[str, str]] = []
         # (billing_reason, should_refund, refund_applied)；整个请求只结算一次。
         settlement: tuple[str, bool, bool] | None = None
+        # 本轮写进了正文的文件：停止 / 断线的终态列给作者（见 round_outcome.RoundWrittenFiles）。
+        written_files = RoundWrittenFiles()
+
+        def _observe_frame(frame: Any) -> None:
+            tracker.observe(frame)
+            written_files.observe(frame)
+
         # 计费看这次运行实际产出了什么：源生成器的每一帧都在入队前记账，
         # 断线时还没送到客户端的帧也算数。
         pump = SSEStreamPump(
             _primed_stream(),
             heartbeat_interval_s=AGENT_SSE_HEARTBEAT_INTERVAL_S,
             deadline_s=AGENT_RUN_WALL_CLOCK_TIMEOUT_S,
-            on_item=tracker.observe,
+            on_item=_observe_frame,
         )
         run_key = (user_id, agent_run_id)
 
@@ -617,7 +625,6 @@ async def stream_request(
                         remove_empty_placeholders,
                         body.project_id,
                         run_outcome.removable(tracker.removable_placeholders()),
-                        user_id=user_id,
                     )
             message_id = await run_outcome.wait_message_id(ROUND_OUTCOME_MESSAGE_ID_WAIT_S)
             if not message_id:
@@ -631,6 +638,7 @@ async def stream_request(
                     charged=charged,
                     saved_output=tracker.write_succeeded,
                     removed_files=removed,
+                    written_files=written_files.files(final_word_counts=run_outcome.saved_file_word_counts),
                 ),
             )
 
@@ -687,6 +695,12 @@ async def stream_request(
                     session_id=tracker.session_id,
                     stop_reason=USER_STOPPED_REASON,
                     produced_output=tracker.produced_output,
+                    # 与之后落库的 stop_outcome.written_files 同一份：停止当场的说明
+                    # 就能写明保存了哪些文件，不必等刷新。
+                    written_files=written_files.files(
+                        final_word_counts=run_outcome.saved_file_word_counts,
+                        include_words=bool(assistant_message_id),
+                    ),
                 ).to_sse()
                 tracker.observe(done_frame)
                 yield done_frame
@@ -696,7 +710,6 @@ async def stream_request(
                         remove_empty_placeholders,
                         body.project_id,
                         run_outcome.removable(tracker.removable_placeholders()),
-                        user_id=user_id,
                     )
                     yield quota_refunded_frame(billing_reason, removed_files)
             except (asyncio.CancelledError, GeneratorExit):

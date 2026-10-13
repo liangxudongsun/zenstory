@@ -37,7 +37,12 @@
     "roundRemovedFiles": "Blank \"{{titles}}\" removed",
     "removedEmptyFiles": " The blank file \"{{titles}}\" created this round was removed.",
     "removedFilesJoiner": "\", \"",
-    "unanswered": "This message didn't get a reply."
+    "unanswered": "This message didn't get a reply.",
+    "roundSavedFiles": "Saved {{files}}",
+    "roundSavedFile": "\"{{title}}\"",
+    "roundSavedFileWords": "\"{{title}}\" ({{words}} words)",
+    "roundSavedFilesJoiner": ", ",
+    "roundSavedFilesMore": "{{files}} and {{rest}} more"
   },
   "input": {
     "placeholder": "Tell the AI what to write",
@@ -169,6 +174,7 @@
     "read_skill_resource": "Read Skill Notes",
     "generic": "AI action",
     "parallel_summary": "Ran {{total}} tasks: {{completed}} succeeded, {{failed}} failed",
+    "parallel_summary_with_skipped": "Ran {{total}} tasks: {{completed}} succeeded, {{skipped}} left unchanged, {{failed}} failed",
     "parallelTaskLabel": "{{label}}:",
     "processing": "Processing",
     "processing_ellipsis": "Processing…",
@@ -187,6 +193,7 @@
     "query_files_default": "Find files",
     "update_status_description": "Record project information",
     "edit_success": "Edit done",
+    "edit_touched_author_edits": "Changed text you edited yourself",
     "edits_summary_one": "{{editsApplied}} edit · {{size}}",
     "edits_summary_other": "{{editsApplied}} edits · {{size}}",
     "edits_summary": "{{editsApplied}} edits · {{size}}",
@@ -199,13 +206,15 @@
       "fileMissing": "This file no longer exists.",
       "repeatRead": "\"{{title}}\" was already read; continuing with it.",
       "repeatReadUntitled": "This was already read; continuing with it.",
-      "authorEdited": "\"{{title}}\" has changes you made yourself, so the AI left it as is. It will ask you before changing it.",
-      "authorEditedUntitled": "This file has changes you made yourself, so the AI left it as is. It will ask you before changing it.",
+      "authorEdited": "\"{{title}}\" has changes you made yourself, so the AI didn't delete or overwrite it. It will ask you first.",
+      "authorEditedUntitled": "This file has changes you made yourself, so the AI didn't delete or overwrite it. It will ask you first.",
+      "authorChanged": "This file changed after the AI read it (most likely your own edit), so the AI didn't edit the old text. Nothing was changed in this step.",
       "clarifyFirst": "You haven't said which part to change yet. The AI will ask first; no files were changed.",
       "generic": "That step didn't work; the AI will try another way."
     },
     "skippedTitle": {
       "authorEdited": "Kept your changes",
+      "authorChanged": "File just changed, left as is",
       "clarifyFirst": "Asking before changing anything"
     },
     "taskNotCompleted": "Not completed"
@@ -327,7 +336,7 @@
   },
   "activity": {
     "elapsed": "AI is working · {{seconds}}s",
-    "longWaitHint": "Long passages usually take a minute or two."
+    "longWaitHint": "Long passages can take a few minutes."
   },
   "leaveWhileGenerating": {
     "title": "The AI is still writing",
@@ -340,6 +349,16 @@
     "endedTitle": "This round has finished",
     "endedMessage": "Leaving now won't cut anything off.",
     "stayEnded": "Stay here"
+  },
+  "newChatWhileGenerating": {
+    "message": "Starting a new chat stops this round first. If nothing has been written yet, it will not count toward today's AI messages.",
+    "messageWithOutput": "Starting a new chat stops this round first. What's already written is saved, and this round counts toward today's AI messages.",
+    "messageWithOutputUnlimited": "Starting a new chat stops this round first. What's already written is saved.",
+    "messageUnlimited": "Starting a new chat stops this round first.",
+    "endedMessage": "Starting a new chat now won't cut anything off.",
+    "confirm": "Stop and start a new chat",
+    "confirmEnded": "Start a new chat",
+    "cancel": "Cancel"
   },
   "quotaCard": {
     "title": "You've used today's {{limit}} free AI messages",

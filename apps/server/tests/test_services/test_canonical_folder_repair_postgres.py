@@ -38,7 +38,6 @@ def isolate_dependencies(monkeypatch):
     monkeypatch.setattr(FileVersionService, "check_user_version_quota", lambda *_a, **_kw: (True, 0, 10))
     monkeypatch.setattr(files_api, "utcnow", lambda: STAMP)
     monkeypatch.setattr(crud_module, "utcnow", lambda: STAMP)
-    monkeypatch.setattr(FileCRUD, "_schedule_index_upsert", lambda *_a, **_kw: None)
     monkeypatch.setattr(files_api.activation_event_service, "record_once", lambda *_a, **_kw: None)
 
 
@@ -142,7 +141,7 @@ def test_same_root_repair_waits_and_rereads_without_double_bump(pg_engine, monke
             with Session(pg_engine) as content_writer:
                 files_api.update_file(
                     other_id, files_api.FileUpdate(content="Independent updated body"),
-                    BackgroundTasks(), current_user=content_writer.get(User, user_id), session=content_writer,
+                     current_user=content_writer.get(User, user_id), session=content_writer,
                 )
         finally:
             start_second.set()

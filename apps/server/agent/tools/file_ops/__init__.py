@@ -15,7 +15,7 @@ Key features:
 Structure:
 - serialization.py: File serialization utilities
 - text_matching.py: Fuzzy and approximate text matching utilities
-- crud.py: File CRUD operations (create, update, delete, query, hybrid_search)
+- crud.py: File CRUD operations (create, update, delete, query)
 - edit.py: Precise file content editing operations
 - project.py: Project status and task board operations
 - executor.py: Composite FileToolExecutor class (main entry point)

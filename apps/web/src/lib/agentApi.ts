@@ -136,7 +136,10 @@ export interface RemovedPlaceholderFile {
   title: string;
 }
 
-/** done 帧。作者停止的一轮额外带 stop_reason / produced_output（是否已有实质产出）。 */
+/**
+ * done 帧。作者停止的一轮额外带 stop_reason / produced_output（是否已有实质产出），
+ * 写进了正文的文件不为空时还带 written_files（与刷新后 stop_outcome.written_files 同一份）。
+ */
 export interface StreamDoneData {
   apply_action?: string;
   refs?: number[];
@@ -145,6 +148,7 @@ export interface StreamDoneData {
   file_mutated?: boolean;
   stop_reason?: string;
   produced_output?: boolean;
+  written_files?: { id?: string; title?: string; words?: number }[];
 }
 
 
@@ -325,6 +329,11 @@ export function streamAgentRequest(
     onError?: (message: string, code?: string, retryable?: boolean) => void;
     /** 后端确实退还了这一轮的 AI 消息（在终止帧之后到达）；附带被移除的空白文件。 */
     onQuotaRefunded?: (kind: QuotaRefundKind, removedFiles: RemovedPlaceholderFile[]) => void;
+    /**
+     * 这次请求的连接已经结束：服务端发完最后一帧（done 之后还可能有 quota_refunded）并关闭，
+     * 或请求被中止 / 失败。每次请求只调用一次。
+     */
+    onClosed?: () => void;
   },
 ): AbortController {
   const entryAccess = getAccessToken();
@@ -335,6 +344,7 @@ export function streamAgentRequest(
   const callbacks = withOutcomeTelemetry(rawCallbacks, telemetry);
 
   const fetchStream = async (accessToken: string | null = entryAccess, isRetry = false) => {
+    let failurePhase: import("./agentStreamTelemetry").AgentStreamFailurePhase = "fetch";
     try {
       // Track whether we received a terminal SSE event ("done" or "error").
       // If the server/proxy closes the connection without a terminal event,
@@ -368,6 +378,7 @@ export function streamAgentRequest(
         signal: abortController.signal,
       });
 
+      failurePhase = "response";
       const responseRequestId = response.headers?.get?.("X-Request-ID") ?? undefined;
       const responseTraceId = response.headers?.get?.(TRACE_ID_HEADER) ?? traceId;
       const responseAgentRunId = response.headers?.get?.("X-Agent-Run-ID") ?? undefined;
@@ -435,6 +446,7 @@ export function streamAgentRequest(
 
       if (responseAgentRunId) callbacks.onRunStarted?.(responseAgentRunId);
 
+      failurePhase = "read";
       const reader = response.body?.getReader();
       if (!reader) {
         callbacks.onError?.("No response body", "NO_BODY", false);
@@ -445,6 +457,7 @@ export function streamAgentRequest(
       let buffer = "";
 
       while (true) {
+        failurePhase = "read";
         const { done, value } = await reader.read();
 
         if (done) {
@@ -463,10 +476,12 @@ export function streamAgentRequest(
         for (const eventString of events) {
           if (!eventString.trim()) continue;
 
+          failurePhase = "parse";
           const event = parseSSEEvent(eventString);
           if (!event) continue;
           telemetry.noteEvent();
 
+          failurePhase = "callback";
           switch (event.type) {
             case "thinking": {
               const data = event.data as { message: string; step?: string };
@@ -817,9 +832,11 @@ export function streamAgentRequest(
       if (buffer.trim()) {
         const trailingEvents = buffer.split("\n\n").filter((item) => item.trim());
         for (const eventString of trailingEvents) {
+          failurePhase = "parse";
           const event = parseSSEEvent(eventString);
           if (!event) continue;
 
+          failurePhase = "callback";
           switch (event.type) {
             case "done": {
               const data = event.data as StreamDoneData;
@@ -857,20 +874,21 @@ export function streamAgentRequest(
       }
     } catch (error: unknown) {
       const err = error as { name?: string; message?: string };
-      if (err.name === "AbortError") {
+      if (abortController.signal.aborted || err.name === "AbortError") {
         // Request was cancelled, don't call onError
         telemetry.cancelled();
         return;
       }
+      telemetry.noteFailure(failurePhase, error);
       callbacks.onError?.(
         toUserErrorMessage(err.message || "Stream error"),
         "STREAM_ERROR",
-        true,
+        failurePhase !== "callback",
       );
     }
   };
 
-  fetchStream();
+  void fetchStream().finally(() => callbacks.onClosed?.());
 
   return abortController;
 }

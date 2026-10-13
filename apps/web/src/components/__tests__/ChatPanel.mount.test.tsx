@@ -1,10 +1,12 @@
 import React from 'react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, render as rtlRender, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 const mockDraft = vi.hoisted(() => ({ draft: '', saveDraft: vi.fn(), clearDraft: vi.fn() }))
 const mockStop = vi.hoisted(() => vi.fn())
+const mockReset = vi.hoisted(() => vi.fn())
+const mockWhenStreamClosed = vi.hoisted(() => vi.fn(async () => {}))
 const mockClearError = vi.hoisted(() => vi.fn())
 
 const mockQuota = vi.hoisted(() => ({
@@ -194,7 +196,8 @@ vi.mock('../../hooks/useAgentStream', () => ({
     cancel: vi.fn(),
     stop: mockStop,
     isStopping: false,
-    reset: vi.fn(),
+    reset: mockReset,
+    whenStreamClosed: mockWhenStreamClosed,
     isStreaming: mockAgentStreamState.isStreaming,
     isThinking: mockAgentStreamState.isThinking,
     thinkingContent: mockAgentStreamState.thinkingContent,
@@ -238,6 +241,7 @@ type MockMessageInputProps = {
   onBlockedSend?: () => void
   placeholder?: string
   onCancel?: () => void
+  isStopping?: boolean
 }
 
 const mockMessageList = vi.fn((_props: unknown) => <div data-testid="mock-message-list" />)
@@ -294,7 +298,7 @@ vi.mock('../../lib/toast', () => ({
 }))
 
 import { ChatPanel } from '../ChatPanel'
-import { getRecentMessages } from '../../lib/chatApi'
+import { createNewSession, getRecentMessages } from '../../lib/chatApi'
 import { fetchSuggestions } from '../../lib/agentApi'
 import { toast } from '../../lib/toast'
 import { subscriptionApi } from '../../lib/subscriptionApi'
@@ -781,7 +785,7 @@ describe('ChatPanel mount smoke', () => {
         showDailyCount?: boolean
       }
       expect(props.messages?.[1]?.stopOutcome).toEqual({
-        reason: 'user_stopped', charged: false, savedOutput: false, removedFiles: ['第1章'],
+        reason: 'user_stopped', charged: false, savedOutput: false, removedFiles: ['第1章'], writtenFiles: [],
       })
       expect(props.showDailyCount).toBe(true)
     })
@@ -1178,6 +1182,15 @@ describe('ChatPanel mount smoke', () => {
       expect(note).toHaveTextContent('已停止 · 已写入的内容已保存 · 本条计入今日 AI 消息')
     })
 
+    it('names the files the server says were written, right after the stop (as after a refresh)', async () => {
+      const note = await runRoundThenStop((options) => {
+        options.onSessionStarted('session-stop')
+        options.onToolResult('create_file', 'success', { data: { id: 'ch-1', title: '雨夜', content: '雨还在下。' } })
+      }, { producedOutput: true, writtenFiles: [{ title: '雨夜', words: 1039 }] })
+      expect(note).toHaveTextContent('已停止 · 已保存《雨夜》1,039 字 · 本条计入今日 AI 消息')
+      expect(screen.getAllByTestId('chat-user-stop-note')).toHaveLength(1)
+    })
+
     it('neither claims a write nor a charge when only lookups and an empty chapter happened', async () => {
       const note = await runRoundThenStop((options) => {
         options.onSessionStarted('session-stop')
@@ -1430,6 +1443,106 @@ describe('ChatPanel mount smoke', () => {
     })
   })
 
+  describe('新对话 pressed while the AI is writing', () => {
+    const newChatButton = () => screen.getByTitle('chat:panel.newSession')
+
+    afterEach(() => {
+      mockStop.mockReset()
+      mockReset.mockReset()
+      mockWhenStreamClosed.mockReset()
+      mockWhenStreamClosed.mockImplementation(async () => {})
+      mockAgentStreamState.isStreaming = false
+    })
+
+    it('asks first, then ends the round through the server stop before starting the new chat', async () => {
+      let closeStream: () => void = () => {}
+      mockWhenStreamClosed.mockImplementation(() => new Promise<void>((resolve) => { closeStream = resolve }))
+      const order: string[] = []
+      mockStop.mockImplementation(async () => { order.push('stop') })
+      mockReset.mockImplementation(() => { order.push('reset') })
+      vi.mocked(createNewSession).mockImplementation(async () => {
+        order.push('new-session')
+        return { id: 'session-2' } as never
+      })
+      mockAgentStreamState.isStreaming = true
+      render(<ChatPanel />)
+      await waitFor(() => expect(screen.getByTestId('mock-message-list')).toBeInTheDocument())
+      order.length = 0
+
+      fireEvent.click(newChatButton())
+      expect(await screen.findByTestId('new-chat-while-generating-dialog')).toBeInTheDocument()
+      // Nothing is cut off before the author answers.
+      expect(order).toEqual([])
+
+      fireEvent.click(screen.getByTestId('new-chat-dialog-confirm'))
+      await waitFor(() => expect(order).toEqual(['stop']))
+      expect(screen.queryByTestId('new-chat-while-generating-dialog')).not.toBeInTheDocument()
+      // The new chat waits until the stopped round has finished on the server (stop card,
+      // done, refund), so the round is settled as an author stop, not a dropped connection.
+      await waitFor(() => expect(mockWhenStreamClosed).toHaveBeenCalled())
+      expect(createNewSession).not.toHaveBeenCalled()
+
+      await act(async () => { closeStream() })
+      await waitFor(() => expect(order).toEqual(['stop', 'new-session', 'reset']))
+    })
+
+    it('keeps sending blocked after done until the new chat has started', async () => {
+      // Between `done` and the stream closing (refund, placeholder clean-up) isStreaming is
+      // already false. A message sent then would start in the old session and be cut off by
+      // the new chat's reset() with no confirmation.
+      let closeStream: () => void = () => {}
+      mockWhenStreamClosed.mockImplementation(() => new Promise<void>((resolve) => { closeStream = resolve }))
+      mockAgentStreamState.isStreaming = true
+      const { rerender } = render(<ChatPanel />)
+      await waitFor(() => expect(screen.getByTestId('mock-message-list')).toBeInTheDocument())
+
+      fireEvent.click(newChatButton())
+      fireEvent.click(await screen.findByTestId('new-chat-dialog-confirm'))
+      await waitFor(() => expect(mockWhenStreamClosed).toHaveBeenCalled())
+
+      // `done` arrived: the hook reports the round as over while its stream is still open.
+      mockAgentStreamState.isStreaming = false
+      rerender(<QueryClientProvider client={testQueryClient}><ChatPanel /></QueryClientProvider>)
+      await waitFor(() => expect(lastMessageInputProps().sendDisabled).toBe(true))
+      expect(lastMessageInputProps().isStopping).toBe(true)
+      expect(lastMessageInputProps().onCancel).toBeTypeOf('function')
+      await act(async () => { await lastMessageInputProps().onSend('再写一段', []) })
+      expect(mockStartStream).not.toHaveBeenCalled()
+      expect(mockDraft.clearDraft).not.toHaveBeenCalled()
+
+      await act(async () => { closeStream() })
+      await waitFor(() => expect(createNewSession).toHaveBeenCalledTimes(1))
+      await waitFor(() => expect(lastMessageInputProps().sendDisabled).toBe(false))
+      expect(lastMessageInputProps().isStopping).toBe(false)
+    })
+
+    it('keeps the round going when the author chooses to wait', async () => {
+      mockAgentStreamState.isStreaming = true
+      render(<ChatPanel />)
+      await waitFor(() => expect(screen.getByTestId('mock-message-list')).toBeInTheDocument())
+      const resetsAfterMount = mockReset.mock.calls.length
+
+      fireEvent.click(newChatButton())
+      fireEvent.click(await screen.findByTestId('new-chat-dialog-stay'))
+
+      expect(screen.queryByTestId('new-chat-while-generating-dialog')).not.toBeInTheDocument()
+      expect(mockStop).not.toHaveBeenCalled()
+      expect(mockReset).toHaveBeenCalledTimes(resetsAfterMount)
+      expect(createNewSession).not.toHaveBeenCalled()
+    })
+
+    it('starts the new chat right away when nothing is generating', async () => {
+      render(<ChatPanel />)
+      await waitFor(() => expect(screen.getByTestId('message-list')).toBeInTheDocument())
+
+      fireEvent.click(newChatButton())
+
+      await waitFor(() => expect(createNewSession).toHaveBeenCalledTimes(1))
+      expect(screen.queryByTestId('new-chat-while-generating-dialog')).not.toBeInTheDocument()
+      expect(mockStop).not.toHaveBeenCalled()
+    })
+  })
+
   it('never pairs a refund note with the used-up card, which would hint at a second limit', async () => {
     mockAgentStreamState.errorCode = 'ERR_QUOTA_AI_DAILY_COST_EXCEEDED'
     mockAgentStreamState.error = 'cost backstop'
@@ -1672,6 +1785,38 @@ describe('ChatPanel new-author flow', () => {
 
     await waitFor(() => expect(mockScrollToBottom).toHaveBeenCalledWith(false))
     expect(screen.queryByRole('button', { name: 'chat:panel.jumpToLatest' })).not.toBeInTheDocument()
+  })
+
+  it('keeps following the bottom while loaded history finishes rendering, until the author touches the list', async () => {
+    // Lazily rendered Markdown grows the list after the first scroll-to-bottom; reloads used to stop
+    // one round short of the latest reply (2026-10-12 production audit).
+    const resizeCallbacks: Array<() => void> = []
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: () => void) { resizeCallbacks.push(callback) }
+      observe() {}
+      disconnect() {}
+    })
+    try {
+      vi.mocked(getRecentMessages).mockResolvedValueOnce([
+        { id: 'u-1', session_id: 'session-1', role: 'user', content: '写第一章', created_at: '2026-10-08T10:00:00Z' },
+        { id: 'a-1', session_id: 'session-1', role: 'assistant', content: '第一章写好了', created_at: '2026-10-08T10:01:00Z' },
+      ] as never)
+      render(<ChatPanel />)
+      await waitFor(() => expect(lastMessageListProps()?.messages).toHaveLength(2))
+      expect(resizeCallbacks.length).toBeGreaterThan(0)
+
+      mockScrollToBottom.mockClear()
+      act(() => resizeCallbacks.forEach((callback) => callback()))
+      expect(mockScrollToBottom).toHaveBeenCalledWith(false)
+
+      // The author starts scrolling: later growth no longer drags the list down.
+      fireEvent.wheel(screen.getByTestId('message-list'))
+      mockScrollToBottom.mockClear()
+      act(() => resizeCallbacks.forEach((callback) => callback()))
+      expect(mockScrollToBottom).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('explains a used-up day above the input and opens the wall on send instead of a silent grey button', async () => {

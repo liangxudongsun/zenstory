@@ -137,8 +137,7 @@ zenstory search <projectId> "Chen's scar" --type draft --type outline --json
 ```
 
 Results carry `id`, `title`, `file_type`, `snippet`, `line_start` and `score`. Open the
-source with `files get <id>` before asserting a fact. Newly written files are indexed in
-the background, so a just-saved change may take a moment to appear in search.
+source with `files get <id>` before asserting a fact. Search reads the current file database, so committed edits are available immediately.
 
 ## Undo a change
 

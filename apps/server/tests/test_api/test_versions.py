@@ -475,12 +475,7 @@ async def test_rollback_to_version(client: AsyncClient, db_session, monkeypatch)
         headers=headers,
     )
 
-    indexed: list[dict] = []
     cache_bumps: list[tuple[str, str]] = []
-    monkeypatch.setattr(
-        "services.llama_index.schedule_index_upsert",
-        lambda **kwargs: indexed.append(kwargs),
-    )
     monkeypatch.setattr(
         "services.infra.dashboard_cache.dashboard_cache.bump_project_version",
         lambda user_id, project_id: cache_bumps.append((user_id, project_id)),
@@ -502,9 +497,8 @@ async def test_rollback_to_version(client: AsyncClient, db_session, monkeypatch)
     assert data["file_id"] == file_id
     backup = await client.get(f"/api/v1/files/{file_id}/versions/5/content", headers=headers)
     assert backup.json()["content"] == "Content"
-    assert len(indexed) == 1
-    assert indexed[0]["entity_id"] == file_id
-    assert indexed[0]["content"] == v1_content
+    live_file = await client.get(f"/api/v1/files/{file_id}", headers=headers)
+    assert live_file.json()["content"] == v1_content
     assert cache_bumps == [(user.id, project_id)]
 
     # 验证新版本的内容是第一个用户版本的内容。

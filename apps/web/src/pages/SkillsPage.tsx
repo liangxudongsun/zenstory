@@ -1226,6 +1226,8 @@ function AddedSkillCard({
 }) {
   const { t } = useTranslation(["skills"]);
   const [expanded, setExpanded] = useState(false);
+  // 官方技能的正文不对用户返回：不能导出，展开只显示完整描述和说明
+  const hidden = !!skill.instructions_hidden;
 
   const actions = (
     <div
@@ -1245,12 +1247,16 @@ function AddedSkillCard({
           )
         }
       />
-      {onExport && (
+      {onExport && !hidden && (
         <ExportButton onExport={onExport} exporting={exporting} isMobile={isMobile} />
       )}
       <IconButton
         onClick={() => setExpanded(!expanded)}
-        label={expanded ? t("skills:collapse") : t("skills:expand")}
+        label={
+          hidden
+            ? expanded ? t("skills:collapseDetails") : t("skills:expandDetails")
+            : expanded ? t("skills:collapse") : t("skills:expand")
+        }
         aria-expanded={expanded}
         icon={expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
       />
@@ -1289,7 +1295,7 @@ function AddedSkillCard({
             </span>
           </div>
           {skill.description && (
-            <p className="text-xs text-[hsl(var(--text-secondary))] mb-2.5 line-clamp-2">
+            <p className={`text-xs text-[hsl(var(--text-secondary))] mb-2.5 ${hidden && expanded ? "" : "line-clamp-2"}`}>
               {skill.description}
             </p>
           )}
@@ -1304,8 +1310,14 @@ function AddedSkillCard({
       </div>
       {isMobile && actions}
 
+      {expanded && hidden && (
+        <p className="mt-3 pt-3 border-t border-[hsl(var(--border-color))] text-xs text-[hsl(var(--text-tertiary))]">
+          {t("skills:instructionsHidden")}
+        </p>
+      )}
+
       {/* Instructions - Markdown rendered */}
-      {expanded && skill.instructions && (
+      {expanded && !hidden && skill.instructions && (
         <div className={`mt-3 pt-3 border-t border-[hsl(var(--border-color))]`}>
           <div className="flex items-center gap-1.5 mb-2">
             <span className={`text-xs font-medium text-[hsl(var(--text-tertiary))]`}>
@@ -1504,13 +1516,15 @@ function PublicSkillCard({
   const [expanded, setExpanded] = useState(false);
   const [fullInstructions, setFullInstructions] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
-  const canExpand = skill.source !== "official" && (Boolean(skill.instructions.trim()) || Boolean(skill.instructions_truncated));
+  const canExpand = skill.source !== "official" && !skill.instructions_hidden && (Boolean(skill.instructions.trim()) || Boolean(skill.instructions_truncated));
 
+  // 官方技能的正文不对用户返回，卡片只显示用途说明
+  const hidden = !!skill.instructions_hidden;
   const handleToggleExpanded = async () => {
     const next = !expanded;
     setExpanded(next);
     // 列表只带正文预览；展开时再取完整正文
-    if (!next || !skill.instructions_truncated || fullInstructions !== null) return;
+    if (!next || hidden || !skill.instructions_truncated || fullInstructions !== null) return;
     setLoadingDetail(true);
     try {
       const detail = await publicSkillsApi.get(skill.id);
@@ -1573,13 +1587,19 @@ function PublicSkillCard({
             {adding ? (
               <div className="w-3 h-3 animate-spin rounded-full border-2 border-[hsl(var(--accent-primary))] border-t-transparent" />
             ) : isAdded ? (
-              <>{t("alreadyAdded")}</>
+              <span>{t("alreadyAdded")}</span>
             ) : (
-              <>{t("addToMine")}</>
+              <span>{t("addToMine")}</span>
             )}
           </button>
         </div>
       </div>
+
+      {expanded && hidden && (
+        <p className="mt-3 pt-3 border-t border-[hsl(var(--border-color)/0.5)] text-xs text-[hsl(var(--text-tertiary))]">
+          {t("instructionsHidden")}
+        </p>
+      )}
 
       {/* Expanded instructions */}
       {canExpand && expanded && instructions && (

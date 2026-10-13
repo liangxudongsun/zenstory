@@ -326,6 +326,22 @@ describe('api', () => {
   })
 
   describe('fileApi', () => {
+    it('rejects a body-sized title before POST and preserves the supplied content', async () => {
+      const input = { title: '设定'.repeat(1600), content: '原始正文' }
+      await expect(fileApi.create('project-1', input)).rejects.toMatchObject({ status: 422 })
+      expect(mockApi.post).not.toHaveBeenCalled()
+      expect(input.title).toHaveLength(3200)
+      expect(input.content).toBe('原始正文')
+    })
+
+    it('rejects a long rename but permits a 255-codepoint emoji title', async () => {
+      await expect(fileApi.update('file-1', { title: '😀'.repeat(256) })).rejects.toMatchObject({ status: 422 })
+      expect(mockApi.put).not.toHaveBeenCalled()
+      mockApi.post.mockResolvedValue({ id: 'file-1' })
+      await fileApi.create('project-1', { title: '😀'.repeat(255), content: '正文'.repeat(4000) })
+      expect(mockApi.post).toHaveBeenCalled()
+    })
+
     describe('getAll', () => {
       it('fetches all files for a project', async () => {
         const mockFiles = [
@@ -516,9 +532,25 @@ describe('api', () => {
         )
       })
 
-      it('rejects non-txt file before request is sent', async () => {
+      it('uploads md file as material like draft import', async () => {
+        global.fetch = vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ id: '2', title: '设定', file_type: 'snippet' }),
+        })
+        const file = new File(['# 设定'], '设定.MD', { type: 'text/markdown' })
+
+        await fileApi.upload('project-1', file)
+
+        expect(global.fetch).toHaveBeenCalledTimes(1)
+        expect(analyticsMocks.trackEventMock).toHaveBeenCalledWith(
+          'material_uploaded',
+          expect.objectContaining({ project_id: 'project-1', file_extension: 'md' })
+        )
+      })
+
+      it('rejects non-text file before request is sent', async () => {
         global.fetch = vi.fn()
-        const file = new File(['test content'], 'test.md', { type: 'text/markdown' })
+        const file = new File(['test content'], 'test.docx', { type: 'application/octet-stream' })
 
         await expect(fileApi.upload('project-1', file)).rejects.toThrow('ERR_FILE_TYPE_INVALID')
         expect(global.fetch).not.toHaveBeenCalled()

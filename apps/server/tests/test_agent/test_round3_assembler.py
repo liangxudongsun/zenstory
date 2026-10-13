@@ -330,7 +330,7 @@ class TestInventoryHeaderBudget:
         assert total == len(focus.content) and shown < total
         focus_heading = next(line for line in lines if f"(id={focus.id}) ← 当前焦点" in line)
         assert (
-            f'[已截断：显示 {shown}/{total} 字；全文用 query_files(id="{focus.id}")]'
+            f'[已截断：显示 {shown}/{total} 个字符；全文用 query_files(id="{focus.id}")]'
             in focus_heading
         )
 
@@ -415,8 +415,8 @@ class TestFocusAcrossFileTypes:
         ]
 
         assembler = ContextAssembler()
-        with patch("services.llama_index.get_llama_index_service") as mock_factory:
-            mock_factory.return_value.hybrid_search.return_value = mock_results
+        with patch("services.infra.file_search_service.FileSearchService") as mock_factory:
+            mock_factory.return_value.search.return_value = mock_results
             result = assembler.assemble(
                 session=db_session,
                 project_id=project.id,

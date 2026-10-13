@@ -63,7 +63,6 @@ LITE_REDIS_URL="redis://localhost:6379/1"
 # Common test environment variables
 export OPENAI_API_KEY="test-key-for-ci-testing"
 export JWT_SECRET_KEY="test-secret-key-min-32-characters-for-ci-testing"
-export ZHIPU_EMBEDDINGS_API_KEY="skip-vector-tests-in-ci"
 export DEEPSEEK_API_KEY="test-key-for-ci-testing"
 export E2E_TEST_EMAIL="e2e-test@example.com"
 export E2E_TEST_PASSWORD="E2eTestPassword123!"
@@ -212,7 +211,6 @@ DATABASE_URL=$DOCKER_DATABASE_URL
 REDIS_URL=$DOCKER_REDIS_URL
 OPENAI_API_KEY=$OPENAI_API_KEY
 JWT_SECRET_KEY=$JWT_SECRET_KEY
-ZHIPU_EMBEDDINGS_API_KEY=$ZHIPU_EMBEDDINGS_API_KEY
 EOF
 
     # Ensure app/alembic load Docker test database config
@@ -221,7 +219,6 @@ EOF
     export REDIS_URL="$DOCKER_REDIS_URL"
     export OPENAI_API_KEY="$OPENAI_API_KEY"
     export JWT_SECRET_KEY="$JWT_SECRET_KEY"
-    export ZHIPU_EMBEDDINGS_API_KEY="$ZHIPU_EMBEDDINGS_API_KEY"
 
     # Align with GitHub CI bootstrapping for ephemeral test DBs:
     # 1) create all tables from SQLModel metadata
@@ -441,7 +438,6 @@ DATABASE_URL=$DOCKER_DATABASE_URL
 REDIS_URL=$DOCKER_REDIS_URL
 OPENAI_API_KEY=$OPENAI_API_KEY
 JWT_SECRET_KEY=$JWT_SECRET_KEY
-ZHIPU_EMBEDDINGS_API_KEY=$ZHIPU_EMBEDDINGS_API_KEY
 EOF
 
     # Run pytest
@@ -524,7 +520,7 @@ EOF
 
     # Start backend server in background
     log_info "Starting backend server..."
-    PYTHONUNBUFFERED=1 AUTH_RATE_LIMIT_ENABLED=false ASYNC_VECTOR_INDEX_ENABLED=false python main.py > /tmp/zenstory_backend.log 2>&1 &
+    PYTHONUNBUFFERED=1 AUTH_RATE_LIMIT_ENABLED=false python main.py > /tmp/zenstory_backend.log 2>&1 &
     local backend_pid=$!
 
     # Wait for backend to be healthy
@@ -600,7 +596,7 @@ run_e2e_tests_lite() {
     lsof -i :8000 -sTCP:LISTEN -t | xargs -r kill 2>/dev/null || true
     log_info "Starting backend server..."
     local backend_pid=""
-    PYTHONUNBUFFERED=1 AUTH_RATE_LIMIT_ENABLED=false ASYNC_VECTOR_INDEX_ENABLED=false python main.py > /tmp/zenstory_backend_lite.log 2>&1 &
+    PYTHONUNBUFFERED=1 AUTH_RATE_LIMIT_ENABLED=false python main.py > /tmp/zenstory_backend_lite.log 2>&1 &
     backend_pid=$!
     cd "$PROJECT_ROOT"
 

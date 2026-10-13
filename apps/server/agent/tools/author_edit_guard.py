@@ -1,34 +1,27 @@
-"""作者手动改过的文件：作者本轮没点名时，AI 不改、不删，改为问作者。
+"""作者手动改过的文件：作者本轮没点名时，AI 不删、不整份重写，改为问作者。
+
+只管三件事：delete_file 删它、递归删除的文件夹里有它、create_file 复用了同名的已有剧集
+（接下来的 <file> 正文会整份覆盖它）。修改（edit_file）从 2026-10-12 起不走这里：按字符串判断
+作者有没有「授权」修改，作者说「直接写进第2集结尾，我那句台词保持我改的版本」仍被拒（生产审计
+drama）。现在作者改了什么（版本历史的净差异）给模型看，由模型保留或按作者的新要求改，见
+agent/tools/author_changes.py 和 .agents/notes/implemented/architecture/2026-10-12-author-edits-shown-not-guessed.md。
 
 2026-10-09 审计 P1-3：作者把第 3 章的「老周」手动改成「老秦」（19 处），接着发「继续写
 下一章」。AI 写完第 4 章后把第 3 章 19 处全改了回去，还在总结里说「顺手修的两处」。
 
 规则（工具层兜底，提示词里有同一条要求）：
 - 文件的当前正文最后是作者自己写下的（最新版本不是 AI 写的，或正文在 AI 版本之后又被
-  改过却没留版本），而作者本轮的话没有指向这个文件时，edit_file / delete_file（含递归删除
-  文件夹里的这类文件）/ create_file 复用同名剧集不执行，返回 error_type=author_edit_protected，
-  告诉模型以作者的写法为准、有出入就问作者。
-- 「指向这个文件」：作者点名它并要求改它（标题或标题里的词、第 N 章 / 集、前 N 章，同一分句
-  或下一分句里有「改 / 润色 / 精简…」）、「全书 / 所有章节」并要求改、大纲 / 人设这类文件
-  类别并要求改、附加或引用了它；作者正开着它时说「这一章 / 这里」，或者提了改动且没点名别的
-  文件、不是要下一章或接着往下写（「把开头改得更有悬念一点」）；上一轮 AI 因为这条规则没改
-  它、作者这一轮不点名别的章、说清了往哪改（「统一成老周吧」「改回老周」），且每处修改都是
-  换成这个写法。上一轮 AI 问的是「要把第2章也改成老秦吗？」，所以「好 / 可以」答应的是改
-  其他章，不放开作者改过的这一章。
-- 点名了但不是要改它：拿它当标准 / 来源（「以第3章为准」「按第3章统一人名」「和第3章的
-  人名保持统一」「第4章沿用第3章的改动」）；作者在讲它改过了（「第3章改好了」「第3章老周
-  改成老秦了」「第3章有改动」「第3章是我改过的，以它为准统一一下其他章」——讲完改过的，
-  下一分句的要求不算到它头上）。
-- 不算要求改的说法：「改变 / 改天」（「把结局改变一下」算）、「继续更新」（发新章）、作者讲
-  自己改过的（「我把老周改成老秦了」「第3章我改过了」）、抱怨（「你怎么把第3章改了」）；
-  没点名哪一章时不带方向的「统一」（「人名要统一」「统一一下格式」）——作者改的写法是最新
-  设定，往回统一要作者说清楚。
+  改过却没留版本），而作者本轮的话没有指向这个文件时，上面三种写入不执行，返回
+  error_type=author_edit_protected，告诉模型先问作者。
+- 删除（含递归删除里的文件）：作者附加 / 引用了它并说删，或点名它（标题、第 N 章 / 集；
+  正开着它时说「这一章」）并在点名的那一分句或下一分句说删。「第3章改一下，把废稿删了」
+  删的是废稿。
 - 递归删除文件夹：作者点名这个文件夹并说删它（「正文里的第2章删掉」删的是里面的东西，不算）
   才整个删；否则里面作者手改过的文件要点名并在那一处说删。
-- 「把老秦改成老周」这类改名要求：只替换 / 删除含「老秦」的原文时放行；「把主角的名字改成
-  李明」只放行改成的文字里有「李明」的小段替换。
-- 作者正开着的文件只追加（op=append）、且本轮不是写下一章时放行：作者写了半章说
-  「继续写」，AI 接着往后写不改动作者已写的字。
+- 整份重写同名剧集（request_targets_file）：作者点名它并要求改它（标题或标题里的词、第 N 章 /
+  集、前 N 章）、「全书 / 所有章节」并要求改、大纲 / 人设这类文件类别并要求改、附加或引用了它；
+  作者正开着它时说「这一章 / 这里」或提了改动且不是要下一章；上一轮 AI 收尾的提议里要改它的
+  那一项被作者答应或选中。点名了但只是拿它当标准、或在讲它改过了，不算。
 
 只在应用内对话（ToolContext 带着作者原话）时生效；没有作者原话的调用路径不受影响。
 """
@@ -178,18 +171,6 @@ _DECLINE_RE = re.compile(
 )
 # 作者在让 AI 接着往下写（不是在回答要不要改）。
 _MOVING_ON_MARKERS: tuple[str, ...] = ("继续写", "接着写", "往下写", "续写", "继续更新", "接着更新")
-
-# 「把老秦改成老周」：改名 / 替换的来源词和目标词。
-_RENAME_VERB_RE = re.compile(
-    r"(?:改成|改为|改回|换成|替换成|替换为|改叫|改名为|改名成|改名叫|统一成|统一为|统一叫)"
-)
-_RENAME_SOURCE_SPLIT_RE = re.compile(r"[的把将，,。；;、\s「」“”\"'『』（）()]+")
-_RENAME_SOURCE_TRAILING_RE = re.compile(r"(?:全部|全都|都|统一|一律|也|再)+$")
-_RENAME_TARGET_SPLIT_RE = re.compile(r"[，,。；;、！？!?\s「」“”\"'『』（）()]+")
-_RENAME_TARGET_TRAILING_RE = re.compile(r"(?:吧|了|啊|呀|哦|嘛|呢|就行|就好|即可|好了)+$")
-# 「把主角的名字改成李明」：被换掉的是「名字」这类泛称，原文里找不到，按新名字判断。
-_RENAME_GENERIC_SOURCES: tuple[str, ...] = ("名字", "名称", "称呼", "叫法", "姓名", "人名", "名号")
-_RENAME_MAX_OLD_CHARS = 80
 
 _TITLE_TOKEN_SPLIT_RE = re.compile(r"[\s　·・:：，,。、《》「」“”\"'（）()\-—_/|]+")
 _BOOK_TITLE_RE = re.compile(r"《([^》]{1,40})》")
@@ -518,105 +499,6 @@ def mentioned_sequences(text: str) -> set[tuple[int, str]]:
     return found
 
 
-def _rename_pairs(text: str) -> list[tuple[str, str]]:
-    """「把老秦改成老周」「把主角的名字改成李明」里的（被换掉的词, 换成的词）。"""
-    normalized = _normalize_text(text)
-    pairs: list[tuple[str, str]] = []
-    for match in _RENAME_VERB_RE.finditer(normalized):
-        if _is_negated(normalized, match.start()):
-            continue
-        before = normalized[max(0, match.start() - 16):match.start()]
-        segments = [segment for segment in _RENAME_SOURCE_SPLIT_RE.split(before) if segment]
-        source = _RENAME_SOURCE_TRAILING_RE.sub("", segments[-1]) if segments else ""
-        after = normalized[match.end():match.end() + 16]
-        targets = [segment for segment in _RENAME_TARGET_SPLIT_RE.split(after) if segment]
-        target = _RENAME_TARGET_TRAILING_RE.sub("", targets[0]) if targets else ""
-        pairs.append((source, target))
-    return pairs
-
-
-def rename_source_terms(text: str) -> set[str]:
-    """「把老秦改成老周」「老秦都换成老周」里被换掉的词（至少 2 个字）。"""
-    return {source for source, _ in _rename_pairs(text) if len(source) >= 2}
-
-
-def _edits_are_requested_rename(raw_text: str, edits: list[dict[str, Any]]) -> bool:
-    """每一处替换 / 删除都是作者要的改名。
-
-    原文含被换掉的词（「把老秦改成老周」只替换含「老秦」的原文）；被换掉的是「名字」
-    这类泛称时（「把主角的名字改成李明」），改成的文字里有新名字、原文里没有，且原文
-    只是一小段。
-    """
-    pairs = _rename_pairs(raw_text)
-    ops = [str(edit.get("op") or "").strip() for edit in edits]
-    if not pairs or not all(op in {"replace", "delete"} for op in ops):
-        return False
-    sources = {source for source, _ in pairs if len(source) >= 2}
-    generic_targets = {
-        target
-        for source, target in pairs
-        if 2 <= len(target) <= 8 and any(word in source for word in _RENAME_GENERIC_SOURCES)
-    }
-
-    def allowed(edit: dict[str, Any]) -> bool:
-        old = str(edit.get("old") or "")
-        new = str(edit.get("new") or "")
-        if any(source in old for source in sources):
-            return True
-        return (
-            str(edit.get("op") or "").strip() == "replace"
-            and len(old) <= _RENAME_MAX_OLD_CHARS
-            and any(target in new and target not in old for target in generic_targets)
-        )
-
-    return all(allowed(edit) for edit in edits)
-
-
-def author_confirms_change(
-    text: str, *, sequence: tuple[int, str] | None = None, edits: list[Any] | None = None
-) -> bool:
-    """上一轮 AI 因为作者手改过而没改这个文件，作者这一轮是不是说清了把它往哪改。
-
-    上一轮 AI 问的是「要把第2章也改成老秦吗？」（拒绝说明和提示词都让它默认这样问），
-    所以「好 / 可以 / 行 / 没问题」答应的是把其他章改成作者的写法，不放开作者改过的这一章；
-    「可以，第2章也改成老秦」点名的是别的章，也不算。作者点名这一章要求改（「第3章改回
-    老周」）走点名的规则。
-    这里只放行没点名、但说清了往哪改的回答（「统一成老周吧」「改回老周」「可以，统一成老周，
-    然后写下一章」），而且每一处修改都是换成这个写法（或替换掉作者说要换掉的词）：作者说
-    「统一成老秦」（作者自己的写法）时，把这一章的老秦改成老周仍然不行。
-    出现不改的说法（不用 / 别 / 先不 / 保持 / 就叫 / 我自己…）不算；删除、整份重写
-    （没有逐处修改）不算。sequence：这个文件的章 / 集号。
-    """
-    normalized = _normalize_text(text)
-    if not normalized or _DECLINE_RE.search(normalized):
-        return False
-    if any(sequence is None or sequence not in numbers for numbers, _, _ in _sequence_mentions(normalized)):
-        return False
-    if not edits or not all(isinstance(edit, dict) for edit in edits):
-        return False
-    pairs = [(source, target) for source, target in _rename_pairs(text) if target]
-    if not pairs:
-        return False
-    sources = {source for source, _ in pairs if len(source) >= 2}
-    targets = {target for _, target in pairs if len(target) <= 8}
-
-    def toward_target(edit: dict[str, Any]) -> bool:
-        op = str(edit.get("op") or "").strip()
-        old = str(edit.get("old") or "")
-        new = str(edit.get("new") or "")
-        if op not in {"replace", "delete"}:
-            return False
-        if any(source in old for source in sources):
-            return True
-        return (
-            op == "replace"
-            and len(old) <= _RENAME_MAX_OLD_CHARS
-            and any(target in new and target not in old for target in targets)
-        )
-
-    return all(toward_target(edit) for edit in edits)
-
-
 def _title_tokens(title: str) -> list[str]:
     """标题里能单独拿来指代文件的词：去掉「第N章」，剩下至少 2 个字的部分。"""
     stripped = _SINGLE_SEQ_RE.sub(" ", title or "")
@@ -660,14 +542,610 @@ def _names_another_file(
     return False
 
 
+# --------------------------------------------- 上一轮 AI 的提议：作者答应 / 选了哪一项
+#
+# 线上（I14）：AI 自己提议「按这个改，我直接写进第四节」「1. 大纲那三处按新来历改掉
+# … 3. 两件都做」，作者回「好的，继续」「两件都做」「按新来历修改」仍被拦，AI 只能让作者
+# 照抄一句口令。上一轮 AI 的原话就在历史里：从它收尾的选项和问句里读出提议，作者答应 /
+# 选中的那一项提议改的是这个文件时放行。AI 没提议改它（问的是别的章、只交代做了什么、
+# 没有提议）时，「好」照旧不放开。
+
+
+@dataclass(frozen=True)
+class OfferItem:
+    """上一轮 AI 收尾时给作者的一项提议：一个选项，或一句问句 / 「你说一声我就改」。"""
+
+    text: str
+    # 选项的序号（1 起，按出现顺序）；问句为 None。
+    index: int | None = None
+    # 「两件都做」「都改」这类「以上都要」的选项。
+    picks_all: bool = False
+
+
+# session_loader 追加在 assistant 正文后的合成段落（与 graph/router._SYNTHESIZED_SECTION_HEADERS 一致）。
+_SYNTHESIZED_HEADERS: tuple[str, ...] = (
+    "[此前的工具操作]",
+    "[Previous tool actions]",
+    "[workflow_stopped]",
+    "[iteration_exhausted]",
+)
+_OFFER_TAIL_LINES = 12
+_OFFER_LEAD_LINES = 2
+_OFFER_ITEM_MAX_CHARS = 240
+_OFFER_MAX_ITEMS = 12
+_MARKDOWN_RE = re.compile(r"\*\*|__|`|^#+\s*", re.MULTILINE)
+_TASK_COMPLETE_RE = re.compile(r"^\[(?:TASK_COMPLETE|任务完成)\]$", re.IGNORECASE)
+_OPTION_LINE_RE = re.compile(r"^(?:[-*•·]|\d+[.、)）]|[（(]\d+[)）]|[A-Da-d][.、)）]|[①②③④⑤⑥])\s*")
+_SENTENCE_RE = re.compile(r"[^。！!？?]*[。！!？?]?")
+# 「你说改我就改」「你说一声我就动」「需要你点头我才改」：没有问号的提问。
+_CONDITIONAL_OFFER_RE = re.compile(
+    r"(?:你(?:说|回)(?:一声|一句|句|个)?(?:好|行|改|可以|动)?(?:的话)?[，,]?我(?:就|再|马上|立刻|这就|才)"
+    r"|点头(?:我就|我才|后我|了我|之后我)"
+    r"|你同意(?:的话)?[，,]?我就)"
+)
+_QUESTION_MARKER_RE = re.compile(
+    r"(?:[？?]|吗|要不要|要我|需不需要|是否|好不好|行不行|可不可以|" + _CONDITIONAL_OFFER_RE.pattern + ")"
+)
+# AI 提议里「不改 / 先不动」的说法，以及交代「我没动它」的说法：这一分句里的章节不是要改的。
+_OFFER_DECLINE_RE = re.compile(
+    r"(?:先不动|不动|别动|保持原样|保持不变|维持原样|原样|先留着|留着|先不改|不改|暂不|暂时不|先放着|不用改|先不处理|不处理"
+    r"|没(?:有)?(?:直接|再|去|敢)?(?:动|碰|改)|未(?:动|改))"
+)
+# 交代状态的说法：「你手动改过的」「改好了」「已经改了」里的「改」是在说做过什么，不是提议改。
+_OFFER_STATE_RE = re.compile(
+    r"(?:(?:是)?(?:你|作者)(?:自己|亲手|亲自)?(?:手动|手工)?(?:改|修改|动|编辑|调整|写|加)(?:过)?(?:的|了)"
+    r"|(?:你|作者)?(?:自己|亲手|亲自)?(?:手动|手工)?(?:改|修改|动|编辑|调整)过(?:了|的)?"
+    r"|(?:已经?|都)?(?:改|修改|写|补|换|调整|理顺|压掉|同步)(?:好|完)了"
+    r"|已经?(?:改|修改|补|换|调整|同步)(?:了|过)?)"
+)
+# 选项前一行是在交代做了什么（「这轮做了：」「改动如下：」），下面那一串是清单，不是选项。
+_REPORT_LEAD_RE = re.compile(r"(?:做了|完成|改动|变更|进度|小结|总结|汇总|如下|情况|结果|清单)[^？?]*[：:]$")
+_CHOICE_LEAD_RE = re.compile(r"(?:你|挑|选|哪|可以|要不要|需要|想)")
+# AI 提议改动的说法（比作者的改动说法宽：「写进第四节」「压掉」「理顺」都是改已有的字）。
+_OFFER_EDIT_WORDS: tuple[str, ...] = (
+    *_EDIT_VERBS,
+    "写进",
+    "落进",
+    "并进",
+    "补",
+    "压掉",
+    "理顺",
+    "换",
+    "挪",
+    "砍",
+    "写实",
+)
+# 「第九章细纲」「第3章的大纲」是大纲里的一段，不是那一章的正文。
+_SEQUENCE_OF_PLAN_RE = re.compile(r"^的?(?:细纲|大纲|梗概|人设|设定)")
+
+# 作者的回答。整句只有这些说法（去掉标点）、且至少有一个 _ASSENT_TOKENS 时，是在答应上一轮的提议。
+_ASSENT_TOKENS: tuple[str, ...] = tuple(
+    sorted(
+        (
+            "好的", "好啊", "好吧", "好呀", "好嘞", "好", "行吧", "行啊", "行", "可以的", "可以啊",
+            "可以", "可", "嗯嗯", "嗯", "对的", "对", "是的", "ok", "okay", "没问题", "同意",
+            "改吧", "改", "就这么改", "按这个改", "按这个来", "按你说的改", "按你说的", "按你的来",
+            "照这个改", "照这个来", "那就改", "动吧", "来吧", "做吧", "确认", "你改吧", "要", "要的",
+        ),
+        key=len,
+        reverse=True,
+    )
+)
+# 只能跟在答应后面的话：客套（「辛苦了」「谢谢」）和「继续」单独说都不是答应改。
+_ASSENT_FILLERS: tuple[str, ...] = tuple(
+    sorted(
+        ("麻烦你了", "麻烦了", "辛苦了", "辛苦", "谢谢你", "谢谢", "多谢", "继续", "接着", "吧", "啊", "呀", "哈", "啦", "呗", "那"),
+        key=len,
+        reverse=True,
+    )
+)
+# 作者说「继续」，AI 的提议里有一项是接着往下写：选的是那一项。
+_CONTINUE_RE = re.compile(r"(?:继续|接着|往下)")
+_REPLY_PUNCT_RE = re.compile(r"[\s，,。.！!？?~～、…:：;；「」『』“”\"'（）()]+")
+# 「两件都做」「都改」「全部按这个来」：以上的提议都要。
+_ALL_PICK_RE = re.compile(
+    r"(?:(?:两|三|四|几|这两|这三|这几)(?:件|个|条|处|项|样)?都(?:做|改|要|按|处理|弄|来)"
+    r"|(?:全都|全部|都)(?:做|改|要|处理|弄)"
+    r"|一起(?:改|做|处理)"
+    r"|以上都"
+    r"|全部按"
+    r"|都按)"
+)
+_PICK_TOKEN = r"(?:第|方案|选项)?([1-9]|[a-d]|[一二三四五六七八九])(?:个|条|项|种|号)?"
+# 「1」「选1」「第一个」「1和3」「方案二吧」：整句只是在选第几项。
+_INDEX_PICK_RE = re.compile(
+    rf"^(?:我)?(?:就|那就)?(?:选|要|按|用|走|选择)?{_PICK_TOKEN}"
+    rf"(?:(?:和|与|跟|加|还有|\+)?(?:选)?{_PICK_TOKEN})*(?:吧|呗|就行|好了|即可|方案)?$"
+)
+_PICK_TOKEN_RE = re.compile(_PICK_TOKEN)
+_LETTER_INDEX = {"a": 1, "b": 2, "c": 3, "d": 4}
+# 作者复述某一项的说法：至少这么多个字连着一样，且只出现在这一项里。
+_LABEL_MATCH_MIN_CHARS = 4
+_LABEL_MATCH_MAX_CHARS = 300
+
+
+def _bare(text: str) -> str:
+    return _REPLY_PUNCT_RE.sub("", (text or "").lower())
+
+
+def _assistant_reply_text(content: Any) -> str:
+    """assistant 消息里模型自己说的话：去掉 session_loader 追加的合成段落。"""
+    if isinstance(content, list):
+        text = "\n".join(
+            str(block.get("text") or "")
+            for block in content
+            if isinstance(block, dict)
+            and block.get("type") == "text"
+            and not str(block.get("text") or "").lstrip().startswith(_SYNTHESIZED_HEADERS)
+        )
+    else:
+        text = content if isinstance(content, str) else ""
+    cut = len(text)
+    for header in _SYNTHESIZED_HEADERS:
+        index = text.find(header)
+        if index != -1:
+            cut = min(cut, index)
+    return text[:cut].strip()
+
+
+def _offer_tail_lines(reply_text: str) -> list[str]:
+    text = reply_text or ""
+    close = text.lower().rfind("</file>")
+    if close != -1:
+        text = text[close + len("</file>"):]
+    text = _MARKDOWN_RE.sub("", text)
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    lines = [line for line in lines if not _TASK_COMPLETE_RE.match(line)]
+    return lines[-_OFFER_TAIL_LINES:]
+
+
+def _question_items(line: str) -> list[OfferItem]:
+    """一行里的问句 / 「你说一声我就改」：从发问的那一分句起算；那一分句没点名任何文件时
+    带上前一分句（「大纲里还有三处旧说法，要不要一起改？」）。"""
+    items: list[OfferItem] = []
+    for sentence in _SENTENCE_RE.findall(line):
+        if not sentence.strip() or not _QUESTION_MARKER_RE.search(sentence):
+            continue
+        clauses = [clause for clause in re.split(r"[，,；;]", sentence) if clause.strip()]
+        for position, clause in enumerate(clauses):
+            if _QUESTION_MARKER_RE.search(clause):
+                start = position
+                if position > 0 and not _names_any_unit(_offer_normalize(clause)):
+                    start = position - 1
+                items.append(OfferItem(text="，".join(clauses[start:])[:_OFFER_ITEM_MAX_CHARS]))
+                break
+    return items
+
+
+# 「改法一｜…」「方案二：…」「选项 A」这类带编号的方案标题：AI 把几个方案分节列出时，
+# 作者回「1」「方案二」选的是这些标题，不是最后一节里的小点（好处 / 代价）。
+_LABELED_OPTION_RE = re.compile(
+    r"^(?:改法|方案|选项|思路|办法|路线|版本|方向|做法)\s*([一二三四五六七八九十]|\d+|[A-Da-d])(?=[\s|｜:：、.．)）（(，,—-]|$)"
+)
+# 加粗或标题格式的编号小节（「**1. 悬念前置…**」「### 2、…」），下面再跟说明和要点。
+_NUMBERED_HEADING_RE = re.compile(r"^(?:#{1,6}[ \t]*|\*\*[ \t]*)(\d+|[一二三四五六七八九十])[ \t]*[.．、:：)）]")
+
+
+def _labeled_option_items(reply_text: str) -> list[OfferItem]:
+    """分节列出的编号方案：每个标题连同它下面的内容算一项；少于两个时不算。"""
+    text = reply_text or ""
+    close = text.lower().rfind("</file>")
+    if close != -1:
+        text = text[close + len("</file>"):]
+    raw_lines = [raw.strip() for raw in text.splitlines() if raw.strip()]
+    sections: list[tuple[int, list[str]]] = []
+    for raw in raw_lines:
+        line = _MARKDOWN_RE.sub("", raw).strip()
+        if not line:
+            continue
+        match = _LABELED_OPTION_RE.match(line) or _NUMBERED_HEADING_RE.match(raw)
+        if match:
+            token = match.group(1)
+            index = int(token) if token.isdigit() else _LETTER_INDEX.get(token.lower()) or _parse_number(token)
+            if index:
+                sections.append((index, [line]))
+                continue
+        if sections:
+            sections[-1][1].append(line)
+    if len(sections) < 2 or [index for index, _ in sections] != list(range(1, len(sections) + 1)):
+        return []
+    return [
+        OfferItem(text=" ".join(body)[:_OFFER_ITEM_MAX_CHARS], index=index)
+        for index, body in sections
+    ]
+
+
+def previous_offer_items(reply_text: str) -> tuple[OfferItem, ...]:
+    """上一轮 AI 收尾时给作者的提议：末尾那一串选项，加上选项前面（或没有选项时结尾）的问句。
+
+    只看收尾的几行。交代做了什么的话（「第3章改好了」「第四节是你手动改过的，我没动它」，
+    包括「这轮做了：」下面的清单）不是提议：清单不当选项，交代状态的分句不算改动的说法
+    （见 _offer_clauses）。
+    """
+    lines = _offer_tail_lines(reply_text)
+    if not lines:
+        return ()
+    labeled = _labeled_option_items(reply_text)
+    if labeled:
+        # 分节的编号方案优先；问句仍取结尾几行。
+        questions: list[OfferItem] = []
+        for line in lines[-3:]:
+            questions.extend(_question_items(line))
+        return tuple([*labeled, *questions][:_OFFER_MAX_ITEMS])
+    end = len(lines)
+    # 选项后面跟一句收尾（「挑一个就行」）。
+    if end >= 2 and not _OPTION_LINE_RE.match(lines[-1]) and _OPTION_LINE_RE.match(lines[-2]):
+        end -= 1
+    start = end
+    while start > 0 and _OPTION_LINE_RE.match(lines[start - 1]):
+        start -= 1
+    options = lines[start:end]
+    lead = lines[start - 1] if options and start > 0 else ""
+    if lead and _REPORT_LEAD_RE.search(lead) and not _CHOICE_LEAD_RE.search(lead):
+        # 「这轮做了：」下面是清单：只看结尾的问句。
+        options = []
+    items: list[OfferItem] = []
+    if options:
+        for line in lines[max(0, start - _OFFER_LEAD_LINES):start]:
+            items.extend(_question_items(line))
+        for position, line in enumerate(options, start=1):
+            label = _OPTION_LINE_RE.sub("", line, count=1).strip()
+            bare = _bare(label)
+            items.append(
+                OfferItem(
+                    text=label[:_OFFER_ITEM_MAX_CHARS],
+                    index=position,
+                    picks_all=bool(_ALL_PICK_RE.search(bare)) and len(bare) <= 12,
+                )
+            )
+        for line in lines[end:]:
+            items.extend(_question_items(line))
+    else:
+        for line in lines[-3:]:
+            items.extend(_question_items(line))
+    return tuple(items[:_OFFER_MAX_ITEMS])
+
+
+def previous_offer_from_history(history_messages: Iterable[Any]) -> tuple[OfferItem, ...]:
+    """上一条 assistant 消息收尾时给作者的提议（见 previous_offer_items）。"""
+    for message in reversed(list(history_messages or [])):
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        return previous_offer_items(_assistant_reply_text(message.get("content")))
+    return ()
+
+
+def ends_with_conditional_offer(reply_text: str) -> bool:
+    """回复最后一句是「你说改我就改」「你说一声我就动」这类不带问号的提问。"""
+    lines = _offer_tail_lines(reply_text)
+    if not lines:
+        return False
+    sentences = [sentence for sentence in _SENTENCE_RE.findall(lines[-1]) if sentence.strip()]
+    return bool(sentences) and bool(_CONDITIONAL_OFFER_RE.search(_normalize_text(sentences[-1])))
+
+
+# AI 发问时的「要不要 / 需不需要」不是否定：「要不要我把大纲那一行改掉？」点名的大纲照算。
+_QUESTION_NOT_NEGATION_RE = re.compile(r"(?:要不要|需不需要|用不用|可不可以|能不能|该不该)")
+
+
+def _offer_normalize(text: str) -> str:
+    return _QUESTION_NOT_NEGATION_RE.sub("要", _normalize_text(text))
+
+
+def _names_any_unit(normalized: str) -> bool:
+    """这段话点名了某个文件：第 N 章 / 集、《标题》、大纲 / 人设这类文件类别。"""
+    if _sequence_mentions(normalized) or "《" in normalized:
+        return True
+    return any(_any_positive(normalized, markers) for markers in _FILE_TYPE_MARKERS.values())
+
+
+def _offer_clauses(item: OfferItem) -> list[str] | None:
+    """提议里要改的那几个分句：去掉「先不动 / 留着 / 我没动它」的分句，再去掉「你手动改过的 /
+    改好了」这类交代状态的说法（剩下的改动说法才是提议）；整项是「先不动」时为 None。"""
+    clauses = [clause for clause in re.split(r"[，,；;。！!？?\n—]", _offer_normalize(item.text)) if clause]
+    if not clauses:
+        return []
+    if item.index is not None and _OFFER_DECLINE_RE.search(clauses[0]):
+        return None
+    return [_OFFER_STATE_RE.sub("", clause) for clause in clauses if not _OFFER_DECLINE_RE.search(clause)]
+
+
+def _offer_names_file(
+    clause: str, *, title: str, file_type: str, sequence: tuple[int, str] | None
+) -> bool:
+    if title and _title_mentions(clause, title):
+        return True
+    if sequence is not None:
+        for numbers, _, end in _sequence_mentions(clause):
+            if sequence in numbers and not _SEQUENCE_OF_PLAN_RE.match(clause[end:]):
+                return True
+    markers = _FILE_TYPE_MARKERS.get(file_type)
+    return bool(markers) and _any_positive(clause, markers)
+
+
+def _offer_targets_file(
+    item: OfferItem, *, title: str, file_type: str, sequence: tuple[int, str] | None
+) -> bool:
+    """这一项提议是不是要改这个文件：点名了它（标题、第 N 章 / 节、大纲这类类别），且有改动的说法。"""
+    clauses = _offer_clauses(item)
+    if not clauses:
+        return False
+    joined = "，".join(clauses)
+    if not any(word in joined for word in _OFFER_EDIT_WORDS):
+        return False
+    return any(
+        _offer_names_file(clause, title=title, file_type=file_type, sequence=sequence) for clause in clauses
+    )
+
+
+def _is_bare_assent(bare: str) -> bool:
+    remainder = bare
+    for token in _ASSENT_TOKENS:
+        remainder = remainder.replace(token, "")
+    if not bare or remainder == bare:
+        return False
+    for filler in _ASSENT_FILLERS:
+        remainder = remainder.replace(filler, "")
+    return not remainder
+
+
+def _longest_common_run(first: str, second: str) -> tuple[int, int]:
+    """first 和 second 最长的公共连续片段：返回它在 first 里的 (start, end)。"""
+    best = (0, 0)
+    if not first or not second:
+        return best
+    previous = [0] * (len(second) + 1)
+    for i, char in enumerate(first, start=1):
+        current = [0] * (len(second) + 1)
+        for j, other in enumerate(second, start=1):
+            if char == other:
+                current[j] = previous[j - 1] + 1
+                if current[j] > best[1] - best[0]:
+                    best = (i - current[j], i)
+        previous = current
+    return best
+
+
+def _expand_picks(items: tuple[OfferItem, ...], picked: list[OfferItem]) -> list[OfferItem]:
+    """选中了「两件都做」这一项：等于选了它前面所有的选项。"""
+    expanded: list[OfferItem] = []
+    for item in picked:
+        if item.picks_all:
+            expanded.extend(other for other in items if other.index is not None and not other.picks_all)
+        else:
+            expanded.append(item)
+    return expanded
+
+
+def _offer_edits_unnamed_file(item: OfferItem) -> bool:
+    """这一项提议有改动的说法、却没点名任何文件（「按上面 1–5 整体调开头，我出改稿」）。"""
+    clauses = _offer_clauses(item)
+    if not clauses or _names_any_unit(_offer_normalize(item.text)):
+        return False
+    joined = "，".join(clauses)
+    return any(word in joined for word in _OFFER_EDIT_WORDS)
+
+
+def author_accepts_offer(
+    text: str,
+    offer: tuple[OfferItem, ...],
+    *,
+    title: str,
+    file_type: str,
+    sequence: tuple[int, str] | None,
+    context_target: Callable[[], bool] | None = None,
+) -> bool:
+    """作者这一轮是不是答应 / 选中了上一轮 AI 提议里改这个文件的那一项。
+
+    - 选第几项（「1」「选第一个」「方案二」）、「两件都做 / 都改」、或者复述了某一项的说法
+      （至少 4 个字连着一样、只出现在这一项里，且复述的那一分句没点名别的文件）：选中的那几项
+      里有一项要改这个文件就放行。
+    - 只答应（「好的，继续」「可以」「改」「按这个改」）：按第一项提议算（问句在前、选项在后；
+      没点名任何文件的项跳过，除非上一轮在谈的就是这个文件）。第一项是改这个文件才放行；第一项是「先不动」
+      或改的是别的文件（「要把第2章也改成老秦吗？」）时不放开这个文件。
+    - 有不改的说法（不用 / 先不 / 保持 / 算了…）一律不算；答应之外又提了别的事（「好，继续写
+      第五节」）不算只答应。
+    - context_target：一项提议有改动说法却没点名文件时，它改的是不是这个文件（上一轮在谈的
+      那个被保护文件就是它，见 resolve_offer_context_file）。只在需要时调用一次。
+    """
+    if not offer:
+        return False
+    normalized = _normalize_text(text)
+    if not normalized or _DECLINE_RE.search(normalized):
+        return False
+    bare = _bare(text)
+    if not bare:
+        return False
+
+    resolved: list[bool] = []
+
+    def context_is_this_file() -> bool:
+        if context_target is None:
+            return False
+        if not resolved:
+            resolved.append(bool(context_target()))
+        return resolved[0]
+
+    def targets(item: OfferItem) -> bool:
+        if _offer_targets_file(item, title=title, file_type=file_type, sequence=sequence):
+            return True
+        return _offer_edits_unnamed_file(item) and context_is_this_file()
+
+    def names_another(span_text: str) -> bool:
+        return _names_another_file(span_text, title=title, file_type=file_type, sequence=sequence)
+
+    options = [item for item in offer if item.index is not None]
+    if _INDEX_PICK_RE.match(bare):
+        indices: set[int] = set()
+        for token in _PICK_TOKEN_RE.findall(bare):
+            index = int(token) if token.isdigit() else _LETTER_INDEX.get(token) or _parse_number(token)
+            if index:
+                indices.add(index)
+        picked = _expand_picks(offer, [item for item in options if item.index in indices])
+        return any(targets(item) for item in picked)
+
+    all_match = _ALL_PICK_RE.search(normalized)
+    if all_match:
+        clause_start, clause_end = _clause_bounds(normalized, all_match.start())
+        if not names_another(normalized[clause_start:clause_end]):
+            picked = [item for item in offer if not item.picks_all]
+            if any(targets(item) for item in picked):
+                return True
+
+    # 复述了某一项的说法（只看开头一段：贴进来的长文不是在选项里挑）。
+    label_text = bare[:_LABEL_MATCH_MAX_CHARS]
+    for item in offer:
+        start, end = _longest_common_run(label_text, _bare(item.text))
+        if end - start < _LABEL_MATCH_MIN_CHARS:
+            continue
+        run = label_text[start:end]
+        if any(run in _bare(other.text) for other in offer if other is not item):
+            continue
+        # 复述的那一分句点名了别的文件（「第5章的开头改紧凑一点」），不是在选这一项；
+        # 复述跨了标点、找不到所在分句时看整句。
+        position = normalized.find(run)
+        span = normalized
+        if position != -1:
+            clause_start, clause_end = _clause_bounds(normalized, position)
+            span = normalized[clause_start:clause_end]
+        if names_another(span):
+            continue
+        if any(targets(picked) for picked in _expand_picks(offer, [item])):
+            return True
+
+    if not _is_bare_assent(bare):
+        return False
+    # 「好的，继续」而提议里有一项是接着往下写（「还是继续写第五节？」）：选的是那一项。
+    if _CONTINUE_RE.search(bare):
+        for item in offer:
+            if not item.picks_all and _CONTINUE_RE.search(_bare(item.text)):
+                return targets(item)
+    for item in offer:
+        if item.picks_all:
+            continue
+        if _offer_clauses(item) is None:
+            # 第一项是「先不动」：「好」答应的是不动。
+            return False
+        if targets(item):
+            return True
+        if _names_any_unit(_offer_normalize(item.text)):
+            return False
+    return False
+
+
+# ------------------------------------------ 提议没点名文件时：上一轮在谈的是哪个文件
+#
+# live run 2 场景 C：作者问「第一章开头节奏有点慢，有什么具体建议？先说建议，别直接改」，AI 给了
+# 五条建议，选项是「1. 按上面 1–5 整体调开头，我出改稿给你看」。选项里没点名文件，作者回「1」
+# 被拒；回「好的，按你说的改」能放行，只因为第 2 项恰好引用了标题里的词。提议没点名文件时，
+# 改的就是上一轮在谈的那个文件：上一轮 AI 回复里点名的、或作者上一条话里提到的被保护文件。
+# 只认恰好一个；点到两个以上被保护的文件，或者说的是「其他章 / 每章」时不猜，照旧拒。
+# 「X是你手动改过的，我没动它」「先不动」「以第3章为准」这类分句里的点名不算在谈要改它。
+
+_FILE_BLOCK_RE = re.compile(r"<file\b[^>]*>.*?(?:</file>|\Z)", re.IGNORECASE | re.DOTALL)
+_CONTEXT_CLAUSE_SPLIT_RE = re.compile(r"[，,；;。！!？?]")
+_CONTEXT_MANY_FILES_RE = re.compile(
+    _OTHER_UNITS_RE.pattern
+    + "|"
+    + "|".join(re.escape(marker) for marker in _GLOBAL_SCOPE_MARKERS if marker != "全文")
+)
+
+
+def _message_text(content: Any) -> str:
+    if isinstance(content, list):
+        return "\n".join(
+            str(block.get("text") or "")
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+    return content if isinstance(content, str) else ""
+
+
+def previous_offer_context_from_history(history_messages: Iterable[Any]) -> tuple[str, ...]:
+    """上一轮在谈哪个文件的原文：上一条 assistant 回复（去掉合成段落和 <file> 正文），
+    和它前面作者的那条话。没有上一条 assistant 回复时为空。"""
+    messages = list(history_messages or [])
+    for position in range(len(messages) - 1, -1, -1):
+        message = messages[position]
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        reply = _FILE_BLOCK_RE.sub("", _assistant_reply_text(message.get("content"))).strip()
+        author = ""
+        for earlier in reversed(messages[:position]):
+            if not isinstance(earlier, dict):
+                continue
+            if earlier.get("role") == "user":
+                author = _message_text(earlier.get("content")).strip()
+            if earlier.get("role") in {"user", "assistant"}:
+                break
+        return tuple(text for text in (reply, author) if text)
+    return ()
+
+
+def _context_clauses(texts: Iterable[str]) -> list[str]:
+    """上一轮原文里在谈改动对象的分句：去掉不改 / 没动 / 交代状态的分句。"""
+    clauses: list[str] = []
+    for text in texts:
+        for clause in _CONTEXT_CLAUSE_SPLIT_RE.split(_offer_normalize(_MARKDOWN_RE.sub("", text or ""))):
+            if not clause:
+                continue
+            if _OFFER_DECLINE_RE.search(clause) or _DECLINE_RE.search(clause) or _OFFER_STATE_RE.search(clause):
+                continue
+            clauses.append(clause)
+    return clauses
+
+
+def _context_names_file(clause: str, *, title: str, file_type: str) -> bool:
+    """这一分句点名了这个文件（标题、标题里的词、第 N 章、文件类别），且不是拿它当标准。"""
+    spans = list(_title_mentions(clause, title)) if title else []
+    sequence = _title_sequence(title)
+    if sequence is not None:
+        spans.extend(
+            (start, end)
+            for numbers, start, end in _sequence_mentions(clause)
+            if sequence in numbers and not _SEQUENCE_OF_PLAN_RE.match(clause[end:])
+        )
+    if any(not _mention_is_reference(clause, start, end) for start, end in spans):
+        return True
+    markers = _FILE_TYPE_MARKERS.get(file_type)
+    return bool(markers) and _any_positive(clause, markers)
+
+
+def resolve_offer_context_file(
+    context: Iterable[str],
+    candidates: Iterable[tuple[str, str, str]],
+    is_protected: Callable[[str], bool],
+) -> str | None:
+    """上一轮在谈的、作者手改过的那个文件：恰好一个时返回它的 id，否则 None。
+
+    context：previous_offer_context_from_history 的原文；candidates：项目里的
+    (id, 标题, 类别)；is_protected：这个文件的正文最后是不是作者写的。
+    """
+    clauses = _context_clauses(context)
+    if not clauses or any(_CONTEXT_MANY_FILES_RE.search(clause) for clause in clauses):
+        return None
+    protected: list[str] = []
+    for file_id, title, file_type in candidates:
+        if not any(_context_names_file(clause, title=title, file_type=file_type) for clause in clauses):
+            continue
+        if is_protected(file_id):
+            protected.append(file_id)
+            if len(protected) > 1:
+                return None
+    return protected[0] if protected else None
+
+
 @dataclass(frozen=True)
 class AuthorScope:
     """作者这一轮说了什么、指向了哪些文件。"""
 
     messages: tuple[str, ...] = ()
     referenced_file_ids: frozenset[str] = frozenset()
-    confirmed_file_ids: frozenset[str] = frozenset()
     focus_file_id: str | None = None
+    # 上一轮 AI 收尾时给作者的提议（previous_offer_from_history）。
+    previous_offer: tuple[OfferItem, ...] = ()
+    # 上一轮在谈哪个文件的原文（previous_offer_context_from_history）：提议没点名文件时用。
+    previous_offer_context: tuple[str, ...] = ()
 
     @property
     def text(self) -> str:
@@ -680,9 +1158,13 @@ def request_targets_file(
     file_id: str,
     title: str | None,
     file_type: str | None = None,
-    edits: list[Any] | None = None,
+    offer_context_file: Callable[[], str | None] | None = None,
 ) -> bool:
-    """作者这一轮的话是否指向了这个文件（或这次修改本身就是作者要的改名 / 续写）。"""
+    """作者这一轮的话是否指向了这个文件（create_file 复用同名剧集、要整份重写它时用）。
+
+    offer_context_file：上一轮提议没点名文件时，上一轮在谈的那个被保护文件的 id
+    （resolve_offer_context_file，要查库，只在需要时调用）。
+    """
     if file_id in scope.referenced_file_ids:
         return True
 
@@ -695,9 +1177,16 @@ def request_targets_file(
     file_type_text = str(file_type or "")
     sequence = _title_sequence(title_text)
 
-    # 上一轮因为作者手改过没改它：作者说清了往哪改（「统一成老周吧」）才放行，「好 / 可以」不算。
-    if file_id in scope.confirmed_file_ids and author_confirms_change(
-        raw_text, sequence=sequence, edits=edits
+    # 上一轮 AI 提议改这个文件，作者答应 / 选了这一项（「好的，继续」「两件都做」「1」）。
+    if scope.previous_offer and author_accepts_offer(
+        raw_text,
+        scope.previous_offer,
+        title=title_text,
+        file_type=file_type_text,
+        sequence=sequence,
+        context_target=(
+            (lambda: offer_context_file() == file_id) if offer_context_file is not None else None
+        ),
     ):
         return True
 
@@ -735,21 +1224,7 @@ def request_targets_file(
                 return True
 
     markers = _FILE_TYPE_MARKERS.get(file_type_text)
-    if markers and _any_positive(text, markers) and _has_edit_verb(text):
-        return True
-
-    if edits:
-        if not all(isinstance(edit, dict) for edit in edits):
-            return False
-        ops = [str(edit.get("op") or "").strip() for edit in edits]
-        # 作者正开着这个文件、本轮不是写下一章：只往末尾追加，不动作者写过的字。
-        if is_focus and all(op == "append" for op in ops) and not wants_next_unit:
-            return True
-        # 作者要的改名：只替换被换掉的那个词。
-        if _edits_are_requested_rename(raw_text, edits):
-            return True
-
-    return False
+    return bool(markers and _any_positive(text, markers) and _has_edit_verb(text))
 
 
 # 「正文里的第2章删掉」「把正文里重复的段落删掉」：删的是文件夹里的东西，不是文件夹。
@@ -820,6 +1295,7 @@ def latest_text_is_authors(session: Any, file: Any) -> bool:
       就是这样保存的），True。
     - 最新版本是 AI 写的（change_source=ai，或作者审阅后接受的 AI 修改
       change_type=ai_edit）：False；其余（作者编辑、恢复、导入、系统备份）：True。
+      这条只管删除 / 整份覆盖，保持 2026-10-12 之前的口径，不放宽也不收紧。
     """
     content = getattr(file, "content", None) or ""
     if not content.strip():
@@ -834,49 +1310,48 @@ def latest_text_is_authors(session: Any, file: Any) -> bool:
     latest_content = service._get_contents_for_versions(session, {file.id: latest})[file.id]
     if latest_content != content:
         return True
-    return not (
-        latest.change_source == _AI_CHANGE_SOURCE or latest.change_type == _AI_EDIT_CHANGE_TYPE
-    )
+    return not (latest.change_source == _AI_CHANGE_SOURCE or latest.change_type == _AI_EDIT_CHANGE_TYPE)
 
 
-def protected_refusal_message(title: str | None, *, action: str = "edit") -> str:
-    """给模型看的拒绝说明：不要重试，以作者写法为准，有出入就问作者。
+def protected_refusal_message(title: str | None, *, action: str = "delete") -> str:
+    """给模型看的拒绝说明：不要重试，以作者写法为准，要删 / 整份重写就先问作者。
 
-    action：edit（edit_file / delete_file）、rewrite（create_file 复用了同名的已有剧集，
-    接下来的 <file> 正文会整份覆盖它）、folder（递归删除的文件夹里有这类文件）。
+    修改（edit_file）不再走这里：作者改了什么见 <author_edits>（agent/tools/author_changes.py）。
+    action：delete（delete_file）、rewrite（create_file 复用了同名的已有剧集，接下来的
+    <file> 正文会整份覆盖它）、folder（递归删除的文件夹里有这类文件）。
     """
     label = f"《{title}》" if title else "这个文件"
     if action == "rewrite":
         lead = (
-            f"已经有一个{label}，正文是作者自己改过的，作者本轮没有要求重写它，这次没有复用它，"
-            "不要用 <file> 写它的正文。要写新的一集请换成还没有的集数和标题。"
+            f"已经有一个{label}，正文是作者自己改过的，作者本轮没有要求整份重写它，这次没有复用它，"
+            "不要用 <file> 写它的正文。要改这一集里的内容，用 edit_file 改具体的地方"
+            "（作者改过哪里见 <author_edits> 或 query_files 读到的 author_edits），不要整份重写；"
+            "本来就是要写新的一集，换成还没有的集数和标题。"
         )
     elif action == "folder":
         lead = f"这个文件夹里的{label}是作者自己改过的，作者本轮没有要求删它，这次删除没有执行。"
     else:
-        lead = f"{label}现在的正文是作者自己改过的，作者本轮没有要求改它，这次修改没有执行。"
+        lead = f"{label}现在的正文是作者自己改过的，作者本轮没有要求删除它，这次删除没有执行。"
     return (
         f"{lead}"
-        "作者手改的写法（人名、称呼、用词、情节）就是最新设定，以作者为准："
-        "不要再尝试修改或删除这个文件，也不要把它改回以前的写法；新写的内容沿用作者的写法。"
-        "如果你觉得它和其他章节有出入，只在给作者的回复里用一句话指出位置，问作者往哪边改，"
-        "默认建议按作者改的写法改其他章节（例如「第3章是你手动改过的，我没动它：那里摊主叫老秦，"
-        "第2章写的是老周，要把第2章也改成老秦吗？」），"
-        "不要说「改不动」「被拦下」；作者同意后下一轮再改其他章节。"
-        "给作者的选项里不要提议把作者改的写法改回去；只有作者自己说清把这个文件改成哪种写法"
-        "（如「第3章改回老周」「统一成老周」）时才改它。"
+        "不要再尝试删除或整份覆盖它。作者确实想删或整份重写时，在给作者的回复里点名这个文件、"
+        "说清打算怎么做并问作者；作者回复里点名它并说删（或整份重写）时才会执行，只回「好」不会执行。"
+        "不要说「改不动」「被拦下」，也不要让作者照着念某句话。"
     )
 
 
 def protected_user_message(title: str | None) -> str:
-    """给作者看的一句话（工具卡片）。"""
+    """给作者看的一句话（工具卡片）：删除 / 整份覆盖作者手改过的文件前先问。"""
     label = f"《{title}》" if title else "这个文件"
-    return f"{label}有你手动改过的内容，AI 没有动它；需要改的话会先问你。"
+    return f"{label}有你手动改过的内容，AI 没有删除或整份重写它；需要的话会先问你。"
 
 
 @dataclass
 class AuthorEditRefusals:
-    """本次请求里因为作者手改而没改成的文件（跨工作线程共享），落库后下一轮放行。"""
+    """本次请求里因为作者手改而没删 / 没整份重写的文件（跨工作线程共享）。
+
+    交接给下一个 agent 时说明这些文件保持原样（writing_graph），免得审稿人要求返工。
+    """
 
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _file_ids: list[str] = field(default_factory=list)
@@ -891,26 +1366,6 @@ class AuthorEditRefusals:
     def file_ids(self) -> list[str]:
         with self._lock:
             return list(self._file_ids)
-
-
-# 落库在 assistant 消息 routing 里的字段名：上一轮问过作者的文件。
-CONFIRM_FILE_IDS_ROUTING_KEY = "author_confirm_file_ids"
-MAX_CONFIRM_FILE_IDS = 20
-
-
-def confirmed_file_ids_from_history(history_messages: Iterable[Any]) -> list[str]:
-    """上一条 assistant 消息里记下的「问过作者要不要改」的文件。"""
-    for message in reversed(list(history_messages or [])):
-        if not isinstance(message, dict) or message.get("role") != "assistant":
-            continue
-        routing = message.get("routing")
-        if not isinstance(routing, dict):
-            return []
-        raw = routing.get(CONFIRM_FILE_IDS_ROUTING_KEY)
-        if not isinstance(raw, list):
-            return []
-        return [str(item) for item in raw if isinstance(item, str) and item][:MAX_CONFIRM_FILE_IDS]
-    return []
 
 
 def referenced_file_ids_from_metadata(metadata: dict[str, Any] | None) -> list[str]:

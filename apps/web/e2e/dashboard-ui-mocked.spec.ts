@@ -44,6 +44,31 @@ test.describe('dashboard buttons and type', () => {
     expect(isTransparent(secondaryBorder.color)).toBe(false);
   });
 
+  test('translated public skill labels still expand and collapse without a DOM crash', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await mockResponsiveApp(page, null, 'free');
+    await page.goto('/dashboard/skills');
+    await page.getByRole('button', { name: '发现技能', exact: true }).click();
+    const toggle = page.getByRole('button', { name: '展开说明', exact: true }).first();
+    await expect(toggle).toBeVisible();
+    await toggle.evaluate(button => {
+      const walker = document.createTreeWalker(button, NodeFilter.SHOW_TEXT);
+      const text = [];
+      while (walker.nextNode()) text.push(walker.currentNode);
+      for (const node of text) {
+        if (!node.textContent?.trim()) continue;
+        const translated = document.createElement('font');
+        translated.textContent = node.textContent;
+        node.parentNode!.replaceChild(translated, node);
+      }
+    });
+    await toggle.click();
+    await page.getByRole('button', { name: '收起说明', exact: true }).first().click();
+    await expect(page.getByRole('button', { name: '展开说明', exact: true }).first()).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
   test('a skill card keeps a readable title on a 390px phone', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockResponsiveApp(page, null, 'free');

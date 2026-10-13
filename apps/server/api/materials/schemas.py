@@ -6,7 +6,9 @@ Contains all request/response models for the material library endpoints.
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from models.file_model import MAX_FILE_TITLE_LENGTH
 
 # ==================== Type Aliases ====================
 
@@ -212,7 +214,7 @@ class MaterialImportRequest(BaseModel):
     novel_id: int
     entity_type: MaterialEntityType  # Strict typing for entity types
     entity_id: int
-    file_name: str | None = None  # Optional, uses suggested if not provided
+    file_name: str | None = Field(default=None, max_length=MAX_FILE_TITLE_LENGTH)  # Optional, uses suggested if not provided
     target_folder_id: str | None = None  # Optional, auto-matches if not provided
 
 

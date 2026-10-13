@@ -278,7 +278,7 @@ function DiscoverySkillCard({
 }) {
   const { t } = useTranslation(["skills"]);
   const [expanded, setExpanded] = useState(false);
-  const canExpand = skill.source !== "official" && Boolean(skill.instructions.trim());
+  const canExpand = skill.source !== "official" && !skill.instructions_hidden && Boolean(skill.instructions.trim());
 
   return (
     <div
@@ -400,6 +400,12 @@ function DiscoverySkillCard({
           )}
         </button>}
       </div>
+
+      {expanded && skill.instructions_hidden && (
+        <p className="mt-3 pt-3 border-t border-[hsl(var(--border-color))] text-xs text-[hsl(var(--text-tertiary))]">
+          {t("skills:instructionsHidden")}
+        </p>
+      )}
 
       {/* Expanded Instructions */}
       {canExpand && expanded && skill.instructions && (

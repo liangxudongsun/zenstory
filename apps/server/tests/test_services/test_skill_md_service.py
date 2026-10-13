@@ -146,7 +146,7 @@ class TestGenerateChinese:
 
         assert "project_management" in frontmatter
         assert "file_crud" in frontmatter
-        assert "hybrid_search" in frontmatter
+        assert "keyword_search" in frontmatter
         assert "writing_context" in frontmatter
         assert "ai_chat" not in frontmatter
 

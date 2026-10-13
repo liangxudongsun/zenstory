@@ -24,7 +24,6 @@ PARALLEL_TASK_TYPES = (
     "edit_file",
     "delete_file",
     "query_files",
-    "hybrid_search",
 )
 
 
@@ -72,7 +71,7 @@ multiple calls instead of sending more than 5. Files you already read in this
 run are still in context: do not read them again.
 
 Task param conventions:
-- query_files / hybrid_search: params are exactly the standalone tool's params
+- query_files: params are exactly the standalone tool's params
   (e.g. {"id": "<file_id>"} for full content, {"query": "...", "response_mode": "summary"}).
   Very long per-task content is cut with content_truncated=true / content_length;
   then read that one file with a standalone query_files(id=..., response_mode="full").
@@ -95,7 +94,7 @@ Task param conventions:
                     "properties": {
                         "type": {
                             "type": "string",
-                            "description": "Task type: write_chapter, edit_file, delete_file, query_files, hybrid_search",
+                            "description": "Task type: write_chapter, edit_file, delete_file, query_files",
                             "enum": list(PARALLEL_TASK_TYPES),
                         },
                         "description": {
@@ -109,7 +108,7 @@ Task param conventions:
                                 "write_chapter: {title, content (required, inline full text), parent_id}; "
                                 "edit_file: {id, edits, continue_on_error}; "
                                 "delete_file: {id, recursive}; "
-                                "query_files / hybrid_search: same params as the standalone tool."
+                                "query_files: same params as the standalone tool."
                             ),
                         },
                     },
@@ -400,6 +399,17 @@ def _scoped_task_params(params: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in params.items() if key not in _SCOPE_PARAM_KEYS}
 
 
+def _forget_truncated_read(task: SubagentTask) -> None:
+    """按 id 读文件的任务结果被截断：模型没拿到全文，撤回刚记下的读取快照。"""
+    if task.task_type != "query_files":
+        return
+    file_id = (task.parameters or {}).get("id")
+    if isinstance(file_id, str) and file_id.strip():
+        from agent.tools.mcp_tools import ToolContext
+
+        ToolContext.discard_pending_read(file_id.strip())
+
+
 async def handle_query_files(params: dict[str, Any]) -> dict[str, Any]:
     """Handle query_files task type."""
     from agent.tools.mcp_tools import ToolContext, query_files
@@ -416,23 +426,6 @@ async def handle_query_files(params: dict[str, Any]) -> dict[str, Any]:
         forwarded = _scoped_task_params(params)
         forwarded["project_id"] = project_id
         result = await query_files(forwarded)
-        return result
-    except RuntimeError as err:
-        if str(err) == "No session available in ToolContext":
-            return _make_error("project_id not set")
-        raise
-
-
-async def handle_hybrid_search(params: dict[str, Any]) -> dict[str, Any]:
-    """Handle hybrid_search task type."""
-    from agent.tools.mcp_tools import ToolContext, hybrid_search
-
-    project_id = ToolContext._get_context().get("project_id")
-    if project_id is None:
-        return _make_error("project_id not set")
-
-    try:
-        result = await hybrid_search(_scoped_task_params(params))
         return result
     except RuntimeError as err:
         if str(err) == "No session available in ToolContext":
@@ -521,8 +514,7 @@ async def execute_parallel(
         "edit_file": handle_edit_file,
         "delete_file": handle_delete_file,
         "query_files": handle_query_files,
-        "hybrid_search": handle_hybrid_search,
-    }
+        }
 
     semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
 
@@ -641,6 +633,10 @@ async def execute_parallel(
     end_time = datetime.now()
     duration_ms = int((end_time - start_time).total_seconds() * 1000)
     per_task_budget = _task_result_budget(len(completed_tasks))
+    bounded_results = [_bound_task_result(t.result, per_task_budget) for t in completed_tasks]
+    for t, bounded in zip(completed_tasks, bounded_results, strict=True):
+        if bounded is not t.result:
+            _forget_truncated_read(t)
 
     # Build result summary
     #
@@ -675,10 +671,10 @@ async def execute_parallel(
                 # echoes the full chapter body here). id/type/description/status/
                 # error stay verbatim, so the failure signal + per-task breakdown
                 # always survive; content is cut inside the field, keeping JSON.
-                "result": _bound_task_result(t.result, per_task_budget),
+                "result": bounded,
                 "error": t.error,
             }
-            for t in completed_tasks
+            for t, bounded in zip(completed_tasks, bounded_results, strict=True)
         ],
     }
 

@@ -1,11 +1,11 @@
 """Snapshot management API endpoints"""
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from services.auth import get_current_active_user
 from services.version import get_version_service
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from core.error_codes import ErrorCode
 from core.error_handler import APIException
@@ -20,12 +20,9 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["snapshots"])
 
 
-def _schedule_snapshot_rollback_reconciliation(
+def _refresh_snapshot_dashboard_cache(
     *,
-    background_tasks: BackgroundTasks,
-    session: Session,
     project_id: str,
-    file_ids: set[str],
     user_id: str,
 ) -> None:
     """Refresh derived state after the rollback transaction has committed."""
@@ -38,47 +35,6 @@ def _schedule_snapshot_rollback_reconciliation(
             logger,
             logging.DEBUG,
             "Failed to bump dashboard cache after snapshot rollback",
-            error=str(exc),
-            project_id=project_id,
-            user_id=user_id,
-        )
-
-    if not file_ids:
-        return
-
-    try:
-        from services.llama_index import schedule_index_delete, schedule_index_upsert
-
-        files = session.exec(select(File).where(File.id.in_(file_ids))).all()
-        for file in files:
-            if file.is_deleted:
-                background_tasks.add_task(
-                    schedule_index_delete,
-                    project_id=file.project_id,
-                    entity_type=file.file_type,
-                    entity_id=file.id,
-                    user_id=user_id,
-                )
-                continue
-
-            extra_metadata = file.get_metadata()
-            if file.parent_id:
-                extra_metadata = {**extra_metadata, "parent_id": file.parent_id}
-            background_tasks.add_task(
-                schedule_index_upsert,
-                project_id=file.project_id,
-                entity_type=file.file_type,
-                entity_id=file.id,
-                title=file.title,
-                content=file.content or "",
-                extra_metadata=extra_metadata,
-                user_id=user_id,
-            )
-    except Exception as exc:
-        log_with_context(
-            logger,
-            logging.DEBUG,
-            "Failed to schedule vector reconciliation after snapshot rollback",
             error=str(exc),
             project_id=project_id,
             user_id=user_id,
@@ -227,7 +183,6 @@ def update_snapshot(
 @router.post("/snapshots/{snapshot_id}/rollback")
 def rollback_to_snapshot(
     snapshot_id: str,
-    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_active_user),
     session: Session = Depends(get_session)
 ):
@@ -265,12 +220,9 @@ def rollback_to_snapshot(
         )
         # The protected service view includes creators that committed while
         # rollback waited for its gate. Keep this internal field off the API.
-        affected_file_ids = set(result.pop("affected_file_ids"))
-        _schedule_snapshot_rollback_reconciliation(
-            background_tasks=background_tasks,
-            session=session,
+        result.pop("affected_file_ids")
+        _refresh_snapshot_dashboard_cache(
             project_id=snapshot.project_id,
-            file_ids=affected_file_ids,
             user_id=current_user.id,
         )
         log_with_context(

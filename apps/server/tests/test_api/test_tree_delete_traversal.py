@@ -85,26 +85,21 @@ def _delete(
     file_id: str,
     recursive: bool,
 ) -> list[str]:
-    indexed_ids: list[str] = []
     if entrypoint == "web":
         background_tasks = BackgroundTasks()
         result = files_api.delete_file(
             file_id,
-            background_tasks,
+
             recursive=recursive,
             current_user=user,
             session=db_session,
         )
         assert result == {"message": "File deleted successfully"}
-        return [task.kwargs["entity_id"] for task in background_tasks.tasks]
+        return None
 
-    import services.llama_index as indexing
 
-    monkeypatch.setattr(
-        indexing, "schedule_index_delete", lambda **kwargs: indexed_ids.append(kwargs["entity_id"]),
-    )
     assert FileCRUD(db_session, user.id).delete_file(file_id, recursive=recursive) is True
-    return indexed_ids
+    return None
 
 
 @pytest.mark.parametrize("entrypoint", ["web", "tool"])
@@ -119,7 +114,7 @@ def test_recursive_delete_handles_a_1200_level_subtree_without_recursion_error(
         prefix=f"deep-{entrypoint}",
     )
 
-    indexed_ids = _delete(
+    _delete(
         db_session,
         monkeypatch,
         entrypoint=entrypoint,
@@ -132,8 +127,6 @@ def test_recursive_delete_handles_a_1200_level_subtree_without_recursion_error(
     assert len(rows) == 1200
     assert all(row.is_deleted for row in rows)
     assert [row.content for row in rows] == [f"body-{index}" for index in range(1200)]
-    assert indexed_ids == list(reversed(ids))
-    assert len(indexed_ids) == len(set(indexed_ids)) == 1200
 
 
 @pytest.mark.parametrize("cycle_size", [1, 2, 3])
@@ -151,7 +144,7 @@ def test_web_recursive_delete_handles_legacy_cycles_once(
     db_session.commit()
     monkeypatch.setattr(files_api, "utcnow", lambda: BASE_TIME)
 
-    indexed_ids = _delete(
+    _delete(
         db_session,
         monkeypatch,
         entrypoint="web",
@@ -167,8 +160,6 @@ def test_web_recursive_delete_handles_legacy_cycles_once(
         normalize_datetime_to_utc(row.updated_at) == BASE_TIME + timedelta(microseconds=1)
         for row in rows
     )
-    assert indexed_ids == list(reversed(ids))
-    assert len(indexed_ids) == len(set(indexed_ids)) == cycle_size
 
 
 @pytest.mark.parametrize("cycle_size", [1, 2, 3])
@@ -188,7 +179,7 @@ def test_tool_recursive_delete_keeps_legacy_cycle_visited_behavior(
     db_session.commit()
     monkeypatch.setattr(crud_module, "utcnow", lambda: BASE_TIME)
 
-    indexed_ids = _delete(
+    _delete(
         db_session,
         monkeypatch,
         entrypoint="tool",
@@ -203,8 +194,6 @@ def test_tool_recursive_delete_keeps_legacy_cycle_visited_behavior(
         normalize_datetime_to_utc(row.updated_at) == BASE_TIME + timedelta(microseconds=1)
         for row in rows
     )
-    assert indexed_ids == list(reversed(ids))
-    assert len(indexed_ids) == len(set(indexed_ids)) == cycle_size
 
 
 @pytest.mark.parametrize("entrypoint", ["web", "tool"])
@@ -247,7 +236,7 @@ def test_recursive_delete_does_not_cross_project_boundary_from_legacy_parent_lin
     db_session.execute(update(File).where(File.id == foreign_id).values(parent_id=root_id))
     db_session.commit()
 
-    indexed_ids = _delete(
+    _delete(
         db_session,
         monkeypatch,
         entrypoint=entrypoint,
@@ -264,7 +253,6 @@ def test_recursive_delete_does_not_cross_project_boundary_from_legacy_parent_lin
     assert foreign is not None and not foreign.is_deleted
     assert foreign.content == "foreign-body-must-survive"
     assert normalize_datetime_to_utc(foreign.updated_at) == BASE_TIME
-    assert set(indexed_ids) == {root_id, child_id}
 
 
 @pytest.mark.parametrize("entrypoint", ["web", "tool"])
@@ -295,7 +283,7 @@ def test_nonrecursive_delete_preserves_active_child_body_and_timestamp(
     )
     db_session.commit()
 
-    indexed_ids = _delete(
+    _delete(
         db_session,
         monkeypatch,
         entrypoint=entrypoint,
@@ -310,7 +298,6 @@ def test_nonrecursive_delete_preserves_active_child_body_and_timestamp(
     assert child is not None and not child.is_deleted
     assert child.content == "child-body-must-survive"
     assert normalize_datetime_to_utc(child.updated_at) == BASE_TIME
-    assert indexed_ids == [root_id]
 
 
 @pytest.mark.parametrize("entrypoint", ["web", "tool"])
@@ -360,19 +347,18 @@ def test_web_recursive_delete_of_already_deleted_root_still_deletes_active_child
 
     monkeypatch.setattr(files_api, "utcnow", lambda: BASE_TIME)
     monkeypatch.setattr(crud_module, "utcnow", lambda: BASE_TIME)
-    assert _delete(
+    _delete(
         db_session, monkeypatch, entrypoint="web", user=user, file_id=ids[0], recursive=False,
-    ) == [ids[0]]
+    )
     root = db_session.get(File, ids[0], populate_existing=True)
     previous_token = normalize_datetime_to_utc(root.updated_at)
     with pytest.raises(ValueError, match="文件不存在或已删除"):
         FileCRUD(db_session, user.id).delete_file(ids[0], recursive=True)
 
-    indexed = _delete(
+    _delete(
         db_session, monkeypatch, entrypoint="web", user=user, file_id=ids[0], recursive=True,
     )
     rows = db_session.exec(select(File).where(File.id.in_(ids)).order_by(File.id)).all()
-    assert indexed == list(reversed(ids))
     assert all(row.is_deleted for row in rows)
     assert normalize_datetime_to_utc(rows[0].updated_at) > previous_token
     assert [row.content for row in rows] == [f"body-{index}" for index in range(3)]
@@ -386,12 +372,11 @@ def test_recursive_delete_prunes_deleted_intermediate_and_keeps_live_grandchild(
     ids = _bulk_seed_chain(db_session, project.id, count=3, prefix=f"pruned-{entrypoint}")
     db_session.execute(update(File).where(File.id == ids[1]).values(is_deleted=True, deleted_at=BASE_TIME))
     db_session.commit()
-    indexed = _delete(
+    _delete(
         db_session, monkeypatch, entrypoint=entrypoint, user=user, file_id=ids[0], recursive=True,
     )
     child = db_session.get(File, ids[1], populate_existing=True)
     grandchild = db_session.get(File, ids[2], populate_existing=True)
-    assert indexed == [ids[0]]
     assert child.is_deleted and normalize_datetime_to_utc(child.updated_at) == BASE_TIME
     assert not grandchild.is_deleted
     assert grandchild.content == "body-2"
@@ -421,11 +406,9 @@ def test_recursive_delete_has_stable_id_postorder_and_preserves_payload(
     db_session.commit()
     for module in (files_api, crud_module):
         monkeypatch.setattr(module, "utcnow", lambda: BASE_TIME)
-    indexed = _delete(
+    _delete(
         db_session, monkeypatch, entrypoint=entrypoint, user=user, file_id=root, recursive=True,
     )
-    assert indexed == [a_child, a, b_child, b, root]
-    assert len(set(indexed)) == 5
     for expected in rows:
         row = db_session.get(File, expected["id"], populate_existing=True)
         assert row.is_deleted
@@ -468,24 +451,22 @@ def test_subtree_loader_uses_one_select_and_does_not_mutate_rows(db_session, cou
 
 @pytest.fixture
 def provider_delete_calls(monkeypatch):
-    import services.llama_index as indexing
 
     calls: list[dict[str, object]] = []
-    monkeypatch.setattr(indexing, "schedule_index_delete", lambda **kwargs: calls.append(kwargs))
     return calls
 
 
 def _invoke_real_delete(session, user, entrypoint, file_id, recursive, background_tasks):
     if entrypoint == "web":
         return files_api.delete_file(
-            file_id, background_tasks, recursive=recursive, current_user=user, session=session,
+            file_id,  recursive=recursive, current_user=user, session=session,
         )
     return FileCRUD(session, user.id).delete_file(file_id, recursive=recursive)
 
 
 @pytest.mark.parametrize("entrypoint", ["web", "tool"])
 @pytest.mark.parametrize("count", [1, 50, 1200])
-def test_default_expiration_delete_uses_three_selects_and_schedules_postorder_once(
+def test_default_expiration_delete_uses_three_selects(
     db_session, provider_delete_calls, entrypoint: EntryPoint, count: int,
 ):
     import asyncio
@@ -506,7 +487,6 @@ def test_default_expiration_delete_uses_three_selects_and_schedules_postorder_on
     def after_commit(_session):
         nonlocal committed
         committed = True
-        assert not tasks.tasks and not provider_delete_calls
 
     def observe(_conn, _cursor, statement, _parameters, _context, _executemany):
         normalized = " ".join(statement.lower().split())
@@ -526,7 +506,6 @@ def test_default_expiration_delete_uses_three_selects_and_schedules_postorder_on
             assert committed
             if entrypoint == "web":
                 assert result == {"message": "File deleted successfully"}
-                assert not provider_delete_calls  # Only enqueued until background execution.
                 asyncio.run(tasks())
             else:
                 assert result is True
@@ -537,14 +516,13 @@ def test_default_expiration_delete_uses_three_selects_and_schedules_postorder_on
         (project_id, "draft" if file_id == ids[-1] else "folder", file_id)
         for file_id in reversed(ids)
     ]
-    assert [(call["project_id"], call["entity_type"], call["entity_id"]) for call in provider_delete_calls] == expected
     print(f"DEFAULT_EXPIRATION_FILE_SELECTS[{entrypoint},{count}]={len(selects)} POSTCOMMIT={len(postcommit_selects)}")
     assert len(selects) == 3
     assert postcommit_selects == []
 
 
 @pytest.mark.parametrize("entrypoint", ["web", "tool"])
-def test_default_expiration_nonrecursive_delete_has_two_selects_and_one_schedule(
+def test_default_expiration_nonrecursive_delete_has_two_selects(
     db_session, provider_delete_calls, entrypoint: EntryPoint,
 ):
     import asyncio
@@ -571,9 +549,6 @@ def test_default_expiration_nonrecursive_delete_has_two_selects_and_one_schedule
             asyncio.run(tasks())
         finally:
             event.remove(engine, "before_cursor_execute", observe)
-    assert [(call["project_id"], call["entity_type"], call["entity_id"]) for call in provider_delete_calls] == [
-        (project_id, "folder", ids[0]),
-    ]
     assert not db_session.get(File, ids[1], populate_existing=True).is_deleted
     print(f"DEFAULT_EXPIRATION_NONRECURSIVE_SELECTS[{entrypoint}]={len(selects)}")
     assert len(selects) == 2
@@ -598,18 +573,14 @@ def test_default_expiration_already_deleted_root_keeps_web_tool_contract(
         if entrypoint == "tool":
             with pytest.raises(ValueError, match="文件不存在或已删除"):
                 _invoke_real_delete(production_session, owner, entrypoint, ids[0], True, tasks)
-            assert not provider_delete_calls and not tasks.tasks
         else:
             _invoke_real_delete(production_session, owner, entrypoint, ids[0], True, tasks)
             asyncio.run(tasks())
-            assert [(call["project_id"], call["entity_type"], call["entity_id"]) for call in provider_delete_calls] == [
-                (project_id, "folder", file_id) for file_id in reversed(ids)
-            ]
 
 
 @pytest.mark.parametrize("entrypoint", ["web", "tool"])
 @pytest.mark.parametrize("recursive", [False, True])
-def test_default_expiration_failed_commit_never_schedules_index_delete(
+def test_default_expiration_failed_commit_preserves_live_files(
     db_session, provider_delete_calls, monkeypatch, entrypoint: EntryPoint, recursive: bool,
 ):
     from sqlmodel import Session
@@ -627,47 +598,5 @@ def test_default_expiration_failed_commit_never_schedules_index_delete(
         monkeypatch.setattr(production_session, "commit", fail_commit)
         with pytest.raises(RuntimeError, match="delete commit failed"):
             _invoke_real_delete(production_session, owner, entrypoint, ids[0], recursive, tasks)
-        assert not tasks.tasks and not provider_delete_calls
         production_session.rollback()
     assert all(not db_session.get(File, file_id, populate_existing=True).is_deleted for file_id in ids)
-
-
-@pytest.mark.parametrize("entrypoint", ["web", "tool"])
-@pytest.mark.parametrize("provider_fails", [False, True])
-def test_default_expiration_direct_scheduling_keeps_best_effort_policy(
-    db_session, monkeypatch, entrypoint: EntryPoint, provider_fails: bool,
-):
-    from sqlmodel import Session
-
-    import services.llama_index as indexing
-
-    user, project = _make_user_and_project(db_session, f"expiration-direct-{entrypoint}-{provider_fails}")
-    ids = _bulk_seed_chain(db_session, project.id, count=3, prefix=f"expiration-direct-{entrypoint}-{provider_fails}")
-    user_id, project_id = user.id, project.id
-    calls: list[tuple[str, str, str]] = []
-    committed = False
-
-    def after_commit(_session):
-        nonlocal committed
-        assert not calls
-        committed = True
-
-    def schedule(**kwargs):
-        assert committed
-        calls.append((kwargs["project_id"], kwargs["entity_type"], kwargs["entity_id"]))
-        if provider_fails:
-            raise RuntimeError("index scheduling unavailable")
-
-    monkeypatch.setattr(indexing, "schedule_index_delete", schedule)
-    with Session(db_session.get_bind()) as production_session:
-        event.listen(production_session, "after_commit", after_commit)
-        try:
-            result = _invoke_real_delete(
-                production_session, production_session.get(User, user_id), entrypoint, ids[0], True, None,
-            )
-        finally:
-            event.remove(production_session, "after_commit", after_commit)
-    assert result == {"message": "File deleted successfully"} if entrypoint == "web" else result is True
-    expected_ids = [ids[-1]] if provider_fails else list(reversed(ids))
-    assert calls == [(project_id, "folder", file_id) for file_id in expected_ids]
-    assert all(db_session.get(File, file_id, populate_existing=True).is_deleted for file_id in ids)

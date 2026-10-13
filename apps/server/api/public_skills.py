@@ -23,6 +23,7 @@ from core.error_codes import ErrorCode
 from core.error_handler import APIException
 from database import get_session
 from models import PublicSkill, User, UserAddedSkill
+from services.skill_package_service import instructions_hidden_from_users
 from utils.logger import get_logger, log_with_context
 
 logger = get_logger(__name__)
@@ -43,9 +44,11 @@ class PublicSkillResponse(BaseModel):
     id: str
     name: str
     description: str | None
-    # 详情接口是完整正文；列表接口是开头的预览，被截断时 instructions_truncated 为 True
+    # 详情接口是完整正文；列表接口是开头的预览，被截断时 instructions_truncated 为 True。
+    # 官方技能的正文不向用户返回：instructions 为空串、instructions_hidden 为 True。
     instructions: str
     instructions_truncated: bool = False
+    instructions_hidden: bool = False
     category: str
     tags: list[str]
     source: str
@@ -128,7 +131,8 @@ def _skill_to_response(
         field_name="public_skill.tags",
         record_id=skill.id,
     )
-    instructions = skill.instructions or ""
+    hidden = instructions_hidden_from_users(skill)
+    instructions = "" if hidden else skill.instructions or ""
     truncated = preview_chars is not None and len(instructions) > preview_chars
     return PublicSkillResponse(
         id=skill.id,
@@ -136,6 +140,7 @@ def _skill_to_response(
         description=skill.description,
         instructions=instructions[:preview_chars] if truncated else instructions,
         instructions_truncated=truncated,
+        instructions_hidden=hidden,
         category=skill.category,
         tags=tags,
         source=skill.source,

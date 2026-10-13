@@ -6,6 +6,7 @@ Provides streaming multi-agent orchestration with router, planner, writer, and q
 
 import asyncio
 import contextlib
+import functools
 import json
 import os
 import re
@@ -18,11 +19,17 @@ from agent.core.author_facing_text import (
     author_facing_handoff_reason,
     author_facing_text,
     text_contains_cjk,
+    trailing_question_text,
 )
 from agent.core.events import READ_ONLY_HANDOFF_BLOCKED_REASON
 from agent.core.run_meter import AgentRunMeter
 from agent.core.stream_errors import classify_stream_exception, log_stream_exception
-from agent.core.workflow_events import StreamEvent, StreamEventType
+from agent.core.workflow_events import (
+    CHAT_HOLD_BEGIN,
+    CHAT_HOLD_DISCARD,
+    StreamEvent,
+    StreamEventType,
+)
 from agent.graph.author_scope import (
     PLANNED_HANDOFF_SCOPE_NOTE,
     PLANNED_WRITER_AFTER_QUESTION_NOTE,
@@ -39,13 +46,25 @@ from agent.graph.author_scope import (
     previous_question_offers_one_edit,
     request_asks_for_a_plan,
 )
+from agent.graph.body_writes import (
+    BodyWrite,
+    BodyWriteTracker,
+    body_words_written,
+    latest_file_word_counts,
+    measured_body_words,
+)
+from agent.graph.completion_evidence import ends_on_file_block
 from agent.graph.nodes import (
     detect_task_complete,
     ends_with_question_to_user,
     evaluate_agent_output,
     run_streaming_agent,
 )
-from agent.graph.review_evidence import find_numeric_fact_pairs, find_repetition_evidence
+from agent.graph.review_evidence import (
+    find_length_requirements,
+    find_numeric_fact_pairs,
+    find_repetition_evidence,
+)
 from agent.graph.router import (
     _ended_with_question,
     _last_assistant_message,
@@ -61,6 +80,7 @@ from agent.openai_agents.repeat_read_guard import RepeatReadGuard
 from agent.openai_agents.runner import extract_text_from_message_content
 from agent.openai_agents.tool_failure_breaker import ToolFailureBreaker
 from agent.tools.mcp_tools import ToolContext, update_project
+from agent.tools.task_progress import format_units, task_text, task_unit_spec, title_units
 from config.agent_runtime import (
     AGENT_AUTO_REVIEW_THRESHOLD_CHARS,
     AGENT_COLLABORATION_MAX_ITERATIONS,
@@ -274,11 +294,18 @@ SCOPE_DIRECTIVE_NO_CONTENT = (
 )
 
 
-def _build_scope_directive(routing_metadata: dict[str, Any] | None) -> str:
+def _build_scope_directive(
+    routing_metadata: dict[str, Any] | None, *, agent_type: str | None = None
+) -> str:
     """把路由对用户范围的判断（read_only / write_content / scope）转成系统提示约束。
 
     交接包和 handoff 文本只在交接时出现，而本轮第一个 agent 也需要知道范围，
     因此统一走系统提示，由 nodes.run_streaming_agent 追加到每个 agent 的提示末尾。
+
+    agent_type 是这次要跑的 agent。「规划完成后直接交接 writer 写正文」只是写给规划类
+    角色的：计划交接后的 writer、审稿人也读到它时，会把它当成「作者要正文」的事实，
+    和交接说明「作者要的已经全部交付时直接结束」、自己的「只为客观缺陷交接」互相打架
+    （10-10 U070：writer 在两条之间来回权衡 20 万字后撞上输出上限）。
     """
     if not isinstance(routing_metadata, dict):
         return ""
@@ -292,6 +319,7 @@ def _build_scope_directive(routing_metadata: dict[str, Any] | None) -> str:
     elif (
         routing_metadata.get("write_content") is True
         and routing_metadata.get("agent_type") in PLANNING_AGENTS
+        and (agent_type is None or agent_type in PLANNING_AGENTS)
     ):
         # 作者已经要正文：规划师不要按「首轮问一句要不要开始写」的规则截停（P2-21）。
         parts.append(SCOPE_DIRECTIVE_WITH_CONTENT_AFTER_PLANNING)
@@ -326,9 +354,14 @@ def _should_clarify_first(state: WritingState) -> bool:
             return False
         if previous.get("clarification_pending") is True:
             return False
-        if _ended_with_question(previous) and previous_question_offers_one_edit(
-            _reply_text(previous.get("content"))
-        ):
+        reply = _reply_text(previous.get("content"))
+        # 「要不要我把大纲那一行改成新落点？你说改我就改，不改就留着。」结尾不是问号，
+        # 也是在问作者（I06）：作者回「改」答应的就是这一处。
+        from agent.tools.author_edit_guard import ends_with_conditional_offer
+
+        if (
+            _ended_with_question(previous) or ends_with_conditional_offer(reply)
+        ) and previous_question_offers_one_edit(reply):
             return False
     return True
 
@@ -444,6 +477,68 @@ async def _roll_back_empty_files_after_exhaustion(
     notice = _unfinished_file_notice(rolled_back_titles, unresolved_titles)
     if notice:
         yield StreamEvent(type=StreamEventType.TEXT, data={"text": notice})
+
+
+# 写完 </file> 就结束了 run（openai-agents 把不带工具调用的回复当作最终输出）：同一个 agent
+# 接着跑一轮，见 completion_evidence.ends_on_file_block 与主循环里的续写分支。
+FILE_STREAM_CONTINUATION_MARKER = "[系统提醒] 你上一次回复写完 </file> 就结束了"
+
+
+def _open_board_tasks() -> list[dict[str, Any]]:
+    """任务计划板上还没完成的任务（读不到时为空，不影响续写）。"""
+    session_id = ToolContext.get_session_id()
+    if not session_id:
+        return []
+    try:
+        from services.infra.task_board_service import task_board_service
+
+        tasks = task_board_service.get_tasks(
+            session_id,
+            user_id=ToolContext.get_user_id(),
+            project_id=ToolContext.get_project_id(),
+        ) or []
+    except Exception as e:
+        logger.debug(f"Failed to read task board for continuation: {e}")
+        return []
+    return [
+        task
+        for task in tasks
+        if isinstance(task, dict) and task.get("status") in {"pending", "in_progress"}
+    ]
+
+
+def _file_stream_continuation_context(
+    written_titles: list[str],
+    open_tasks: list[dict[str, Any]],
+    user_scope: str,
+) -> str:
+    """写完 </file> 就结束 run 之后，同一个 agent 接着那一轮的交接说明。"""
+    saved = "、".join(f"《{title}》" for title in written_titles if title)
+    lines = [
+        f"{FILE_STREAM_CONTINUATION_MARKER}，没有接着建下一个文件，也没有给作者写总结，"
+        "作者在对话里还什么都没看到。"
+    ]
+    if saved:
+        lines.append(f"本请求已保存：{saved}。这些文件不要重写。")
+    if user_scope:
+        lines.append(f"作者这一轮要求的交付范围：{user_scope}。")
+    if open_tasks:
+        status_names = {"pending": "未开始", "in_progress": "进行中"}
+        task_lines = []
+        for task in open_tasks:
+            line = f"- {task.get('task')}（{status_names.get(str(task.get('status')), '')}）"
+            progress = str(task.get("progress") or "").strip()
+            if progress:
+                line += f"：{progress}"
+            task_lines.append(line)
+        lines.append("任务计划板上还没完成的任务：\n" + "\n".join(task_lines))
+    lines.append(
+        "对照作者的要求：还有没写的文件，就调用 create_file 写下一个（工具返回后，下一次回复以 <file> 开头"
+        "写正文），写完 </file> 后在同一次回复里接着建下一个，或者写总结；"
+        "全部写完了，就不再调用写文件的工具，直接用 1–3 行告诉作者实际写了哪些文件、各多少字"
+        "（按工具返回的字数），没写完的如实说明。"
+    )
+    return "\n".join(lines)
 
 
 def _author_facing_handoff_event_data(event_data: dict[str, Any]) -> dict[str, Any]:
@@ -625,11 +720,66 @@ async def _review_auto_checks(file_ids: list[str]) -> tuple[list[str], list[str]
     return None
 
 
+# 送审内容的总预算（_format_review_payload 按它截头尾）。
+REVIEW_PAYLOAD_MAX_CHARS = 9000
+# 只附改动段时，改动前后各带多少字符的原文（按整行对齐）。
+_REVIEW_CHANGED_CONTEXT_CHARS = 600
+
+
+def _changed_span(before: str, after: str) -> tuple[int, int] | None:
+    """after 里和 before 不一样的那一段 [start, end)；两者相同时为 None。"""
+    if before == after:
+        return None
+    limit = min(len(before), len(after))
+    start = 0
+    while start < limit and before[start] == after[start]:
+        start += 1
+    end_after, end_before = len(after), len(before)
+    while end_after > start and end_before > start and before[end_before - 1] == after[end_after - 1]:
+        end_after -= 1
+        end_before -= 1
+    return start, end_after
+
+
+def _review_payload_block(title: str, content: str, before: str | None) -> str:
+    """一个文件的送审块：系统标注（文件名 + 编辑器字数）+ 正文或本请求改动的那一段。
+
+    - 字数由系统按编辑器口径算好：审稿人「第一行报文件名和字数」「篇幅是否达标」不必为了
+      一个数字再把整份文件读一遍（10-10 U072 / U074、10-11 U094：summary 读取不带
+      word_count，模型反复权衡要不要全文重读）。
+    - 本请求之前就有正文、而且整份放不进送审预算的文件，只附改动的那一段和前后少量原文，
+      并写明其余部分没改、没附上。以前取的是整份文件的开头和结尾：在 14 万字的单文件里
+      追加第 101—105 章，审稿人收到的「待审查内容」是第 1—4 章（10-10 U074）。
+    """
+    words = count_words(content)
+    body = content.strip()
+    span = _changed_span(before, content) if before and before.strip() else None
+    if span is None or len(body) <= REVIEW_PAYLOAD_MAX_CHARS:
+        return f"[《{title}》编辑器字数 {words}]\n{body}"
+    start, end = span
+    context_start = max(0, start - _REVIEW_CHANGED_CONTEXT_CHARS)
+    line_break = content.find("\n", context_start, start)
+    if context_start > 0 and line_break != -1:
+        context_start = line_break + 1
+    context_end = min(len(content), end + _REVIEW_CHANGED_CONTEXT_CHARS)
+    line_break = content.rfind("\n", end, context_end)
+    if context_end < len(content) and line_break != -1:
+        context_end = line_break
+    excerpt = content[context_start:context_end].strip()
+    note = (
+        f"[《{title}》编辑器字数 {words}。下面是本请求改动的部分和前后少量原文；"
+        f"它前面的 {count_words(content[:context_start])} 字、后面的 {count_words(content[context_end:])} 字"
+        "本请求没有改动，没有附上，核对前文事实时再读取]"
+    )
+    return f"{note}\n{excerpt}"
+
+
 def _collect_review_payload_text(file_ids: list[str]) -> str | None:
     """读本请求写过的正文（draft / script）落库后的内容，按写入顺序拼成送审内容。
 
     流式落库和 edit_file 会把半角引号规范成稿件风格，库里这份才是作者看到的正文；
     模型原始输出里那些已经修好的半角引号不能再送审。没有可用正文时返回 None。
+    每个文件带系统标注的编辑器字数；长文件只附本请求改动的那一段（见 _review_payload_block）。
     """
     project_id = ToolContext.get_project_id()
     if not project_id or not file_ids:
@@ -641,15 +791,26 @@ def _collect_review_payload_text(file_ids: list[str]) -> str | None:
 
     with ToolContext.short_lived_session() as session:
         rows = session.exec(
-            select(File.id, File.content).where(
+            select(File.id, File.title, File.content).where(
                 File.project_id == project_id,
                 File.id.in_(file_ids),
                 File.file_type.in_(CONTENT_FILE_TYPES),
                 File.is_deleted.is_(False),
             )
         ).all()
-    contents = {row.id: (row.content or "").strip() for row in rows}
-    return "\n\n".join(contents[file_id] for file_id in file_ids if contents.get(file_id)) or None
+    files = {row.id: (row.title or "", row.content or "") for row in rows if (row.content or "").strip()}
+    ordered = [file_id for file_id in file_ids if file_id in files]
+    if not ordered:
+        return None
+    blocks = [
+        _review_payload_block(files[file_id][0], files[file_id][1], ToolContext.pre_write_content(file_id))
+        for file_id in ordered
+    ]
+    if len(ordered) > 1:
+        # 多个文件拼起来超出预算时，中间几个文件的标注会被截掉；字数清单放在最前面。
+        counts = "、".join(f"《{files[file_id][0]}》{count_words(files[file_id][1])}" for file_id in ordered)
+        blocks.insert(0, f"[本请求写过的正文（编辑器字数）：{counts}]")
+    return "\n\n".join(blocks)
 
 
 async def _review_payload_text(file_ids: list[str]) -> str | None:
@@ -685,6 +846,147 @@ def _format_review_auto_checks(repeats: list[str], facts: list[str]) -> str:
     if not items:
         return ""
     return f"\n\n{REVIEW_AUTO_CHECK_HEADER}\n" + "\n".join(f"- {item}" for item in items)
+
+
+# 送审时附给审稿人的两段：本轮正文的编辑器字数、作者说过的篇幅要求（I05）。
+BODY_WORD_COUNT_HEADER = "[本轮正文字数]"
+LENGTH_REQUIREMENT_HEADER = "[作者的篇幅要求]"
+_BODY_WORD_COUNT_NOTE = (
+    "以上是编辑器统计的实际字数；交接说明和对话里写的字数是写作时的估计，"
+    "判断篇幅、回复作者都只用这里的数。"
+)
+_LENGTH_REQUIREMENT_NOTE = (
+    "以上是作者在本会话或项目设定里说过的篇幅要求（后说的为准），不只是作者本轮原话："
+    "逐章对照上面的实际字数判断够不够；说的是全篇还是单章看上下文。"
+)
+# writer 送审前写给作者的说明被丢掉了：审稿人的回复是作者看到的唯一总结。
+WRITER_CHAT_SUPERSEDED_NOTE = (
+    "[作者看到的回复] 内容创作者写完后给作者的说明没有显示给作者（避免出现两份总结）。"
+    "不需要再改时，你的回复就是作者看到的唯一一份总结：说清写好了什么、实际字数，"
+    "其中作者需要知道的取舍和可选的下一步一并写进去。需要再改时照常不写文字，"
+    "交给内容创作者修改，由它修完后回复作者。"
+)
+# writer 以问作者的问题收尾、它的说明又被丢掉了：问题原样交给审稿人 / 返修 writer。
+WRITER_QUESTION_HEADER = "[内容创作者要问作者的问题]"
+_WRITER_QUESTION_FOR_REVIEWER_NOTE = (
+    "作者还没看到这个问题。不需要再改时，把它原样放在你回复的最后（不算进可选建议）；"
+    "需要再改时照常交给内容创作者，由它修完后问。"
+)
+_WRITER_QUESTION_FOR_REWORK_NOTE = "作者还没看到这个问题：改完后把它原样放在你回复的最后问作者。"
+WRITER_REWORK_AFTER_SUPERSEDED_NOTE = (
+    "[作者看到的回复] 你送检前写给作者的说明作者没有看到。这次改完后的回复就是作者看到的"
+    "唯一一份总结：说清这一轮写了什么，字数只用 edit_file 返回的 new_word_count，"
+    "之前说明里作者需要知道的取舍一并写进去。"
+)
+
+
+def _collect_body_word_counts(file_ids: list[str]) -> list[tuple[str, int]] | None:
+    """本请求写过的正文类文件（draft / script）落库后的编辑器字数，按写入顺序。"""
+    project_id = ToolContext.get_project_id()
+    if not project_id or not file_ids:
+        return None
+
+    from sqlmodel import select
+
+    from models import File
+
+    with ToolContext.short_lived_session() as session:
+        rows = session.exec(
+            select(File.id, File.title, File.content).where(
+                File.project_id == project_id,
+                File.id.in_(file_ids),
+                File.file_type.in_(CONTENT_FILE_TYPES),
+                File.is_deleted.is_(False),
+            )
+        ).all()
+    by_id = {row.id: (row.title or "", count_words(row.content or "")) for row in rows}
+    return [by_id[file_id] for file_id in file_ids if file_id in by_id] or None
+
+
+def _collect_length_requirement_sources() -> list[tuple[str, str]]:
+    """篇幅要求的来源：项目设定、本会话作者说过的话、作者本轮原话（按先后）。"""
+    sources: list[tuple[str, str]] = []
+    project_id = ToolContext.get_project_id()
+    session_id = ToolContext.get_session_id()
+    if project_id or session_id:
+        from sqlmodel import desc, select
+
+        from models import ChatMessage, Project
+
+        with ToolContext.short_lived_session() as session:
+            if project_id:
+                project = session.get(Project, project_id)
+                if project is not None:
+                    for label, value in (
+                        ("项目简介", project.summary),
+                        ("项目写作风格", project.writing_style),
+                        ("项目备注", project.notes),
+                    ):
+                        if isinstance(value, str) and value.strip():
+                            sources.append((label, value))
+            if session_id:
+                rows = session.exec(
+                    select(ChatMessage.content)
+                    .where(ChatMessage.session_id == session_id, ChatMessage.role == "user")
+                    .order_by(desc(ChatMessage.created_at))
+                    .limit(_LENGTH_REQUIREMENT_HISTORY_LIMIT)
+                ).all()
+                sources.extend(("作者在本会话说过", content) for content in reversed(rows) if content)
+    sources.extend(("作者本轮原话", message) for message in ToolContext.get_author_messages())
+    return sources
+
+
+_LENGTH_REQUIREMENT_HISTORY_LIMIT = 40
+
+
+async def _bounded_review_reads(reads: dict[str, Any]) -> dict[str, Any]:
+    """送审前的几次一次性读取，共用一份送审预算（REVIEW_AUTO_CHECK_TIMEOUT_SECONDS）。
+
+    在同一个工作线程里按顺序读（测试 / 非 offload 路径共用一个 session，不能并发），超时时
+    返回已经读完的那些，没读完的是 None；失败或超时只记 WARNING。超时后线程不能被取消，
+    会把正在做的那次读取做完（用的是用完即还的短 session），结果不再采用。
+    """
+    results: dict[str, Any] = dict.fromkeys(reads)
+
+    def _run() -> None:
+        for label, func in reads.items():
+            try:
+                results[label] = func()
+            except Exception as exc:
+                log_with_context(
+                    logger,
+                    30,  # WARNING
+                    "Review handoff read failed; handing off without it",
+                    read=label,
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
+
+    try:
+        await asyncio.wait_for(asyncio.to_thread(_run), timeout=REVIEW_AUTO_CHECK_TIMEOUT_SECONDS)
+    except TimeoutError:
+        log_with_context(
+            logger,
+            30,  # WARNING
+            "Review handoff reads timed out; handing off with what was read",
+            timeout_seconds=REVIEW_AUTO_CHECK_TIMEOUT_SECONDS,
+            missing=[label for label, value in results.items() if value is None],
+        )
+    return dict(results)
+
+
+def _format_body_word_counts(counts: list[tuple[str, int]] | None) -> str:
+    if not counts:
+        return ""
+    lines = "\n".join(f"- 《{title}》{words} 字" if title else f"- {words} 字" for title, words in counts)
+    return f"\n\n{BODY_WORD_COUNT_HEADER}\n{lines}\n{_BODY_WORD_COUNT_NOTE}"
+
+
+def _format_length_requirements(items: list[str] | None) -> str:
+    if not items:
+        return ""
+    lines = "\n".join(f"- {item}" for item in items)
+    return f"\n\n{LENGTH_REQUIREMENT_HEADER}\n{lines}\n{_LENGTH_REQUIREMENT_NOTE}"
 
 
 def _tool_result_failed(result: Any) -> bool:
@@ -750,7 +1052,7 @@ def _extract_review_payload(agent_content: str) -> str:
     return "\n\n".join(blocks).strip() if blocks else raw
 
 
-def _format_review_payload(text: str, *, max_chars: int = 9000) -> str:
+def _format_review_payload(text: str, *, max_chars: int = REVIEW_PAYLOAD_MAX_CHARS) -> str:
     """Trim extremely long draft content while keeping head+tail for reviewer context."""
     normalized = (text or "").strip()
     if not normalized:
@@ -848,8 +1150,47 @@ def _format_file_inventory(inventory: dict[str, list[dict[str, Any]]]) -> str:
     return "\n".join(parts) if parts else ""
 
 
-def _build_completion_task_payload(tasks: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
-    """将任务板中的 in_progress 任务标记为 done。"""
+def _normalize_artifact_title(text: str) -> str:
+    return re.sub(r"[\s《》「」『』\"'“”]+", "", text or "").lower()
+
+
+def _artifact_written(artifact: str, written_titles: list[str]) -> bool:
+    """任务的产出物（文件名）是不是本请求实际写出的某个文件。"""
+    target = _normalize_artifact_title(artifact)
+    if not target:
+        return False
+    for title in written_titles:
+        normalized = _normalize_artifact_title(title)
+        if normalized and (target in normalized or normalized in target):
+            return True
+    return False
+
+
+def _build_completion_task_payload(
+    tasks: list[dict[str, Any]],
+    written_titles: list[str],
+    live_titles: list[str] | None = None,
+) -> list[dict[str, Any]] | None:
+    """按本请求实际写出的文件给 in_progress 任务收尾；没有可改的返回 None。
+
+    written_titles 是本请求写过、现在仍存在且有正文的文件标题（见 _existing_written_titles）。
+    live_titles 是项目里现在仍存在且有正文的全部文件标题；给了时，前几轮记下的 done_units
+    只保留还找得到文件的编号（作者在两次请求之间删掉的那一集不算已写）。
+
+    - 任务写了编号范围（「撰写第2-5集剧本」「第一卷正文（第1-119章）」）：范围里每个编号都有
+      对应文件才标 done；只写了一部分时保持 in_progress，记下已写 / 待写（done_units / progress，
+      跨请求累计：模型重存任务板时由 execute_update_plan 把同名任务的 done_units 接过去）；
+      一个都没写时不动。编号只认工作流在写入时记下的，不拿项目里已有的同编号文件凑数——
+      「重写第2-5集」开始前这几集都在，按已有文件算就会只重写一集就标 done。
+    - 任务写了产出物（artifact）：本请求写出了这个文件才标 done，否则不动。
+    - 其余任务：本请求确实写出了文件才标 done。
+    - pending 任务只认确切证据：编号范围或产出物被本请求写出的文件对上时同样收尾（模型常常一次
+      写完几集却只把第一集标成 in_progress）；没有编号也没有产出物的 pending 任务不动。
+    - 本请求什么都没写：一律不动。
+    """
+    if not written_titles:
+        return None
+
     updated_tasks: list[dict[str, Any]] = []
     has_updates = False
 
@@ -858,7 +1199,46 @@ def _build_completion_task_payload(tasks: list[dict[str, Any]]) -> list[dict[str
             continue
 
         normalized_task = dict(task)
-        if normalized_task.get("status") == "in_progress":
+        status = normalized_task.get("status")
+        spec = task_unit_spec(task_text(normalized_task)) if status in ("in_progress", "pending") else None
+        artifact = str(normalized_task.get("artifact") or "").strip()
+        if status != "in_progress" and not (status == "pending" and (spec is not None or artifact)):
+            updated_tasks.append(normalized_task)
+            continue
+
+        if spec is not None:
+            recorded = {
+                number
+                for number in normalized_task.get("done_units") or []
+                if isinstance(number, int) and number in spec.numbers
+            }
+            prior = set(recorded)
+            if live_titles is not None:
+                prior &= title_units(live_titles, spec.unit)
+            covered = (title_units(written_titles, spec.unit) & spec.numbers) | prior
+            missing = set(spec.numbers) - covered
+            if not missing:
+                normalized_task["status"] = "done"
+                normalized_task.pop("progress", None)
+                normalized_task.pop("done_units", None)
+                has_updates = True
+            elif covered != recorded:
+                if covered:
+                    normalized_task["status"] = "in_progress"
+                    normalized_task["done_units"] = sorted(covered)
+                    normalized_task["progress"] = (
+                        f"已写：{format_units(covered, spec.unit)}；"
+                        f"待写：{format_units(missing, spec.unit)}"
+                    )
+                else:
+                    normalized_task.pop("done_units", None)
+                    normalized_task.pop("progress", None)
+                has_updates = True
+        elif artifact:
+            if _artifact_written(artifact, written_titles):
+                normalized_task["status"] = "done"
+                has_updates = True
+        else:
             normalized_task["status"] = "done"
             has_updates = True
         updated_tasks.append(normalized_task)
@@ -866,11 +1246,52 @@ def _build_completion_task_payload(tasks: list[dict[str, Any]]) -> list[dict[str
     return updated_tasks if has_updates else None
 
 
-async def _auto_finalize_task_board_on_completion() -> list[StreamEvent]:
-    """
-    在 workflow 完成时自动补一次 update_project(tasks=[...])。
+def _existing_written_titles(file_ids: list[str]) -> list[str]:
+    """本请求写过的文件里，现在仍存在且有正文的那些的标题（删掉的、空的不算产物）。"""
+    if not file_ids:
+        return []
+    from sqlmodel import select
 
-    仅将 in_progress 任务改为 done，避免误改 pending 任务。
+    from models import File
+
+    with ToolContext.short_lived_session() as session:
+        rows = session.exec(
+            select(File.title, File.content).where(
+                File.id.in_(file_ids),  # type: ignore[attr-defined]
+                File.is_deleted.is_(False),  # type: ignore[attr-defined]
+            )
+        ).all()
+    return [str(title or "") for title, content in rows if str(content or "").strip()]
+
+
+def _live_project_titles(project_id: str) -> list[str] | None:
+    """项目里现在仍存在且有正文的全部文件标题；查不到时返回 None（不据此删掉已记的进度）。"""
+    from sqlmodel import select
+
+    from models import File
+
+    try:
+        with ToolContext.short_lived_session() as session:
+            rows = session.exec(
+                select(File.title, File.content).where(
+                    File.project_id == project_id,
+                    File.is_deleted.is_(False),  # type: ignore[attr-defined]
+                )
+            ).all()
+    except Exception as exc:
+        logger.debug(f"Live project titles lookup skipped: {exc}")
+        return None
+    return [str(title or "") for title, content in rows if str(content or "").strip()]
+
+
+async def _auto_finalize_task_board_on_completion(
+    guard: RepeatReadGuard | None = None,
+) -> list[StreamEvent]:
+    """
+    在 workflow 完成时按实际产物补一次 update_project(tasks=[...])。
+
+    只有本请求确实写出对应文件的任务改为 done（规则见 _build_completion_task_payload；
+    pending 任务只认编号或产出物对上的文件），什么都没写时不补。
     """
     session_id = ToolContext.get_session_id()
     if not session_id:
@@ -880,6 +1301,10 @@ async def _auto_finalize_task_board_on_completion() -> list[StreamEvent]:
     project_id = ToolContext.get_project_id()
 
     try:
+        written_ids = guard.written_file_ids() if guard is not None else []
+        if not written_ids:
+            return []
+
         from services.infra.task_board_service import task_board_service
 
         current_tasks = task_board_service.get_tasks(
@@ -887,7 +1312,20 @@ async def _auto_finalize_task_board_on_completion() -> list[StreamEvent]:
             user_id=user_id,
             project_id=project_id,
         ) or []
-        completion_tasks = _build_completion_task_payload(current_tasks)
+        if not any(
+            isinstance(task, dict) and task.get("status") in ("in_progress", "pending") for task in current_tasks
+        ):
+            return []
+        written_titles = await asyncio.to_thread(_existing_written_titles, written_ids)
+        live_titles: list[str] | None = None
+        if project_id and any(
+            isinstance(task, dict) and task.get("status") == "in_progress" and task.get("done_units")
+            for task in current_tasks
+        ):
+            live_titles = await asyncio.to_thread(_live_project_titles, project_id)
+        completion_tasks = _build_completion_task_payload(
+            current_tasks, written_titles, live_titles
+        )
         if not completion_tasks:
             return []
 
@@ -1061,8 +1499,12 @@ async def run_writing_workflow_streaming(
     # 否则自动质检门（按本轮字数 + 是否动过写工具判定）会因为纠偏轮本身只补了
     # 一小段而永远不触发。
     carried_agent_content: str = ""
-    carried_writer_used_write_tools: bool = False
-    carried_writer_emitted_file_markers: bool = False
+    carried_writer_body_writes: list[BodyWrite] = []
+    # writer 送审前写给作者的文字被图丢掉了（审稿人的回复会取代它）：审稿人交回 writer
+    # 返修时据此告诉 writer，作者没看到它之前的说明。
+    writer_chat_discarded = False
+    # 被丢掉的 writer 说明以问作者的问题收尾时，那几句问题（返修 writer 也要原样问）。
+    writer_superseded_question: str = ""
     # 被纠偏打断那一轮是否以向用户提问收尾：纠偏轮只补正文，它的收尾文本
     # （「已补齐」）不能把原 agent 还在等用户回答的问题冲掉。
     carried_ended_with_question: bool = False
@@ -1284,6 +1726,8 @@ async def run_writing_workflow_streaming(
         while current_agent_type and iteration < max_iterations:
             iteration += 1
             ToolContext.set_current_agent(current_agent_type)
+            # 上一程读到的新正文这一程看不到（工具结果不跨 agent 回放），edit_file 的陈旧检查不再认它。
+            ToolContext.begin_agent_run()
 
             log_with_context(
                 logger,
@@ -1340,6 +1784,25 @@ async def run_writing_workflow_streaming(
                     work_summary = read_guard.handoff_summary()
                     if work_summary:
                         work_log_text = f"\n\n[本请求的读写记录]: {work_summary}"
+                # 被「作者手改保护」拒绝的删除 / 整份重写只出现在上一个 agent 的工具结果里，不跨
+                # agent 回放：不说出来，审稿人会把「这个文件没动」当成缺陷要求返工（10-11 U094）。
+                # 只列拒绝后本请求里始终没写成的文件，也只说发生了什么。修改（edit_file）不再被拦。
+                written_ids = set(read_guard.written_file_ids()) if read_guard is not None else set()
+                refused_ids = [
+                    file_id
+                    for file_id in ToolContext.author_edit_refused_file_ids()
+                    if file_id not in written_ids
+                ]
+                if refused_ids:
+                    refused_labels = "、".join(
+                        read_guard.file_label(file_id) if read_guard is not None else f"(id={file_id})"
+                        for file_id in refused_ids
+                    )
+                    work_log_text += (
+                        f"\n\n[本请求没有删除或重写的文件]: 对 {refused_labels} 的删除或整份重写被作者手改保护拒绝了"
+                        "（作者手动改过它们），文件保持原样；不要因此要求返工，"
+                        "确实要删或整份重写时在给作者的回复里问作者。"
+                    )
 
                 # 刷新文件清单
                 inventory_text = ""
@@ -1389,10 +1852,22 @@ async def run_writing_workflow_streaming(
                     modified_state["messages"] = _drop_reviewer_task_messages(
                         state.get("messages")
                     )
+                    superseded_note = (
+                        f"\n\n{WRITER_REWORK_AFTER_SUPERSEDED_NOTE}"
+                        if current_agent_type == "writer"
+                        and previous_agent == "quality_reviewer"
+                        and writer_chat_discarded
+                        else ""
+                    )
+                    if superseded_note and writer_superseded_question:
+                        superseded_note += (
+                            f"\n\n{WRITER_QUESTION_HEADER}\n{writer_superseded_question}\n"
+                            f"{_WRITER_QUESTION_FOR_REWORK_NOTE}"
+                        )
                     modified_state["user_message"] = (
                         f"[来自上一个Agent的交接信息]: "
                         f"{handoff_context}{packet_items_text}{work_log_text}{inventory_text}"
-                        f"{last_iteration_hint}"
+                        f"{superseded_note}{last_iteration_hint}"
                     )
             else:
                 # 即使没有 handoff_context，也需要注入最后一轮提示
@@ -1414,17 +1889,39 @@ async def run_writing_workflow_streaming(
             clarification_stopped = False
             tool_call_exhausted = False
             invalid_handoff_stopped = False
-            writer_used_write_tools = False
-            # writer 本轮写工具调用数 / 其中失败数：全部失败（例如数据库被锁）时
-            # 不算「动过写工具」，否则自动质检会把一篇没落库的稿子送审，审稿人再
-            # 把 writer 叫回来重试同一个失败的写入。
-            writer_write_calls = 0
-            writer_write_failures = 0
-            writer_write_call_ids: set[str] = set()
-            writer_emitted_file_markers = False
+            # writer 本 run 写进正文类文件（draft / script）的内容，自动质检门只看它
+            # （body_writes.py）。只认成功的写入：写工具全部失败（例如数据库被锁）时
+            # 不送审，否则审稿人会把 writer 叫回来重试同一个失败的写入。
+            body_tracker = BodyWriteTracker()
+            # 这一 run 写完正文以后、可能还会送审：之后给作者的文字先扣在适配器里，
+            # 真的送审时丢掉（审稿人或返修后的 writer 写唯一一份总结），不送审时原样放出。
+            # 审稿只可能来自自动质检门或计划好的 quality_reviewer：两者都没有时不扣。
+            reviewer_planned_next = bool(workflow_agents) and workflow_agents[0] == "quality_reviewer"
+            chat_hold_eligible = (
+                current_agent_type == "writer"
+                and generation_mode != "fast"
+                and not read_only_request
+                and not rework_from_reviewer
+                and review_round < MAX_REVIEW_ROUNDS
+                and (enable_graph_auto_review or reviewer_planned_next)
+            )
+            chat_hold_started = False
+            # 范围约束按这次要跑的 agent 生成：规划类角色专用的那句不给 writer / 审稿人。
+            agent_scope_directive = _build_scope_directive(
+                routing_metadata, agent_type=current_agent_type
+            )
+            if agent_scope_directive:
+                modified_state["scope_directive"] = agent_scope_directive
+            else:
+                modified_state.pop("scope_directive", None)
+
             agent_message_started = False
             mid_run_steering_seen = False
             agent_run_errored = False
+            # 本次 run 里的 create_file 调用与其中失败的：runner 给每次调用都发 TOOL_RESULT，
+            # 没有失败的就是成功的。run 停在写完的 <file> 上时据此确认刚建过文件。
+            run_create_call_ids: set[str] = set()
+            run_failed_call_ids: set[str] = set()
 
             text_shaper = AgentTextShaper(
                 previous_text=accumulated_content,
@@ -1458,21 +1955,17 @@ async def run_writing_workflow_streaming(
                     agent_tail_text = ""
 
                 if (
-                    current_agent_type == "writer"
-                    and event.type == StreamEventType.TOOL_USE
+                    event.type == StreamEventType.TOOL_USE
                     and event.data.get("status") == "complete"
                 ):
                     tool_name = str(event.data.get("name") or "").strip()
-                    if tool_name in {"create_file", "edit_file"}:
-                        writer_write_calls += 1
-                        writer_write_call_ids.add(str(event.data.get("id") or ""))
-                elif (
-                    current_agent_type == "writer"
-                    and event.type == StreamEventType.TOOL_RESULT
-                    and str(event.data.get("tool_use_id") or "") in writer_write_call_ids
-                    and _tool_result_failed(event.data.get("result"))
+                    call_id = str(event.data.get("id") or "")
+                    if tool_name == "create_file":
+                        run_create_call_ids.add(call_id)
+                elif event.type == StreamEventType.TOOL_RESULT and _tool_result_failed(
+                    event.data.get("result")
                 ):
-                    writer_write_failures += 1
+                    run_failed_call_ids.add(str(event.data.get("tool_use_id") or ""))
 
                 # Check for handoff event
                 if event.type == StreamEventType.HANDOFF:
@@ -1547,7 +2040,34 @@ async def run_writing_workflow_streaming(
                         yield notice
                     yield event
 
-            writer_used_write_tools = writer_write_calls > writer_write_failures
+                if current_agent_type == "writer" and event.type in (
+                    StreamEventType.TOOL_USE,
+                    StreamEventType.TOOL_RESULT,
+                ):
+                    body_write = body_tracker.observe(event, text_length=len(agent_content))
+                    if (
+                        body_write is not None
+                        and chat_hold_eligible
+                        and not chat_hold_started
+                        and (
+                            reviewer_planned_next
+                            # create_file 的正文还没写出来，字数要等 <file> 块，可能送审。
+                            or body_write.text_offset is not None
+                            # edit_file / write_chapter 的字数已知：到了送审阈值才可能送审，
+                            # 只改几个字时说明照常流式显示。
+                            or measured_body_words([*carried_writer_body_writes, *body_tracker.writes])
+                            >= auto_review_threshold
+                        )
+                    ):
+                        # 正文写好了：之后的文字（总结、选项）在送审时会被审稿人的回复取代。
+                        chat_hold_started = True
+                        yield StreamEvent(
+                            type=StreamEventType.CHAT_HOLD,
+                            data={"action": CHAT_HOLD_BEGIN},
+                        )
+
+            writer_body_writes = body_tracker.finish(agent_content)
+            run_create_succeeded = bool(run_create_call_ids - run_failed_call_ids)
             ended_with_question = ends_with_question_to_user(agent_tail_text)
 
             # Carry forward conversation evolution from this agent turn so that
@@ -1558,29 +2078,14 @@ async def run_writing_workflow_streaming(
 
             # 接续上一轮被纠偏打断的 writer 产出（正文 + 写工具信号），让后面的
             # 自动质检门、待审查内容提取看到完整的一轮写作，而不是只看到补写片段。
-            if (
-                carried_agent_content
-                or carried_writer_used_write_tools
-                or carried_writer_emitted_file_markers
-            ):
+            if carried_agent_content or carried_writer_body_writes:
                 agent_content = f"{carried_agent_content}{agent_content}"
-                writer_used_write_tools = (
-                    writer_used_write_tools or carried_writer_used_write_tools
-                )
-                writer_emitted_file_markers = (
-                    writer_emitted_file_markers or carried_writer_emitted_file_markers
-                )
+                writer_body_writes = [*carried_writer_body_writes, *writer_body_writes]
                 carried_agent_content = ""
-                carried_writer_used_write_tools = False
-                carried_writer_emitted_file_markers = False
+                carried_writer_body_writes = []
             if carried_ended_with_question:
                 ended_with_question = True
                 carried_ended_with_question = False
-
-            if current_agent_type == "writer" and agent_content:
-                lowered = agent_content.lower()
-                if "<file" in lowered or "</file" in lowered:
-                    writer_emitted_file_markers = True
 
             # Corrective feedback for an abandoned file write.
             #
@@ -1728,8 +2233,7 @@ async def run_writing_workflow_streaming(
                         }
                     # 把本轮写作产出接续给纠偏轮，供纠偏轮结束后的质检门判定使用。
                     carried_agent_content = agent_content
-                    carried_writer_used_write_tools = writer_used_write_tools
-                    carried_writer_emitted_file_markers = writer_emitted_file_markers
+                    carried_writer_body_writes = writer_body_writes
                     carried_ended_with_question = ended_with_question
                     handoff_context = (
                         f"[系统提醒] 你创建的文件《{pending_title}》{id_hint} 正文仍为空——"
@@ -1804,6 +2308,63 @@ async def run_writing_workflow_streaming(
                         previous_agent = current_agent_type
                         incoming_handoff_packet = None
                         continue
+
+            # 本轮能不能为同一个 agent 再跑一轮（续写 / 更正）：已经停下的轮次、显式交接、
+            # 只读或先问清楚的请求、最后一轮都不行。
+            run_ended_normally = (
+                not next_agent
+                and deferred_handoff is None
+                and not clarification_stopped
+                and not invalid_handoff_stopped
+                and not tool_call_exhausted
+                and not agent_run_errored
+            )
+            can_rerun_same_agent = (
+                run_ended_normally
+                and _agent_can_write_files(current_agent_type)
+                and not read_only_request
+                and not clarify_first_request
+                and iteration < max_iterations
+            )
+
+            # 写完 </file> 就结束了 run（I08）：流式写文件协议把正文放在回复文字里，
+            # openai-agents 把不带工具调用的回复当作最终输出，模型写完一个文件没在同一次
+            # 回复里接着调用 create_file 时，run 就在这里停了——计划里没写的文件、给作者的
+            # 总结都还没写，这不是模型决定收尾。同一个 agent 接着跑一轮，带上已保存的文件、
+            # 作者的范围和任务板上没完成的任务：还有没写的接着写，写完了就给作者总结。
+            # 每一轮都必须真的新建并写完一个文件才会再续，受 max_iterations 约束；放在计划交接 /
+            # 自动质检之前，规划师写完再交给 writer、writer 写完再送审。
+            if (
+                can_rerun_same_agent
+                and run_create_succeeded
+                and not ToolContext.has_pending_empty_file()
+                and ends_on_file_block(agent_tail_text)
+            ):
+                continuation_guard = _guard_from_state(state)
+                written_titles = (
+                    list(continuation_guard.files_written.values()) if continuation_guard else []
+                )
+                handoff_context = _file_stream_continuation_context(
+                    written_titles, _open_board_tasks(), user_scope
+                )
+                if mid_run_steering_seen:
+                    handoff_context += "\n" + _steering_followup_context(
+                        current_agent_type, read_only=read_only_request
+                    )
+                log_with_context(
+                    logger,
+                    20,  # INFO
+                    "Agent run ended on a closed <file> block; continuing the same agent",
+                    agent_type=current_agent_type,
+                    iteration=iteration,
+                    written_files=len(written_titles),
+                )
+                # 续写轮是这一轮的延续：正文与写工具信号接续过去，自动质检门按整轮判断。
+                carried_agent_content = agent_content
+                carried_writer_body_writes = writer_body_writes
+                previous_agent = current_agent_type
+                incoming_handoff_packet = None
+                continue
 
             # Structured clarification stop is canonical and must block planned/auto handoff.
             if clarification_stopped:
@@ -1956,7 +2517,9 @@ async def run_writing_workflow_streaming(
                     type=StreamEventType.TEXT,
                     data={"text": _review_limit_text(review_limit_notes)},
                 )
-                for auto_task_update_event in await _auto_finalize_task_board_on_completion():
+                for auto_task_update_event in await _auto_finalize_task_board_on_completion(
+                    _guard_from_state(state)
+                ):
                     yield auto_task_update_event
                 if (notice := _take_read_only_notice()) is not None:
                     yield notice
@@ -2100,16 +2663,18 @@ async def run_writing_workflow_streaming(
                 # 审稿人交回来的返工稿不再自动送审（WRITER_PROMPT：返工后直接结束）。
                 and not rework_from_reviewer
                 and review_round < MAX_REVIEW_ROUNDS
-                and len(agent_content) >= auto_review_threshold
-                and (writer_emitted_file_markers or writer_used_write_tools)
+                # 只看本轮写进正文类文件（draft / script）的字数，不看 writer 的聊天文字：
+                # 改大纲、设定、角色卡，或者回答问题时说得再长也不送审（I03）。
+                and body_words_written(writer_body_writes) >= auto_review_threshold
             ):
                 # Auto-trigger quality_reviewer for long content
                 has_pending_handoff = True
                 log_with_context(
                     logger,
                     20,
-                    "Auto-triggering quality_reviewer due to content length",
-                    content_length=len(agent_content),
+                    "Auto-triggering quality_reviewer due to body words written",
+                    body_words=body_words_written(writer_body_writes),
+                    body_files=len(writer_body_writes),
                     threshold=auto_review_threshold,
                 )
 
@@ -2164,6 +2729,47 @@ async def run_writing_workflow_streaming(
                     f"{base_context}\n\n"
                     f"[待审查内容]\n{review_payload}"
                 ).strip()
+
+                # 字数和篇幅要求给审稿人确定的数（I05）：writer 在 <file> 正文后面同一次回复里
+                # 写的「约N字」是还没有工具结果时的估计；作者早先说过、写进项目设定的篇幅
+                # 要求，审稿人原来只看本轮原话时看不到。
+                written_ids = payload_guard.written_file_ids() if payload_guard else []
+                review_reads = await _bounded_review_reads(
+                    {
+                        "body_word_counts": functools.partial(_collect_body_word_counts, written_ids),
+                        "length_requirements": lambda: find_length_requirements(
+                            _collect_length_requirement_sources()
+                        ),
+                    }
+                )
+                body_counts = review_reads["body_word_counts"]
+                if not body_counts:
+                    # 落库读取超时：按本 run 写入记下的最新全文字数（建文件后又扩写过的取改后字数）。
+                    body_counts = latest_file_word_counts(writer_body_writes)
+                handoff_context += _format_body_word_counts(body_counts)
+                handoff_context += _format_length_requirements(review_reads["length_requirements"])
+                if chat_hold_started:
+                    handoff_context += f"\n\n{WRITER_CHAT_SUPERSEDED_NOTE}"
+                    # writer 最后在问作者：图手里有这几句，原样交给审稿人，不靠它从历史里转述。
+                    question = trailing_question_text(agent_tail_text) if ended_with_question else ""
+                    if question:
+                        handoff_context += (
+                            f"\n\n{WRITER_QUESTION_HEADER}\n{question}\n{_WRITER_QUESTION_FOR_REVIEWER_NOTE}"
+                        )
+                if body_counts and pending_handoff_event_data is not None and isinstance(
+                    pending_handoff_event_data.get("handoff_packet"), dict
+                ):
+                    counted_packet = dict(pending_handoff_event_data["handoff_packet"])
+                    prior_evidence = counted_packet.get("evidence")
+                    counted_packet["evidence"] = [
+                        *(prior_evidence if isinstance(prior_evidence, list) else []),
+                        *(f"《{title}》编辑器字数 {words}" for title, words in body_counts),
+                    ]
+                    pending_handoff_event_data = {
+                        **pending_handoff_event_data,
+                        "handoff_packet": counted_packet,
+                    }
+                    handoff_packet = counted_packet
 
                 # 程序检测证据（逐字复读、数字事实对照）：只在 writer 写完交给审稿人时做，
                 # 用户手动审查 / review_only 不做；读不到或超时就照常送审。
@@ -2252,7 +2858,9 @@ async def run_writing_workflow_streaming(
                     )
 
                     # Best-effort: 自动补发一次 update_project(tasks) 把 in_progress 任务收尾。
-                    auto_task_update_events = await _auto_finalize_task_board_on_completion()
+                    auto_task_update_events = await _auto_finalize_task_board_on_completion(
+                        _guard_from_state(state)
+                    )
                     for auto_task_update_event in auto_task_update_events:
                         yield auto_task_update_event
 
@@ -2286,6 +2894,23 @@ async def run_writing_workflow_streaming(
             # agent never speaks). Suppress it on the final iteration and let the loop
             # fall through to the exhaustion branch instead.
             will_run_next_agent = bool(pending_next_agent) and iteration < max_iterations
+
+            if (
+                chat_hold_started
+                and will_run_next_agent
+                and current_agent_type == "writer"
+                and pending_next_agent == "quality_reviewer"
+            ):
+                # 送审：writer 写完正文后给作者的文字丢掉，审稿人（或返修后的 writer）
+                # 写作者看到的唯一一份总结，字数用编辑器的数（I03 / I05）。
+                writer_chat_discarded = True
+                writer_superseded_question = (
+                    trailing_question_text(agent_tail_text) if ended_with_question else ""
+                )
+                yield StreamEvent(
+                    type=StreamEventType.CHAT_HOLD,
+                    data={"action": CHAT_HOLD_DISCARD, "reason": "superseded_by_review"},
+                )
 
             if pending_handoff_event_data is not None and will_run_next_agent:
                 yield StreamEvent(

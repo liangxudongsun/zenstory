@@ -225,6 +225,13 @@ class DoneEventData(BaseModel):
         default=None,
         description="Stopped rounds only: whether the round produced real output (prose or a write)",
     )
+    written_files: list[dict[str, Any]] | None = Field(
+        default=None,
+        description=(
+            "Stopped rounds only, when non-empty: files this round wrote text into "
+            "([{id, title, words?}], same as message_metadata.stop_outcome.written_files)"
+        ),
+    )
 
 
 class ToolCallEventData(BaseModel):
@@ -425,6 +432,7 @@ def done_event(
     file_mutated: bool = False,
     stop_reason: str | None = None,
     produced_output: bool | None = None,
+    written_files: list[dict[str, Any]] | None = None,
 ) -> StreamEvent:
     """Create a done event."""
     data = DoneEventData(
@@ -436,9 +444,10 @@ def done_event(
         session_id=session_id,
         stop_reason=stop_reason,
         produced_output=produced_output,
+        written_files=written_files or None,
     ).model_dump()
-    # 只有作者停止的一轮才带这两个字段，其余 done 帧保持原样。
-    for key in ("stop_reason", "produced_output"):
+    # 只有作者停止的一轮才带这几个字段（written_files 还要非空），其余 done 帧保持原样。
+    for key in ("stop_reason", "produced_output", "written_files"):
         if data.get(key) is None:
             data.pop(key, None)
     return StreamEvent(type=EventType.DONE, data=data)

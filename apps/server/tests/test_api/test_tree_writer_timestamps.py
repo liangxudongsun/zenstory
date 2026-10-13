@@ -51,7 +51,7 @@ def test_move_strictly_advances_normalized_token_without_changing_body(
     files_api.move_file(
         file.id,
         MoveFileRequest(target_parent_id=target.id),
-        BackgroundTasks(),
+
         current_user=user,
         session=db_session,
     )
@@ -174,7 +174,6 @@ def test_screenplay_reuse_mutation_advances_token_without_changing_body(
     db_session.add(episode)
     db_session.commit()
     monkeypatch.setattr(crud_module, "utcnow", lambda: FROZEN_NOW)
-    monkeypatch.setattr(FileCRUD, "_schedule_index_upsert", lambda *_args, **_kwargs: None)
 
     result = FileCRUD(db_session, user_id=user.id).create_file(
         project_id=project.id,
@@ -207,7 +206,6 @@ def test_unchanged_screenplay_reuse_reports_no_mutation_and_preserves_token(db_s
     )
     db_session.add(episode)
     db_session.commit()
-    monkeypatch.setattr(FileCRUD, "_schedule_index_upsert", lambda *_args, **_kwargs: None)
 
     result = FileCRUD(db_session, user_id=user.id).create_file(
         project_id=project.id,

@@ -1249,3 +1249,60 @@ async def test_batch_update_without_auth(client: AsyncClient, db_session):
         json={"skill_ids": [], "action": "enable"},
     )
     assert response.status_code == 401
+
+
+# ==================== Official skill instructions are hidden ====================
+
+
+@pytest.mark.integration
+async def test_own_skills_stay_fully_visible_and_editable_while_official_ones_are_hidden(
+    client: AsyncClient, db_session
+):
+    """自建技能与社区投稿照常返回全文、可以编辑；已添加的官方技能只返回名称和描述。"""
+    setup = await create_user_and_login(client, db_session, "hiddenofficial", "hiddenofficial@example.com")
+    user = setup["user"]
+    headers = {"Authorization": f"Bearer {setup['token']}"}
+
+    created = await client.post(
+        "/api/v1/skills",
+        json={"name": "我的悬念法", "description": "自己写的", "triggers": ["悬念"], "instructions": "我写的全文"},
+        headers=headers,
+    )
+    assert created.status_code == 200
+    own_id = created.json()["id"]
+    edited = await client.put(f"/api/v1/skills/{own_id}", json={"instructions": "改过的全文"}, headers=headers)
+    assert edited.status_code == 200
+    assert edited.json()["instructions"] == "改过的全文"
+    assert edited.json()["instructions_hidden"] is False
+
+    official = PublicSkill(
+        name="官方节奏", description="控制节奏", instructions="官方全文", category="plot",
+        tags=json.dumps(["节奏"]), source="official", status="approved",
+    )
+    community = PublicSkill(
+        name="社区对白", description="对白打磨", instructions="社区全文", category="writing",
+        tags=json.dumps(["对白"]), source="community", status="approved",
+    )
+    db_session.add(official)
+    db_session.add(community)
+    db_session.commit()
+    db_session.add(UserAddedSkill(user_id=user.id, public_skill_id=official.id, is_active=True))
+    db_session.add(UserAddedSkill(user_id=user.id, public_skill_id=community.id, is_active=True))
+    db_session.commit()
+
+    listed = await client.get("/api/v1/skills", headers=headers)
+    mine = await client.get("/api/v1/skills/my-skills", headers=headers)
+
+    assert "官方全文" not in listed.text + mine.text
+    by_name = {item["name"]: item for item in listed.json()["skills"]}
+    assert (by_name["我的悬念法"]["instructions"], by_name["我的悬念法"]["instructions_hidden"]) == ("改过的全文", False)
+    assert (by_name["社区对白"]["instructions"], by_name["社区对白"]["instructions_hidden"]) == ("社区全文", False)
+    assert (by_name["官方节奏"]["instructions"], by_name["官方节奏"]["instructions_hidden"]) == ("", True)
+    assert by_name["官方节奏"]["description"] == "控制节奏"
+    assert by_name["官方节奏"]["triggers"] == ["节奏"]
+
+    assert mine.json()["user_skills"][0]["instructions"] == "改过的全文"
+    added = {item["name"]: item for item in mine.json()["added_skills"]}
+    assert (added["社区对白"]["instructions"], added["社区对白"]["instructions_hidden"]) == ("社区全文", False)
+    assert (added["官方节奏"]["instructions"], added["官方节奏"]["instructions_hidden"]) == ("", True)
+    assert added["官方节奏"]["category"] == "plot"

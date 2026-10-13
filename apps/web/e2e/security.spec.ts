@@ -474,7 +474,7 @@ test.describe('Security - Input Validation', () => {
    *
    * Given: User inputs extremely long string
    * When: Submitting form
-   * Then: Input is validated/truncated, no buffer overflow
+   * Then: Validation retains the input and prevents a database write
    */
   test('extremely long file name is validated', async ({ page }) => {
     await page.waitForSelector('.overflow-auto', { timeout: 5000 });
@@ -486,23 +486,21 @@ test.describe('Security - Input Validation', () => {
     await addButton.click({ force: true });
 
     const fileInput = page.locator('input[placeholder*="大纲"]');
-    // Create a very long file name (1000+ characters)
+    const createRequests: string[] = [];
+    page.on('request', request => {
+      if (request.method() === 'POST' && /\/api\/v1\/projects\/[^/]+\/files$/.test(new URL(request.url()).pathname)) {
+        createRequests.push(request.url());
+      }
+    });
     const longName = 'A'.repeat(1000);
     await fileInput.fill(longName);
     await fileInput.press('Enter');
-    // Wait for file creation response
-    await page.waitForResponse(resp => resp.url().includes('/api/v1/files') && resp.request().method() === 'POST', { timeout: 5000 }).catch(() => {});
 
-    // App should handle gracefully - either truncate or show validation error
-    const errorToast = page.locator('text=/too long|过长|maximum|limit/i');
-    const hasError = await errorToast.count();
+    await expect(page.getByText('文件名最多 255 个字符，请将正文粘贴到编辑器中。')).toBeVisible();
+    await expect(fileInput).toHaveValue(longName);
+    expect(createRequests).toEqual([]);
+    await expect(page.getByText(longName, { exact: true })).toHaveCount(0);
 
-    // If file was created, verify it exists (possibly truncated)
-    const createdFile = page.locator(`text=/${longName.substring(0, 50)}/`);
-    const fileExists = await createdFile.count();
-
-    // Either validation error or successful creation (possibly truncated)
-    expect(hasError > 0 || fileExists > 0).toBe(true);
   });
 
   /**

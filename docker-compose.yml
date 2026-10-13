@@ -34,7 +34,6 @@ services:
     volumes:
       - zenstory_db:/app/db
       - zenstory_uploads:/app/uploads
-      - zenstory_chroma:/app/chroma_data
 
   web:
     build:
@@ -55,4 +54,3 @@ services:
 volumes:
   zenstory_db:
   zenstory_uploads:
-  zenstory_chroma:

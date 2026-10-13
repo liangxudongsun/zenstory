@@ -365,12 +365,18 @@ class RepeatReadGuard:
         hints: list[str] = []
         if payload.get("status") == "success" and isinstance(task_results, list):
             for index, task_result in enumerate(task_results):
-                if not isinstance(task_result, dict) or task_result.get("status") != "completed":
+                if not isinstance(task_result, dict):
                     continue
                 task_type = task_result.get("type")
                 planned = plan.tasks[index] if index < len(plan.tasks) else {}
                 params = planned.get("params") if isinstance(planned.get("params"), dict) else {}
                 result = task_result.get("result")
+                if isinstance(result, dict) and result.get("error_type") == "stale_content":
+                    # 与直接调用 edit_file 一样：文件读过之后被改了，再读是在看新内容。
+                    self._forget_reads(str(params.get("id") or params.get("file_id") or ""))
+                    continue
+                if task_result.get("status") != "completed":
+                    continue
                 result_data = result.get("data") if isinstance(result, dict) else None
                 if task_type == READ_TOOL_NAME and index in plan.read_keys:
                     title = _first_file_title(result_data)
@@ -406,11 +412,24 @@ class RepeatReadGuard:
             annotated["repeated_read_blocked"] = list(plan.blocked_notes)
         return json.dumps(annotated, ensure_ascii=False)
 
+    def _forget_reads(self, file_id: str) -> None:
+        """这个文件读过之后被别人改了：之前的读取计数作废。"""
+        if not file_id:
+            return
+        for key in [key for key in self._read_counts if key[1] == file_id]:
+            del self._read_counts[key]
+
     def _observe_direct_write(self, raw_arguments: str, output_text: str) -> None:
         payload = _load_json(output_text)
         if payload is None:
             return
         status = payload.get("status")
+        if payload.get("error_type") == "stale_content":
+            # 文件在模型读过之后被别人（多半是作者）改了：再读是在看新内容，不算重复，也不能提示「之后未被修改」。
+            args, parse_error, _ = parse_json_object(raw_arguments or "")
+            file_id = str(payload.get("id") or ("" if parse_error is not None else args.get("id") or ""))
+            self._forget_reads(file_id)
+            return
         # edit_file 部分成功（status=partial）时，已生效的几处确实改了文件：
         # 和计费（StreamBillingTracker 把 partial 当作写入）保持同一口径。
         applied_partial = status == "partial" and payload.get("mutation_applied") is True
@@ -466,6 +485,10 @@ class RepeatReadGuard:
     def _file_label(self, file_id: str) -> str:
         title = self._titles.get(file_id)
         return f"《{title}》(id={file_id})" if title else f"(id={file_id})"
+
+    def file_label(self, file_id: str) -> str:
+        """「《标题》(id=…)」；本请求没读写过、不知道标题时只有 id。"""
+        return self._file_label(file_id)
 
     def short_circuit_text(self, tool_name: str) -> str:
         """无进展停止后同一轮里剩下的工具调用：不执行，直接返回说明。"""

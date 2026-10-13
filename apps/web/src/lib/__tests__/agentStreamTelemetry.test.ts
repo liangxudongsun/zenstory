@@ -144,6 +144,38 @@ describe("agent stream telemetry", () => {
     expect(error.message).not.toContain(PROMPT);
   });
 
+  it("distinguishes fetch, reader and callback failures without error text", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError(PROMPT)));
+    const closed = vi.fn();
+    streamAgentRequest({ project_id: "project-1", message: PROMPT }, { onClosed: closed });
+    await vi.waitFor(() => expect(closed).toHaveBeenCalled());
+    expect(captureExceptionMock).toHaveBeenLastCalledWith(expect.any(Error), expect.objectContaining({ failure_phase: "fetch", exception_type: "TypeError" }));
+    captureExceptionMock.mockClear();
+    await runStream({ ...sseResponse([]), body: { getReader: () => ({ read: () => Promise.reject(new TypeError(PROMPT)) }) } });
+    expect(captureExceptionMock).toHaveBeenLastCalledWith(expect.any(Error), expect.objectContaining({ failure_phase: "read", exception_type: "TypeError" }));
+    captureExceptionMock.mockClear();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(sseResponse(['event: content\ndata: {"text":"body"}\n\n'])));
+    closed.mockClear();
+    streamAgentRequest({ project_id: "project-1", message: PROMPT }, { onContent: () => { throw new DOMException(PROMPT, "NotFoundError"); }, onClosed: closed });
+    await vi.waitFor(() => expect(closed).toHaveBeenCalled());
+    expect(captureExceptionMock).toHaveBeenLastCalledWith(expect.any(Error), expect.objectContaining({ failure_phase: "callback", exception_type: "NotFoundError", retryable: false }));
+    expect(JSON.stringify(captureExceptionMock.mock.calls)).not.toContain(PROMPT);
+  });
+
+  it("recognizes a non-AbortError rejection after the signal was cancelled", async () => {
+    let rejectFetch!: (error: Error) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise((_, reject) => { rejectFetch = reject; })));
+    const closed = vi.fn();
+    const onError = vi.fn();
+    const controller = streamAgentRequest({ project_id: "project-1", message: PROMPT }, { onClosed: closed, onError });
+    controller.abort();
+    rejectFetch(new TypeError(PROMPT));
+    await vi.waitFor(() => expect(closed).toHaveBeenCalled());
+    expect(trackEventMock).toHaveBeenCalledWith("ai_chat_cancelled", expect.any(Object));
+    expect(onError).not.toHaveBeenCalled();
+    expect(captureExceptionMock).not.toHaveBeenCalled();
+  });
+
   it("settles only once per stream", () => {
     const telemetry = createAgentStreamTelemetry("p", () => 0);
     telemetry.completed();

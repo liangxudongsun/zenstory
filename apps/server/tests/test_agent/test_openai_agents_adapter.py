@@ -533,7 +533,7 @@ async def test_readonly_cocall_metric_counts_each_turn_once():
 
         async def stream_events(self):
             # Turn 1: two read-only calls then their two outputs -> ONE turn, ONE co-call.
-            yield _called("hybrid_search", "c1")
+            yield _called("query_files", "c1")
             yield _called("query_files", "c2")
             yield _output("c1")
             yield _output("c2")

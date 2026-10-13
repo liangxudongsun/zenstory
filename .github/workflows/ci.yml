@@ -172,7 +172,6 @@ jobs:
         OPENAI_API_KEY=test-key-for-ci-testing
         JWT_SECRET_KEY=test-secret-key-min-32-characters-for-ci-testing
         REDEMPTION_CODE_HMAC_SECRET=test-hmac-secret-min-32-characters-for-ci
-        ZHIPU_EMBEDDINGS_API_KEY=skip-vector-tests-in-ci
         EOF
 
     - name: Run unit tests with pytest
@@ -313,7 +312,6 @@ jobs:
         OPENAI_API_KEY=test-key-for-ci-testing
         JWT_SECRET_KEY=test-secret-key-min-32-characters-for-ci-testing
         REDEMPTION_CODE_HMAC_SECRET=test-hmac-secret-min-32-characters-for-ci
-        ZHIPU_EMBEDDINGS_API_KEY=skip-vector-tests-in-ci
         EOF
 
     - name: Run PostgreSQL regressions serially

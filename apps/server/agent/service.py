@@ -17,6 +17,7 @@ import asyncio
 import time
 import uuid
 from collections.abc import AsyncGenerator
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import desc
@@ -71,10 +72,9 @@ from .skills.active_skills import list_active_skill_resources
 from .skills.content_budget import split_selected_budget
 from .stream_adapter import create_stream_adapter
 from .tools.author_edit_guard import (
-    CONFIRM_FILE_IDS_ROUTING_KEY,
-    MAX_CONFIRM_FILE_IDS,
     AuthorEditRefusals,
-    confirmed_file_ids_from_history,
+    previous_offer_context_from_history,
+    previous_offer_from_history,
     referenced_file_ids_from_metadata,
 )
 from .tools.mcp_tools import ToolContext, _should_offload_tool_execution
@@ -121,7 +121,11 @@ def routing_from_router_decided(data: dict[str, Any]) -> dict[str, Any]:
         "read_only": routing_metadata.get("read_only") is True,
         "write_content": write_content if isinstance(write_content, bool) else None,
         "scope": scope.strip() if isinstance(scope, str) else "",
+        # last_agent：这一轮最后说话的 agent；owner_agent：负责这一轮任务的 agent。
+        # writer 写完经自动质量门控 / 送审交给审稿人时，last_agent 变成 quality_reviewer，
+        # owner_agent 仍是 writer：作者回答审稿人的提问时要回到 writer（审稿人没有写工具）。
         "last_agent": initial_agent,
+        "owner_agent": initial_agent,
     }
     if routing_metadata.get("clarify_first") is True:
         # 这一轮是为笼统要求先问清楚：下一轮不再问第二次（graph/writing_graph._should_clarify_first）。
@@ -540,6 +544,7 @@ class AgentService:
             language=language,
             skill_catalog=skill_catalog,
             selected_skills=selected_skills or None,
+            author_message=message,
         )
         return selected_skills, system_prompt
 
@@ -606,6 +611,8 @@ class AgentService:
             SSE event strings
         """
         start_time = utcnow()
+        # 作者发出这条消息的时间：user 行落库在回合结束时，created_at 要用它，刷新后时间才不跳。
+        user_sent_at = start_time.replace(tzinfo=None)
         run_started_monotonic = time.monotonic()
         metrics = get_metrics_collector()
         metrics.increment_counter(AGENT_REQUESTS_TOTAL)
@@ -696,14 +703,11 @@ class AgentService:
         assistant_display_events: list[dict[str, Any]] = []
         # 本轮路由（ROUTER_DECIDED + 最后一个 AGENT_SELECTED），随 assistant 消息落库
         assistant_routing: dict[str, Any] = {}
-        # 本轮因为作者手改过而没改成的文件：随 routing 落库，下一轮作者回答时放行。
+        # 本轮因为作者手改过而没删 / 没整份重写的文件：交接给下一个 agent 时说明（writing_graph）。
         author_edit_refusals = AuthorEditRefusals()
 
         def _routing_for_save() -> dict[str, Any] | None:
-            refused = author_edit_refusals.file_ids()[:MAX_CONFIRM_FILE_IDS]
-            if not refused:
-                return assistant_routing or None
-            return {**assistant_routing, CONFIRM_FILE_IDS_ROUTING_KEY: refused}
+            return assistant_routing or None
 
         display_text_run_type: str | None = None
         pending_done_payload: dict[str, Any] | None = None
@@ -759,7 +763,9 @@ class AgentService:
                 assistant_display_events.append({"type": event_type, "content": content})
             display_text_run_type = event_type
 
-        def _append_user_messages_sync(texts: list[str]) -> int:
+        def _append_user_messages_sync(
+            texts: list[str], *, first_created_at: datetime | None = None
+        ) -> int:
             """把若干条文本作为 user 行追加进当前会话（不重写整轮历史）。
 
             两个用途：
@@ -768,6 +774,8 @@ class AgentService:
             2. 完全没有 assistant 内容的取消/失败路径 —— 只保留用户消息与已消费
                的 steering。
             message_count 按实际写入的行数递增，避免计数漂移。
+            first_created_at：texts[0] 是本轮作者发的那条消息时传入发出时间；晚到的
+            steering 不传。
             """
             from models import ChatMessage, ChatSession
 
@@ -801,12 +809,16 @@ class AgentService:
                     )
                     return 0
 
-                for text in cleaned:
+                for index, text in enumerate(texts):
+                    if not (isinstance(text, str) and text.strip()):
+                        continue
+                    sent_at = first_created_at if index == 0 else None
                     append_session.add(
                         ChatMessage(
                             session_id=chat_session.id,
                             role="user",
                             content=text,
+                            **({"created_at": sent_at} if sent_at else {}),
                         )
                     )
                 chat_session.message_count += len(cleaned)
@@ -938,7 +950,9 @@ class AgentService:
             """
             if not _has_assistant_payload() and not persist_empty_assistant:
                 # 空 assistant 不落库，只保留用户消息与已消费的 steering。
-                _append_user_messages_sync([message, *consumed_steering])
+                _append_user_messages_sync(
+                    [message, *consumed_steering], first_created_at=user_sent_at
+                )
                 return None
 
             recovery_manager = MessageManager(
@@ -960,6 +974,7 @@ class AgentService:
                     assistant_stop_reason=stop_reason,
                     assistant_routing=_routing_for_save(),
                     persist_empty_assistant=persist_empty_assistant,
+                    user_created_at=user_sent_at,
                 )
 
         try:
@@ -1093,6 +1108,12 @@ class AgentService:
             working_set_context = getattr(session_data, "working_set_context", "")
             if not isinstance(working_set_context, str):
                 working_set_context = ""
+            # 作者在 AI 写过之后亲手改了什么（agent/tools/author_changes.py），和工作集放在一起。
+            author_edits_context = getattr(session_data, "author_edits_context", "")
+            if isinstance(author_edits_context, str) and author_edits_context:
+                working_set_context = (
+                    f"{working_set_context}\n\n{author_edits_context}" if working_set_context else author_edits_context
+                )
             if working_set_context:
                 user_content = SessionLoader.attach_working_set_to_user_content(
                     user_content, working_set_context
@@ -1187,11 +1208,16 @@ class AgentService:
                 # 作者原话：update_project 据此确认 author_requested 真是作者要求的改名
                 author_message=message,
                 author_steering=consumed_steering,
-                # 作者手改过的文件：作者本轮没点名时 AI 不改（agent/tools/author_edit_guard.py）。
+                # 作者手改过的文件：删除、整份覆盖要作者点名（agent/tools/author_edit_guard.py）；
+                # 修改不再拦，作者改了什么见 <author_edits>（agent/tools/author_changes.py）。
                 focus_file_id=focus_file_id if isinstance(focus_file_id, str) else None,
                 referenced_file_ids=referenced_file_ids_from_metadata(metadata),
-                author_confirmed_file_ids=confirmed_file_ids_from_history(history_messages),
                 author_edit_refusals=author_edit_refusals,
+                # 本轮开始时模型看到的正文：edit_file 拒绝基于旧正文的修改（作者生成期间又改了）。
+                read_snapshots=getattr(session_data, "read_snapshots", None),
+                # 上一轮 AI 的提议：作者答应 / 选中改某个文件的那一项时放行它。
+                author_previous_offer=previous_offer_from_history(history_messages),
+                author_previous_offer_context=previous_offer_context_from_history(history_messages),
             )
 
             # Build WritingState for workflow execution
@@ -1270,6 +1296,13 @@ class AgentService:
                             selected_agent = str(event.data.get("agent_type") or "").strip()
                             if selected_agent:
                                 assistant_routing["last_agent"] = selected_agent
+                                # 交接来的审稿人只是在审别人的稿：任务仍归交给它的 agent。
+                                # 本轮从审稿开始（review_only）时审稿人就是负责人。
+                                if (
+                                    selected_agent != "quality_reviewer"
+                                    or assistant_routing.get("initial_agent") == "quality_reviewer"
+                                ):
+                                    assistant_routing["owner_agent"] = selected_agent
 
                     # Track content for history
                     if event_type == "content":
@@ -1422,6 +1455,7 @@ class AgentService:
                         await asyncio.to_thread(
                             _append_user_messages_sync,
                             [message, *consumed_steering],
+                            first_created_at=user_sent_at,
                         )
                         history_saved = True
                         return None
@@ -1438,6 +1472,7 @@ class AgentService:
                         steering_messages=consumed_steering or None,
                         assistant_display_events=assistant_display_events or None,
                         assistant_routing=_routing_for_save(),
+                        user_created_at=user_sent_at,
                     )
                     history_saved = True
                     return saved_id
@@ -1511,6 +1546,13 @@ class AgentService:
                             run_outcome.resolve_message_id(None)
 
                 async def _drain_then_save_partial_history_inner() -> None:
+                    # 残稿补存会把没有作为 SSE 发出的尾部缓冲一并保存。先等本轮
+                    # 正文保存回执，再交回消息 id，让 done 与历史使用同一份字数。
+                    adapter = usage_source.get("adapter")
+                    if run_outcome is not None and adapter is not None:
+                        run_outcome.saved_file_word_counts.update(
+                            await adapter.settle_aborted_capture()
+                        )
                     # 取消可能恰好落在 save_messages 期间：它被 shield 保护会
                     # 继续跑完，所以补偿保存前必须等它的真实结果。已落库时
                     # 不能整轮重写（user/steering/assistant 会写两遍），但仍要

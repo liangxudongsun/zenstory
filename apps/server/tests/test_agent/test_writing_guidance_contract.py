@@ -46,8 +46,9 @@ def test_read_budget_prevents_redundant_rereads():
         "role_definition": "R", "capabilities": "C", "directory_structure": "{draft}",
         "content_structure": "S", "file_types": "T", "writing_guidelines": "G",
     })
-    # 语义检索可能被禁用：不能再把 hybrid_search 宣传成首选
+    # 已移除语义工具，保留文件查询协议。
     assert "混合检索（向量 + 关键词融合）" not in prompt
-    assert "可能未启用" in prompt
+    assert "hybrid_search" not in prompt
+    assert "query_files" in prompt
     # 旁白：只在本轮第一次调用工具前说一句
     assert "本轮第一次调用工具前" in prompt

@@ -23,7 +23,6 @@ async def test_streamed_mutation_tracks_locked_postgres_commit(pg_engine, monkey
 
     monkeypatch.setattr(database, "is_postgres", True)
     monkeypatch.setattr(database, "create_session", lambda: Session(pg_engine))
-    monkeypatch.setattr(FileCRUD, "_schedule_index_upsert", lambda *_a, **_kw: None)
     monkeypatch.setattr(FileVersionService, "check_user_version_quota", lambda *_a, **_kw: (True, 0, 10))
     monkeypatch.setattr("agent.tools.file_ops.crud.activation_event_service.record_ai_write_accepted", lambda *_a, **_kw: None)
     with Session(pg_engine) as session:

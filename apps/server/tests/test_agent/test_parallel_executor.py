@@ -22,7 +22,6 @@ from agent.tools.parallel_executor import (
     execute_parallel,
     handle_delete_file,
     handle_edit_file,
-    handle_hybrid_search,
     handle_query_files,
     handle_write_chapter,
 )
@@ -345,45 +344,6 @@ class TestHandleQueryFiles:
         assert "project_id" in parsed["error"]
 
 
-@pytest.mark.asyncio
-@pytest.mark.unit
-class TestHandleHybridSearch:
-    """Test hybrid_search handler."""
-
-    async def test_hybrid_search_no_project(self):
-        """Test hybrid_search without project context."""
-        result = await handle_hybrid_search({"query": "test"})
-
-        text = result["content"][0]["text"]
-        parsed = json.loads(text)
-        assert parsed["status"] == "error"
-        assert "project_id" in parsed["error"]
-
-    async def test_hybrid_search_calls_mcp(self):
-        """Test hybrid_search forwards canonical params to MCP tool."""
-        from agent.tools.mcp_tools import ToolContext
-
-        ToolContext.set_context(None, "user1", "proj-1", "sess-1")
-        try:
-            with patch("agent.tools.mcp_tools.hybrid_search") as mock_search:
-                mock_search.return_value = {"content": [{"type": "text", "text": '{"status": "ok"}'}]}
-
-                result = await handle_hybrid_search({
-                    "query": "hero",
-                    "top_k": 5,
-                    "entity_types": ["draft"],
-                    "min_score": 0.3,
-                })
-
-                assert result is not None
-                mock_search.assert_called_once_with({
-                    "query": "hero",
-                    "top_k": 5,
-                    "entity_types": ["draft"],
-                    "min_score": 0.3,
-                })
-        finally:
-            ToolContext.clear_context()
 
 
 @pytest.mark.asyncio
@@ -524,32 +484,6 @@ class TestExecuteParallel:
         finally:
             ToolContext.clear_context()
 
-    async def test_execute_supports_hybrid_search(self):
-        """Test execution supports hybrid_search task type."""
-        from agent.tools.mcp_tools import ToolContext
-
-        ToolContext.set_context(None, "user1", "proj-1", "sess-1")
-        try:
-            with patch("agent.tools.parallel_executor.handle_hybrid_search") as mock_search:
-                mock_search.return_value = {
-                    "content": [{"type": "text", "text": '{"status":"success","data":{"items":[]}}'}]
-                }
-
-                result = await execute_parallel([
-                    {"type": "hybrid_search", "description": "Search context", "params": {"query": "hero"}},
-                ])
-
-                text = result["content"][0]["text"]
-                parsed = json.loads(text)
-                task = parsed["data"]["tasks"][0]
-
-                assert parsed["data"]["completed"] == 1
-                assert parsed["data"]["failed"] == 0
-                assert parsed["data"]["all_completed"] is True
-                assert task["type"] == "hybrid_search"
-                assert task["status"] == "completed"
-        finally:
-            ToolContext.clear_context()
 
     async def test_execute_supports_delete_file(self):
         """Test execution supports delete_file task type."""
@@ -840,7 +774,7 @@ def _executor_returning(files_by_id):
 @pytest.mark.asyncio
 @pytest.mark.unit
 class TestParallelReadForwarding:
-    """query_files / hybrid_search sub-tasks are exactly the standalone tool calls."""
+    """query_files sub-tasks are exactly the standalone tool calls."""
 
     async def test_query_files_task_forwards_response_mode_and_all_params(self):
         from agent.tools.mcp_tools import ToolContext
@@ -877,17 +811,6 @@ class TestParallelReadForwarding:
         assert task["status"] == "completed"
         assert task["result"]["data"][0]["content"] == "正文"
 
-    async def test_hybrid_search_task_drops_scope_override(self):
-        from agent.tools.mcp_tools import ToolContext
-
-        ToolContext.set_context(None, "user1", "proj-1", "sess-1")
-        try:
-            with patch("agent.tools.mcp_tools.hybrid_search") as mock_search:
-                mock_search.return_value = {"content": [{"type": "text", "text": '{"status": "success"}'}]}
-                await handle_hybrid_search({"query": "hero", "project_id": "other", "user_id": "u2"})
-                mock_search.assert_called_once_with({"query": "hero"})
-        finally:
-            ToolContext.clear_context()
 
     async def test_five_large_reads_keep_every_task_status_and_file_id(self):
         from agent.tools import mcp_tools

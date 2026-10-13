@@ -34,7 +34,7 @@
     "newScript": "新建剧本",
     "newFileName": "新文件名称",
     "newProject": "新建项目",
-    "uploadMaterial": "上传参考文本到本项目（.txt，最多 20 万字）",
+    "uploadMaterial": "上传参考文本到本项目（.txt / .md，最多 20 万字）",
     "uploadDraft": "导入正文（.txt / .md，自动按章节拆分）",
     "draftUploadSuccess": "已导入 {{count}} 个章节",
     "draftUploadPartial": "已导入 {{count}} 个章节，部分文件未导入：{{errors}}",
@@ -42,7 +42,7 @@
     "removeFromChat": "从对话中移除",
     "addToChat": "添加到对话",
     "emptyFolder": "暂无内容，点击 + 开始创作",
-    "emptyMaterialFolder": "放本项目要参考的文本，点 + 上传 .txt，可添加到对话让 AI 参考",
+    "emptyMaterialFolder": "放本项目要参考的文本，点 + 上传 .txt / .md，可添加到对话让 AI 参考",
     "folderEmpty": "还没有文件",
     "createWithAI": "告诉 AI 你想写什么，它会帮你建好大纲和章节",
     "uploading": "正在上传…",
@@ -85,6 +85,7 @@
     },
     "skillTriggers": "触发词",
     "skillInstructions": "技能内容",
+    "skillInstructionsHidden": "官方技能的具体指令不公开，AI 会在合适的时候使用它。",
     "builtinSkill": "内置",
     "userSkill": "自定义",
     "useSkill": "使用此技能",
@@ -99,7 +100,8 @@
     "noResults": "未找到文件",
     "searching": "搜索中…",
     "shortcutHint": "Ctrl+K",
-    "pathSeparator": " > "
+    "pathSeparator": " > ",
+    "titleTooLong": "文件名最多 255 个字符，请将正文粘贴到编辑器中。"
   },
   "placeholder": {
     "selectFile": "从左侧选择一个文件开始创作",

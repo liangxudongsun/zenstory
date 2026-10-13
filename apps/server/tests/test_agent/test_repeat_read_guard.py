@@ -22,6 +22,7 @@ from agent.openai_agents.repeat_read_guard import (
     RepeatReadGuard,
 )
 from agent.openai_agents.tool_failure_breaker import ToolFailureBreaker
+from tests.test_agent.body_write_events import edit_file_events
 from tests.test_agent.test_tool_failure_breaker import (
     _run_against_local_model,
     _text_chunks,
@@ -821,17 +822,8 @@ def _text(text: str) -> StreamEvent:
 
 
 def _write_done(call_id: str) -> list[StreamEvent]:
-    return [
-        StreamEvent(type=StreamEventType.TOOL_USE, data={"id": call_id, "name": "edit_file", "status": "complete"}),
-        StreamEvent(
-            type=StreamEventType.TOOL_RESULT,
-            data={
-                "tool_use_id": call_id,
-                "name": "edit_file",
-                "result": {"content": [{"type": "text", "text": '{"status": "success"}'}]},
-            },
-        ),
-    ]
+    # 一次写进正文（draft）的成功 edit_file：自动质检门只看正文类文件的写入字数。
+    return edit_file_events(call_id, "林晚推开门，雨还在下。" * 30)
 
 
 def _handoff(target: str, context: str) -> StreamEvent:
@@ -988,3 +980,39 @@ async def test_continue_after_exhaustion_skips_llm_router():
     assert calls == ["writer"]
     decided = next(e for e in events if e.type == StreamEventType.ROUTER_DECIDED)
     assert decided.data["routing_metadata"]["reason"] == "resume_after_exhaustion"
+
+
+def test_stale_content_lets_the_file_be_read_again_without_the_unchanged_hint():
+    """edit_file 说文件在读过之后被作者改了：再读是在看新内容，不能提示「之后未被修改」，也不能拦下。"""
+    guard = RepeatReadGuard()
+    for _ in range(READ_BLOCK_AT - 1):
+        _guarded_read(guard)
+    edit_args = json.dumps({"id": "f1", "edits": [{"op": "replace", "old": "a", "new": "b"}]})
+    guard.observe(
+        "edit_file",
+        guard.plan("edit_file", edit_args),
+        json.dumps({"status": "error", "error_type": "stale_content", "error": "…"}, ensure_ascii=False),
+    )
+    reread = json.loads(_guarded_read(guard))
+    assert reread["status"] == "success" and "read_hint" not in reread
+    assert guard.write_succeeded is False
+
+
+def test_parallel_stale_edit_also_lets_the_file_be_read_again():
+    """parallel_execute 里的 edit_file 报 stale_content：与直接调用一样，之前的读取计数作废。"""
+    guard = RepeatReadGuard()
+    for _ in range(READ_BLOCK_AT - 1):
+        _guarded_read(guard)
+    raw = json.dumps(
+        {"tasks": [{"type": "edit_file", "description": "改第一章", "params": {"id": "f1", "edits": []}}]},
+        ensure_ascii=False,
+    )
+    stale = {
+        "type": "edit_file",
+        "status": "failed",
+        "description": "改第一章",
+        "result": {"status": "error", "error_type": "stale_content", "error": "…"},
+    }
+    guard.observe("parallel_execute", guard.plan("parallel_execute", raw), _parallel_output([stale]))
+    reread = json.loads(_guarded_read(guard))
+    assert reread["status"] == "success" and "read_hint" not in reread

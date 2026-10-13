@@ -32,16 +32,11 @@ STAMP = datetime(2026, 10, 6, 8, 0, 0, 123456)
 @pytest.fixture(autouse=True)
 def isolate_side_effects(monkeypatch):
     import database
-    import services.llama_index as indexing
 
     monkeypatch.setattr(database, "is_postgres", True)
     monkeypatch.setattr(files_api, "utcnow", lambda: STAMP)
     monkeypatch.setattr(agent_api, "utcnow", lambda: STAMP)
     monkeypatch.setattr(crud_module, "utcnow", lambda: STAMP)
-    monkeypatch.setattr(indexing, "schedule_index_upsert", lambda **_kw: None)
-    monkeypatch.setattr(indexing, "schedule_index_delete", lambda **_kw: None)
-    monkeypatch.setattr(FileCRUD, "_schedule_index_upsert", lambda *_a, **_kw: None)
-    monkeypatch.setattr(FileCRUD, "_schedule_index_delete", lambda *_a, **_kw: None)
     monkeypatch.setattr(FileVersionService, "check_user_version_quota", lambda *_a, **_kw: (True, 0, 10))
     monkeypatch.setattr(files_api.activation_event_service, "record_once", lambda *_a, **_kw: None)
 
@@ -85,11 +80,11 @@ def _move(session, kind, user_id, key_id, file_id, parent_id):
         if kind == "web-move":
             files_api.move_file(
                 file_id, files_api.MoveFileRequest(target_parent_id=parent_id),
-                BackgroundTasks(), current_user=owner, session=session,
+                 current_user=owner, session=session,
             )
         elif kind == "web-update":
             files_api.update_file(
-                file_id, files_api.FileUpdate(parent_id=parent_id), BackgroundTasks(),
+                file_id, files_api.FileUpdate(parent_id=parent_id),
                 current_user=owner, session=session,
             )
         elif kind == "tool-update":
@@ -97,7 +92,7 @@ def _move(session, kind, user_id, key_id, file_id, parent_id):
         else:
             key = session.get(AgentApiKey, key_id)
             agent_api.move_file(
-                file_id, agent_api.FileMove(parent_id=parent_id), BackgroundTasks(),
+                file_id, agent_api.FileMove(parent_id=parent_id),
                 _rate_limit=0, context=(session, user_id, key),
             )
         return 200
@@ -193,7 +188,7 @@ def test_recursive_delete_excludes_concurrent_child_creation(pg_engine, monkeypa
     def delete():
         with Session(pg_engine) as session:
             return files_api.delete_file(
-                a_id, BackgroundTasks(), recursive=True,
+                a_id,  recursive=True,
                 current_user=session.get(User, user_id), session=session,
             )
 
@@ -207,14 +202,14 @@ def test_recursive_delete_excludes_concurrent_child_creation(pg_engine, monkeypa
                 if creator == "web":
                     files_api.create_file(
                         project_id, files_api.FileCreate(title="New child", parent_id=a_id),
-                        BackgroundTasks(), current_user=session.get(User, user_id), session=session,
+                         current_user=session.get(User, user_id), session=session,
                     )
                 elif creator == "tool":
                     FileCRUD(session, user_id).create_file(project_id, "New child", parent_id=a_id)
                 else:
                     agent_api.create_file(
                         project_id, agent_api.FileCreate(title="New child", parent_id=a_id),
-                        BackgroundTasks(), _rate_limit=0,
+                         _rate_limit=0,
                         context=(session, user_id, session.get(AgentApiKey, key_id)),
                     )
                 return 200
@@ -333,11 +328,11 @@ def test_all_delete_entrypoints_exclude_reparent_and_advance_fresh_tokens(pg_eng
             session.info["pause_tree_delete"] = True
             owner = session.get(User, user_id)
             if deleter == "web":
-                return files_api.delete_file(a_id, BackgroundTasks(), recursive=True, current_user=owner, session=session)
+                return files_api.delete_file(a_id,  recursive=True, current_user=owner, session=session)
             if deleter == "tool":
                 return FileCRUD(session, user_id).delete_file(a_id, recursive=True)
             return agent_api.delete_file(
-                a_id, BackgroundTasks(), _rate_limit=0,
+                a_id,  _rate_limit=0,
                 context=(session, user_id, session.get(AgentApiKey, key_id)),
             )
 
@@ -421,7 +416,7 @@ def test_tree_gate_does_not_serialize_unrelated_work(pg_engine, monkeypatch, wri
             if writer == "other-project-move":
                 return _move(session, "web-move", other_user, other_key, other_a, other_b)
             file = files_api.update_file(
-                c_id, files_api.FileUpdate(content="Independent content"), BackgroundTasks(),
+                c_id, files_api.FileUpdate(content="Independent content"),
                 current_user=session.get(User, user_id), session=session,
             )
             return file.content
@@ -469,7 +464,7 @@ def test_recursive_delete_refreshes_descendant_after_content_writer_lock(pg_engi
             if deleter == "tool":
                 return FileCRUD(session, user_id).delete_file(a_id, recursive=True)
             return files_api.delete_file(
-                a_id, BackgroundTasks(), recursive=True,
+                a_id,  recursive=True,
                 current_user=session.get(User, user_id), session=session,
             )
 
@@ -497,7 +492,7 @@ def test_combined_parent_content_update_commits_history_under_strong_gate(pg_eng
     with Session(pg_engine) as session:
         updated = files_api.update_file(
             c_id, files_api.FileUpdate(parent_id=b_id, content="Moved and saved"),
-            BackgroundTasks(), current_user=session.get(User, user_id), session=session,
+             current_user=session.get(User, user_id), session=session,
         )
         assert updated.parent_id == b_id and updated.content == "Moved and saved"
     with Session(pg_engine) as verify:

@@ -589,7 +589,7 @@ async def test_compare_snapshots_forbidden_for_other_user(client: AsyncClient, d
 
 
 @pytest.mark.integration
-async def test_snapshot_rollback_reconciles_vector_index_and_stats_cache(
+async def test_snapshot_rollback_restores_content_and_refreshes_stats_cache(
     client: AsyncClient, db_session, monkeypatch
 ):
     user, headers = await _create_user_and_headers(client, db_session, "snap_reconcile")
@@ -605,17 +605,7 @@ async def test_snapshot_rollback_reconciles_vector_index_and_stats_cache(
     )
     assert update.status_code == 200
 
-    indexed: list[dict] = []
-    deleted: list[dict] = []
     cache_bumps: list[tuple[str, str]] = []
-    monkeypatch.setattr(
-        "services.llama_index.schedule_index_upsert",
-        lambda **kwargs: indexed.append(kwargs),
-    )
-    monkeypatch.setattr(
-        "services.llama_index.schedule_index_delete",
-        lambda **kwargs: deleted.append(kwargs),
-    )
     monkeypatch.setattr(
         "services.infra.dashboard_cache.dashboard_cache.bump_project_version",
         lambda user_id, project_id: cache_bumps.append((user_id, project_id)),
@@ -626,10 +616,8 @@ async def test_snapshot_rollback_reconciles_vector_index_and_stats_cache(
     )
 
     assert response.status_code == 200, response.text
-    assert len(indexed) == 1
-    assert indexed[0]["entity_id"] == file["id"]
-    assert indexed[0]["content"] == "Before"
-    assert deleted == []
+    restored = await client.get(f"/api/v1/files/{file['id']}", headers=headers)
+    assert restored.json()["content"] == "Before"
     assert cache_bumps == [(user.id, project["id"])]
 
 

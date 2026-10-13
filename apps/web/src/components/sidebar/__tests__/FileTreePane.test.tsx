@@ -245,6 +245,18 @@ describe('FileTreePane create/delete failures', () => {
     vi.unstubAllGlobals();
   });
 
+  it('keeps a body-sized name and explains the limit without creating a file', async () => {
+    render(<FileSearchProvider><FileTreePane /></FileSearchProvider>);
+    fireEvent.click(await screen.findByTitle('common:create common:fileTypes.character'));
+    const input = screen.getByPlaceholderText('editor:fileTree.newCharacter');
+    const title = '设定'.repeat(1600);
+    fireEvent.change(input, { target: { value: title } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(mocks.createFile).not.toHaveBeenCalled();
+    expect(mocks.toastError).toHaveBeenCalledWith('editor:fileTree.titleTooLong');
+    expect(input).toHaveValue(title);
+  });
+
   it('shows the createFailed toast and keeps the typed name when creating a file fails', async () => {
     mocks.createFile.mockRejectedValue(new Error('server error'));
     render(<FileSearchProvider><FileTreePane /></FileSearchProvider>);

@@ -89,7 +89,9 @@ class SkillResponse(BaseModel):
     name: str
     description: str | None
     triggers: list[str]
+    # 已添加的官方技能不回传正文：instructions 为空串、instructions_hidden 为 True
     instructions: str
+    instructions_hidden: bool = False
     source: str  # "builtin", "user", or "added"
     is_active: bool = True
     resource_count: int = 0
@@ -220,12 +222,14 @@ async def list_skills(
             field_name="public_skill.tags",
             record_id=public.id,
         )
+        hidden = skill_package_service.instructions_hidden_from_users(public)
         skills.append(SkillResponse(
             id=added.id,
             name=added.custom_name or public.name,
             description=public.description,
             triggers=triggers,
-            instructions=public.instructions,
+            instructions="" if hidden else public.instructions,
+            instructions_hidden=hidden,
             source="added",
             is_active=added.is_active,
             resource_count=public_resource_counts.get(public.id, 0),
@@ -426,7 +430,9 @@ class AddedSkillResponse(BaseModel):
     public_skill_id: str
     name: str
     description: str | None
+    # 官方技能不回传正文：instructions 为空串、instructions_hidden 为 True
     instructions: str
+    instructions_hidden: bool = False
     category: str
     source: str  # "added"
     is_active: bool
@@ -505,12 +511,14 @@ async def get_my_skills(
 
     added_skills = []
     for added, public in added_results:
+        hidden = skill_package_service.instructions_hidden_from_users(public)
         added_skills.append(AddedSkillResponse(
             id=added.id,
             public_skill_id=public.id,
             name=added.custom_name or public.name,
             description=public.description,
-            instructions=public.instructions,
+            instructions="" if hidden else public.instructions,
+            instructions_hidden=hidden,
             category=public.category,
             source="added",
             is_active=added.is_active,

@@ -990,7 +990,7 @@ async def test_upload_material_auto_splits_large_content(client: AsyncClient, db
 
 @pytest.mark.integration
 async def test_upload_material_invalid_extension(client: AsyncClient, db_session):
-    """Test uploading non-txt file is rejected."""
+    """Non-text uploads are rejected; .md is accepted as plain text like draft import."""
     from services.core.auth_service import hash_password
 
     user = User(
@@ -1021,10 +1021,20 @@ async def test_upload_material_invalid_extension(client: AsyncClient, db_session
 
     response = await client.post(
         f"/api/v1/projects/{project.id}/files/upload",
-        files={"file": ("test_material.md", b"# markdown", "text/markdown")},
+        files={"file": ("test_material.docx", b"PK\x03\x04", "application/octet-stream")},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 400
+
+    response = await client.post(
+        f"/api/v1/projects/{project.id}/files/upload",
+        files={"file": ("澜溪镇设定.md", "# 设定\n\n温梨从不说谎。".encode(), "text/markdown")},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200, response.text
+    uploaded = response.json()
+    assert uploaded["title"] == "澜溪镇设定"
+    assert uploaded["content"] == "# 设定\n\n温梨从不说谎。"
 
 
 @pytest.mark.integration

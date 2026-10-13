@@ -37,7 +37,12 @@
     "roundRemovedFiles": "空白的《{{titles}}》已移除",
     "removedEmptyFiles": "这一轮新建的空白文件《{{titles}}》已移除。",
     "removedFilesJoiner": "》《",
-    "unanswered": "这条消息没有收到回复。"
+    "unanswered": "这条消息没有收到回复。",
+    "roundSavedFiles": "已保存{{files}}",
+    "roundSavedFile": "《{{title}}》",
+    "roundSavedFileWords": "《{{title}}》{{words}} 字",
+    "roundSavedFilesJoiner": "、",
+    "roundSavedFilesMore": "{{files}}等 {{total}} 个文件"
   },
   "input": {
     "placeholder": "想写什么，直接说",
@@ -169,6 +174,7 @@
     "read_skill_resource": "查看技能资料",
     "generic": "AI 操作",
     "parallel_summary": "同时处理 {{total}} 项任务：成功 {{completed}}，失败 {{failed}}",
+    "parallel_summary_with_skipped": "同时处理 {{total}} 项任务：成功 {{completed}}，没动 {{skipped}}，失败 {{failed}}",
     "parallelTaskLabel": "{{label}}：",
     "processing": "处理中",
     "processing_ellipsis": "处理中…",
@@ -187,6 +193,7 @@
     "query_files_default": "查找文件",
     "update_status_description": "记录项目信息",
     "edit_success": "修改完成",
+    "edit_touched_author_edits": "改到了你手动改过的地方",
     "edits_summary": "{{editsApplied}} 处变更 · {{size}}",
     "edits_summary_one": "{{editsApplied}} 处变更 · {{size}}",
     "edits_summary_other": "{{editsApplied}} 处变更 · {{size}}",
@@ -199,13 +206,15 @@
       "fileMissing": "这个文件已经不存在了，可能刚被删除。",
       "repeatRead": "《{{title}}》刚才已经读过，AI 直接用已读内容继续。",
       "repeatReadUntitled": "这份资料刚才已经读过，AI 直接用已读内容继续。",
-      "authorEdited": "《{{title}}》有你手动改过的内容，AI 没有动它；需要改的话会先问你。",
-      "authorEditedUntitled": "这个文件有你手动改过的内容，AI 没有动它；需要改的话会先问你。",
+      "authorEdited": "《{{title}}》有你手动改过的内容，AI 没有删除或整份重写它；需要的话会先问你。",
+      "authorEditedUntitled": "这个文件有你手动改过的内容，AI 没有删除或整份重写它；需要的话会先问你。",
+      "authorChanged": "这个文件在 AI 读过之后又被改过（多半是你刚改的），AI 没有在旧内容上改，这一步没有改动。",
       "clarifyFirst": "你还没说改哪部分，AI 先问清楚再动手，这次没有改文件。",
       "generic": "这一步没做成，AI 会换个方式继续。"
     },
     "skippedTitle": {
       "authorEdited": "保留了你改过的内容",
+      "authorChanged": "文件刚被改过，这一步没改",
       "clarifyFirst": "先问清楚再改"
     },
     "taskNotCompleted": "没有完成"
@@ -327,7 +336,7 @@
   },
   "activity": {
     "elapsed": "AI 正在处理 · {{seconds}} 秒",
-    "longWaitHint": "写长内容通常要一两分钟，请稍等。"
+    "longWaitHint": "写长内容可能要几分钟，请稍等。"
   },
   "leaveWhileGenerating": {
     "title": "AI 还在写",
@@ -340,6 +349,16 @@
     "endedTitle": "这一轮已经结束",
     "endedMessage": "现在离开不会中断任何内容。",
     "stayEnded": "留在这里"
+  },
+  "newChatWhileGenerating": {
+    "message": "开始新对话会先停止这一轮。还没写出内容的话，这一轮不计入今日 AI 消息。",
+    "messageWithOutput": "开始新对话会先停止这一轮。已经写出的内容会保存，这一轮计入今日 AI 消息。",
+    "messageWithOutputUnlimited": "开始新对话会先停止这一轮，已经写出的内容会保存。",
+    "messageUnlimited": "开始新对话会先停止这一轮。",
+    "endedMessage": "现在开始新对话不会中断任何内容。",
+    "confirm": "停止并开始新对话",
+    "confirmEnded": "开始新对话",
+    "cancel": "取消"
   },
   "quotaCard": {
     "title": "今天的 {{limit}} 条免费 AI 消息用完了",

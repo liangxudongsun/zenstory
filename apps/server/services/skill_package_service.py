@@ -138,6 +138,23 @@ def resolve_owned_skill(session: Session, user_id: str, skill_id: str) -> OwnedS
     raise _not_found()
 
 
+def instructions_hidden_from_users(public: PublicSkill) -> bool:
+    """官方技能（source=official）的正文与资源只交给 agent，不向用户返回。
+
+    用户自建技能、社区投稿（作者自己写、自己选择公开的）照常可见；管理后台不经过这里。
+    """
+    return public.source == "official"
+
+
+def _require_visible_content(owned: OwnedSkill) -> None:
+    if owned.public_skill is not None and instructions_hidden_from_users(owned.public_skill):
+        raise APIException(
+            status_code=403,
+            error_code=ErrorCode.NOT_AUTHORIZED,
+            detail="Official skill content is not available",
+        )
+
+
 def _require_own_skill(owned: OwnedSkill) -> UserSkill:
     if owned.user_skill is None:
         raise APIException(
@@ -295,6 +312,8 @@ def import_skill_package(
 def export_skill_package(session: Session, user_id: str, skill_id: str) -> tuple[str, bytes]:
     """Export an own or added skill as a standard skill zip. Returns (filename, zip bytes)."""
     owned = resolve_owned_skill(session, user_id, skill_id)
+    # 导出再导入就是复制：官方技能不能导出
+    _require_visible_content(owned)
     skill, canonical_id = _to_parsed_skill(owned)
     resources = [
         (resource.path, resource.content)
@@ -319,6 +338,7 @@ def export_skill_package(session: Session, user_id: str, skill_id: str) -> tuple
 
 def list_resources(session: Session, user_id: str, skill_id: str) -> list[SkillResource]:
     owned = resolve_owned_skill(session, user_id, skill_id)
+    _require_visible_content(owned)
     return list_skill_resources(
         session,
         user_skill_id=owned.user_skill_id,
@@ -328,6 +348,7 @@ def list_resources(session: Session, user_id: str, skill_id: str) -> list[SkillR
 
 def get_resource(session: Session, user_id: str, skill_id: str, path: str) -> SkillResource:
     owned = resolve_owned_skill(session, user_id, skill_id)
+    _require_visible_content(owned)
     resource = get_skill_resource(
         session,
         normalize_resource_path(path),

@@ -103,7 +103,7 @@ def _invoke_agent_update(
     call = agent_api.update_file(
         file_id,
         agent_api.FileUpdate(content=content, base_updated_at=STAMP),
-        BackgroundTasks(),
+
         _rate_limit=0,
         context=(session, user_id, key),
     )
@@ -131,7 +131,6 @@ def stable_dependencies(monkeypatch: pytest.MonkeyPatch):
         "record_once",
         lambda *_args, **_kwargs: None,
     )
-    monkeypatch.setattr(FileCRUD, "_schedule_index_upsert", lambda *_args, **_kwargs: None)
 
 
 def test_concurrent_agent_updates_with_same_token_commit_one_version(
@@ -142,11 +141,6 @@ def test_concurrent_agent_updates_with_same_token_commit_one_version(
 
     both_preloaded = Barrier(2)
     indexed_contents: list[str] = []
-    monkeypatch.setattr(
-        agent_api,
-        "_schedule_file_index_upsert",
-        lambda _tasks, file, _user_id: indexed_contents.append(file.content),
-    )
 
     def update(content: str):
         with Session(pg_engine) as session:
@@ -173,7 +167,6 @@ def test_concurrent_agent_updates_with_same_token_commit_one_version(
         assert file.updated_at.replace(tzinfo=UTC) > STAMP
         assert len(versions) == 1
         assert versions[0].content == file.content
-    assert indexed_contents == [file.content]
 
 
 def test_agent_rejects_old_token_after_preloaded_web_update(
@@ -184,11 +177,6 @@ def test_agent_rejects_old_token_after_preloaded_web_update(
         user_id, file_id, key_id = _seed_file(setup, "web-agent")
 
     indexed_contents: list[str] = []
-    monkeypatch.setattr(
-        agent_api,
-        "_schedule_file_index_upsert",
-        lambda _tasks, file, _user_id: indexed_contents.append(file.content),
-    )
     current_user = User(
         id=user_id,
         username="agent-precondition-web-agent",
@@ -204,7 +192,7 @@ def test_agent_rejects_old_token_after_preloaded_web_update(
         files_api.update_file(
             file_id,
             files_api.FileUpdate(content="Web winner", base_updated_at=STAMP),
-            BackgroundTasks(),
+
             current_user=current_user,
             session=web_session,
         )
@@ -225,7 +213,6 @@ def test_agent_rejects_old_token_after_preloaded_web_update(
         assert file.content == "Web winner"
         assert len(versions) == 1
         assert versions[0].content == "Web winner"
-    assert indexed_contents == []
 
 
 def test_preloaded_web_writer_rejects_token_invalidated_by_agent(
@@ -233,7 +220,6 @@ def test_preloaded_web_writer_rejects_token_invalidated_by_agent(
 ):
     with Session(pg_engine) as setup:
         user_id, file_id, key_id = _seed_file(setup, "web-cached")
-    monkeypatch.setattr(agent_api, "_schedule_file_index_upsert", lambda *_args: None)
     monkeypatch.setattr(files_api, "utcnow", lambda: STAMP)
     with Session(pg_engine) as web_session, Session(pg_engine) as agent_session:
         cached = web_session.get(File, file_id)
@@ -244,7 +230,7 @@ def test_preloaded_web_writer_rejects_token_invalidated_by_agent(
             files_api.update_file(
                 file_id,
                 files_api.FileUpdate(content="Stale web overwrite", base_updated_at=STAMP),
-                BackgroundTasks(), owner, web_session,
+                 owner, web_session,
             )
         assert conflict.value.status_code == 409
     with Session(pg_engine) as verify:
@@ -276,7 +262,7 @@ def test_preloaded_file_editor_appends_to_latest_web_content(
         web_result = files_api.update_file(
             file_id,
             files_api.FileUpdate(content="Web winner", base_updated_at=STAMP),
-            BackgroundTasks(),
+
             current_user=current_user,
             session=web_session,
         )
@@ -318,7 +304,7 @@ def test_preloaded_file_crud_title_update_returns_latest_web_content(
         web_result = files_api.update_file(
             file_id,
             files_api.FileUpdate(content="Web winner", base_updated_at=STAMP),
-            BackgroundTasks(),
+
             current_user=current_user,
             session=web_session,
         )
@@ -375,7 +361,7 @@ def test_preloaded_rollback_advances_past_latest_web_token(
         web_result = files_api.update_file(
             file_id,
             files_api.FileUpdate(content="Web winner", base_updated_at=STAMP),
-            BackgroundTasks(),
+
             current_user=current_user,
             session=web_session,
         )
@@ -426,7 +412,6 @@ async def test_conditional_undo_waits_for_writer_then_rejects_its_old_token(pg_e
     locked, release = Event(), Event()
     reader_pid = []
     indexed, cache_bumps = [], []
-    monkeypatch.setattr("services.llama_index.schedule_index_upsert", lambda **kw: indexed.append(kw))
     monkeypatch.setattr("services.infra.dashboard_cache.dashboard_cache.bump_project_version", lambda *_a, **kw: cache_bumps.append(kw))
 
     def request_session():
@@ -483,7 +468,7 @@ async def test_conditional_undo_waits_for_writer_then_rejects_its_old_token(pg_e
 
     assert response.status_code == 409
     assert response.json()["error_code"] == "ERR_RESOURCE_CONFLICT"
-    assert indexed == cache_bumps == []
+    assert cache_bumps == []
     with Session(pg_engine) as verify:
         file = verify.get(File, file_id)
         assert file.content == "Writer committed after undo card"
@@ -548,7 +533,6 @@ async def test_undo_token_belongs_to_edit_even_when_web_write_commits_before_ref
     monkeypatch.setattr(files_api.activation_event_service, "record_ai_write_accepted", lambda *_a, **_kw: None)
     cache_bumps, indexed = [], []
     monkeypatch.setattr("services.infra.dashboard_cache.dashboard_cache.bump_project_version", lambda *_a, **kw: cache_bumps.append(kw))
-    monkeypatch.setattr("services.llama_index.schedule_index_upsert", lambda **kw: indexed.append(kw))
 
     own_token = STAMP + timedelta(microseconds=1)
     later_token = STAMP + timedelta(microseconds=2)
@@ -567,7 +551,7 @@ async def test_undo_token_belongs_to_edit_even_when_web_write_commits_before_ref
                     updated = files_api.update_file(
                         file_id,
                         files_api.FileUpdate(content="Later Web work", base_updated_at=own_token),
-                        BackgroundTasks(),
+
                         current_user=owner,
                         session=web_session,
                     )
@@ -602,7 +586,6 @@ async def test_undo_token_belongs_to_edit_even_when_web_write_commits_before_ref
         assert file.updated_at.replace(tzinfo=UTC) == later_token
     assert response.json()["error_code"] == "ERR_RESOURCE_CONFLICT"
     assert cache_bumps == before_rollback_cache_bumps
-    assert indexed == before_rollback_indexed
 
 
 @pytest.mark.parametrize("writer", ["update_file", "edit_file"])
@@ -619,7 +602,6 @@ def test_ai_write_backs_up_unversioned_body_inside_the_locked_postgres_transacti
         setup.add(live)
         setup.commit()
     monkeypatch.setattr(files_api.activation_event_service, "record_ai_write_accepted", lambda *_a, **_kw: None)
-    monkeypatch.setattr(FileCRUD, "_schedule_index_upsert", lambda *_a, **_kw: None)
 
     with Session(pg_engine) as session:
         if writer == "update_file":
@@ -640,3 +622,120 @@ def test_ai_write_backs_up_unversioned_body_inside_the_locked_postgres_transacti
         assert versions[1].change_summary == "Before AI edit"
         assert service.get_content_at_version(verify, file_id, 2) == "Manual edit"
         assert service.get_content_at_version(verify, file_id, 3) == expected
+
+
+def _ai_then_author(session: Session, suffix: str) -> tuple[str, str]:
+    """AI 写的正文（AI 版本），作者再手改一句（作者版本）。"""
+    service = get_file_version_service()
+    user_id, file_id, _ = _seed_file(session, suffix)
+    ai_text = "雨下了一整夜。\n顾寒川：你配吗。\n苏晚：好。"
+    author_text = ai_text.replace("顾寒川：你配吗。", "顾寒川：苏晚，你也配问这个？")
+    file = session.get(File, file_id)
+    file.content = ai_text
+    session.add(file)
+    session.commit()
+    service.create_version(session, file_id, ai_text, change_type="create", change_source="ai")
+    service.create_version(session, file_id, author_text, change_type="edit", change_source="user", skip_quota=True)
+    file = session.get(File, file_id)
+    file.content = author_text
+    session.add(file)
+    session.commit()
+    return user_id, file_id
+
+
+def test_author_blame_failure_does_not_poison_the_locked_postgres_edit(pg_engine, monkeypatch):
+    """作者手改归属是可选信息：它的查询在加锁的写事务里出错，只回滚自己的 savepoint，修改照常提交。"""
+    from sqlalchemy import text
+
+    import agent.tools.author_changes as author_changes_module
+
+    with Session(pg_engine) as setup:
+        user_id, file_id = _ai_then_author(setup, "blame-read-error")
+
+    def failing_blame(session, *_args, **_kwargs):
+        session.exec(text("select 1 / 0"))
+
+    monkeypatch.setattr(author_changes_module, "line_blame", failing_blame)
+    monkeypatch.setattr(files_api.activation_event_service, "record_ai_write_accepted", lambda *_a, **_kw: None)
+    with Session(pg_engine) as session:
+        result = FileEditor(session, user_id).edit_file(
+            file_id, [{"op": "append", "text": "\n苏晚关了灯。"}], report_author_edits=True
+        )
+    assert "author_edits_touched" not in result
+    with Session(pg_engine) as verify:
+        assert verify.get(File, file_id).content.endswith("苏晚关了灯。")
+
+
+def test_stale_read_is_refused_on_postgres_without_a_version(pg_engine, monkeypatch):
+    """模型读到的是作者改之前的正文：锁内重读后不一致，不写、不建版本。"""
+    from agent.tools.file_ops.edit import StaleContentError
+
+    with Session(pg_engine) as setup:
+        user_id, file_id = _ai_then_author(setup, "stale-read")
+        seen = "雨下了一整夜。\n顾寒川：你配吗。\n苏晚：好。"
+        versions_before = len(setup.exec(select(FileVersion).where(FileVersion.file_id == file_id)).all())
+    with Session(pg_engine) as session, pytest.raises(StaleContentError):
+        FileEditor(session, user_id).edit_file(
+            file_id,
+            [{"op": "replace", "old": "顾寒川：你配吗。", "new": "顾寒川：滚。"}],
+            read_snapshot_fn=lambda: seen,
+        )
+    with Session(pg_engine) as verify:
+        assert "你也配问这个" in verify.get(File, file_id).content
+        assert len(verify.exec(select(FileVersion).where(FileVersion.file_id == file_id)).all()) == versions_before
+
+
+def test_edit_reports_touching_the_authors_line_on_postgres(pg_engine, monkeypatch):
+    with Session(pg_engine) as setup:
+        user_id, file_id = _ai_then_author(setup, "touched")
+    monkeypatch.setattr(files_api.activation_event_service, "record_ai_write_accepted", lambda *_a, **_kw: None)
+    with Session(pg_engine) as session:
+        result = FileEditor(session, user_id).edit_file(
+            file_id,
+            [{"op": "replace", "old": "顾寒川：苏晚，你也配问这个？", "new": "顾寒川：滚。"}],
+            read_snapshot_fn=lambda: "雨下了一整夜。\n顾寒川：苏晚，你也配问这个？\n苏晚：好。",
+            report_author_edits=True,
+        )
+    assert result["author_edits_touched"] == [{"before": "顾寒川：苏晚，你也配问这个？", "after": "顾寒川：滚。"}]
+
+
+def test_parallel_writes_to_one_file_do_not_see_each_other_as_stale(pg_engine, monkeypatch):
+    """同一请求里两个并行写入改同一文件：第一个提交即放锁，第二个立刻在锁内比对快照。
+
+    快照必须在提交前就更新成第一个写下的正文；提交后才记，第二个会把同请求的写入误判为
+    「作者改了」。顺序靠包住第一个会话的 commit 控制：它一提交完，第二个写入就整段执行。
+    """
+    from agent.tools.mcp_tools import ToolContext
+
+    with Session(pg_engine) as setup:
+        user_id, file_id = _ai_then_author(setup, "parallel-own-writes")
+        seen = setup.get(File, file_id).content
+        project_id = setup.get(File, file_id).project_id
+    monkeypatch.setattr(files_api.activation_event_service, "record_ai_write_accepted", lambda *_a, **_kw: None)
+    ToolContext.set_context(None, user_id, project_id, None, read_snapshots={file_id: seen})
+
+    def snapshot():
+        return ToolContext.read_snapshot(file_id)
+
+    second: dict[str, object] = {}
+    try:
+        with Session(pg_engine) as first_session, Session(pg_engine) as second_session:
+            original_commit = first_session.commit
+
+            def commit_then_run_the_second_writer():
+                original_commit()
+                if "result" not in second:
+                    second["result"] = FileEditor(second_session, user_id).edit_file(
+                        file_id, [{"op": "append", "text": "\n第二个并行写入。"}], read_snapshot_fn=snapshot
+                    )
+
+            monkeypatch.setattr(first_session, "commit", commit_then_run_the_second_writer)
+            FileEditor(first_session, user_id).edit_file(
+                file_id, [{"op": "append", "text": "\n第一个并行写入。"}], read_snapshot_fn=snapshot
+            )
+    finally:
+        ToolContext.clear_context()
+
+    assert second["result"]["mutation_applied"] is True
+    with Session(pg_engine) as verify:
+        assert verify.get(File, file_id).content.endswith("第一个并行写入。\n第二个并行写入。")
