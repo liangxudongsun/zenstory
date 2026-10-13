@@ -213,6 +213,9 @@ export default function SkillDiscoveryPage() {
         </div>
       ) : (
         <>
+          {skills.some(skill => skill.source === "official") && (
+            <p className="mb-4 text-sm text-[hsl(var(--text-secondary))]">{t("skills:officialUsageHint")}</p>
+          )}
           <div
             className={`grid gap-4 ${
               isMobile
@@ -275,6 +278,7 @@ function DiscoverySkillCard({
 }) {
   const { t } = useTranslation(["skills"]);
   const [expanded, setExpanded] = useState(false);
+  const canExpand = skill.source !== "official" && Boolean(skill.instructions.trim());
 
   return (
     <div
@@ -383,8 +387,9 @@ function DiscoverySkillCard({
             {t("skills:addToMine")}
           </button>
         )}
-        <button
+        {canExpand && <button
           onClick={() => setExpanded(!expanded)}
+          aria-expanded={expanded}
           className="p-2 rounded-lg text-[hsl(var(--text-secondary))] hover:bg-[hsl(var(--bg-tertiary))] transition-colors"
           title={expanded ? t("skills:collapse") : t("skills:expand")}
         >
@@ -393,11 +398,11 @@ function DiscoverySkillCard({
           ) : (
             <ChevronDown className="w-4 h-4" />
           )}
-        </button>
+        </button>}
       </div>
 
       {/* Expanded Instructions */}
-      {expanded && skill.instructions && (
+      {canExpand && expanded && skill.instructions && (
         <div className="mt-3 pt-3 border-t border-[hsl(var(--border-color))]">
           <div className="flex items-center gap-1.5 mb-2">
             <span className="text-xs font-medium text-[hsl(var(--text-tertiary))]">

@@ -1071,24 +1071,47 @@ describe('SkillsPage', () => {
       expect(publicSkillsApi.list).toHaveBeenCalledWith(expect.objectContaining({ search: '人物abc' }))
     })
 
-    it('fetches full instructions when expanding a truncated public skill', async () => {
+    it('shows official usage guidance once, without a disclosure or an instruction detail request', async () => {
       vi.mocked(publicSkillsApi.list).mockResolvedValue({
-        skills: [{ ...mockPublicSkills[0], instructions: 'Preview only', instructions_truncated: true }],
+        skills: [mockPublicSkills[0], { ...mockPublicSkills[0], id: 'official-2', name: 'Character Expert', instructions_truncated: true }],
+        total: 2, page: 1, page_size: 20,
+      })
+      render(<SkillsPage />)
+      await screen.findByText('Dialogue Expert')
+      expect(screen.queryByRole('button', { name: /expand/i })).not.toBeInTheDocument()
+      expect(screen.queryByText('Write natural dialogue.')).not.toBeInTheDocument()
+      expect(screen.getAllByText('officialUsageHint')).toHaveLength(1)
+      expect(publicSkillsApi.get).not.toHaveBeenCalled()
+    })
+
+    it('does not offer an empty community disclosure', async () => {
+      vi.mocked(publicSkillsApi.list).mockResolvedValue({
+        skills: [{ ...mockPublicSkills[1], instructions: '  ' }], total: 1, page: 1, page_size: 20,
+      })
+      render(<SkillsPage />)
+      await screen.findByText('World Builder')
+      expect(screen.queryByRole('button', { name: /expand/i })).not.toBeInTheDocument()
+      expect(screen.queryByText('officialUsageHint')).not.toBeInTheDocument()
+    })
+
+    it('fetches full instructions when expanding a truncated community skill', async () => {
+      vi.mocked(publicSkillsApi.list).mockResolvedValue({
+        skills: [{ ...mockPublicSkills[1], instructions: 'Preview only', instructions_truncated: true }],
         total: 1,
         page: 1,
         page_size: 20,
       })
       vi.mocked(publicSkillsApi.get).mockResolvedValue({
-        ...mockPublicSkills[0],
+        ...mockPublicSkills[1],
         instructions: 'The complete instructions',
       })
       render(<SkillsPage />)
-      await screen.findByText('Dialogue Expert')
+      await screen.findByText('World Builder')
 
       await userEvent.click(screen.getByRole('button', { name: /expand/i }))
 
       expect(await screen.findByText('The complete instructions')).toBeInTheDocument()
-      expect(publicSkillsApi.get).toHaveBeenCalledWith('public-1')
+      expect(publicSkillsApi.get).toHaveBeenCalledWith('public-2')
     })
   })
 })

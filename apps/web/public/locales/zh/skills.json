@@ -31,6 +31,7 @@
   },
   "noSkillsFound": "没有找到匹配的技能，换个关键词或分类试试",
   "official": "官方",
+  "officialUsageHint": "官方技能添加后即可使用，AI 会在合适的时候调用。",
   "community": "社区",
   "addCount": "人添加",
   "addToMine": "添加到我的技能",

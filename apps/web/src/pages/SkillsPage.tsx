@@ -1455,18 +1455,23 @@ function DiscoverContent({
           />
         )
       ) : (
-        <div className={`grid gap-4 ${isMobile ? "grid-cols-1" : "grid-cols-2 lg:grid-cols-3"}`}>
-          {publicSkills.map((skill) => (
-            <PublicSkillCard
-              key={skill.id}
-              skill={skill}
-              isAdded={addedPublicIds.has(skill.id) || !!skill.is_added}
-              adding={addingId === skill.id}
-              onAdd={() => onAdd(skill.id)}
-              isMobile={isMobile}
-            />
-          ))}
-        </div>
+        <>
+          {publicSkills.some(skill => skill.source === "official") && (
+            <p className="mb-4 text-sm text-[hsl(var(--text-secondary))]">{t("officialUsageHint")}</p>
+          )}
+          <div className={`grid gap-4 ${isMobile ? "grid-cols-1" : "grid-cols-2 lg:grid-cols-3"}`}>
+            {publicSkills.map((skill) => (
+              <PublicSkillCard
+                key={skill.id}
+                skill={skill}
+                isAdded={addedPublicIds.has(skill.id) || !!skill.is_added}
+                adding={addingId === skill.id}
+                onAdd={() => onAdd(skill.id)}
+                isMobile={isMobile}
+              />
+            ))}
+          </div>
+        </>
       )}
 
       {!loading && hasMore && (
@@ -1498,6 +1503,7 @@ function PublicSkillCard({
   const [expanded, setExpanded] = useState(false);
   const [fullInstructions, setFullInstructions] = useState<string | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const canExpand = skill.source !== "official" && (Boolean(skill.instructions.trim()) || Boolean(skill.instructions_truncated));
 
   const handleToggleExpanded = async () => {
     const next = !expanded;
@@ -1541,15 +1547,16 @@ function PublicSkillCard({
 
       {/* Footer - pushed to bottom */}
       <div className="flex items-center justify-between mt-auto pt-3 border-t border-[hsl(var(--border-color)/0.5)]">
-        <button
+        {canExpand && <button
           onClick={() => void handleToggleExpanded()}
+          aria-expanded={expanded}
           className="text-xs text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-secondary))] flex items-center gap-1 transition-colors"
         >
           {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           {expanded ? t("collapse") : t("expand")}
-        </button>
+        </button>}
 
-        <div className="flex items-center gap-3">
+        <div className={`flex items-center gap-3 ${canExpand ? "" : "w-full justify-between"}`}>
           <span className="text-xs text-[hsl(var(--text-tertiary))]">
             {skill.add_count} {t("addCount")}
           </span>
@@ -1574,7 +1581,7 @@ function PublicSkillCard({
       </div>
 
       {/* Expanded instructions */}
-      {expanded && instructions && (
+      {canExpand && expanded && instructions && (
         <div className="mt-3 pt-3 border-t border-[hsl(var(--border-color)/0.5)]">
           <div className="markdown-content bg-[hsl(var(--bg-secondary))] rounded-lg p-3 text-xs max-h-48 overflow-y-auto">
             {loadingDetail ? (

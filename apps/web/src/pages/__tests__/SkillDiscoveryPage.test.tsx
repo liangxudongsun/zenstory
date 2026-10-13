@@ -109,8 +109,10 @@ describe('SkillDiscoveryPage', () => {
     expect(screen.getByRole('button', { name: 'Writing (1)' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Worldbuilding (1)' })).toBeInTheDocument()
 
-    await user.click(screen.getAllByTitle('Expand')[0]!)
-    expect(screen.getByText('Use short, character-driven exchanges.')).toBeInTheDocument()
+    expect(screen.getAllByTitle('Expand')).toHaveLength(1)
+    await user.click(screen.getByTitle('Expand'))
+    expect(screen.getByText('Develop cultures and environments.')).toBeInTheDocument()
+    expect(screen.queryByText('Use short, character-driven exchanges.')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Add' }))
 

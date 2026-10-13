@@ -31,6 +31,7 @@
   },
   "noSkillsFound": "No matching skills. Try a different keyword or category.",
   "official": "Official",
+  "officialUsageHint": "Add official skills to use them. The AI calls them when they fit.",
   "community": "Community",
   "addCount": "added",
   "addToMine": "Add to My Skills",
