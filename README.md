@@ -122,7 +122,7 @@ flowchart LR
 
 ### 在线版
 
-打开 [app.zenstory.ai](https://app.zenstory.ai) 注册即可；有朋友的邀请码可以填上，没有也能注册。免费版每天 10 条 AI 消息（北京时间 00:00 重置）、最多 3 个项目，各套餐的对比见[定价页](https://app.zenstory.ai/pricing)。
+打开 [app.zenstory.ai](https://app.zenstory.ai) 注册即可；有朋友的邀请码可以填上，没有也能注册。免费版每天 3 条 AI 消息（北京时间 00:00 重置）、最多 3 个项目，各套餐的对比见[定价页](https://app.zenstory.ai/pricing)。
 
 新建一个「短篇小说」项目，第一条请求可以先要一份能改的提纲，不急着写正文（示例来自[快速开始](https://zenstory.ai/docs/getting-started/quick-start)）：
 
@@ -157,7 +157,7 @@ docker compose exec -e ZENSTORY_ADMIN_EMAIL=you@example.com \
 
 打开 <http://localhost:5173> 登录，API 文档在 <http://localhost:8000/docs>。数据库是 SQLite，和上传文件一起放在 Docker 卷里，`docker compose down` 和重新构建都不会清掉。
 
-每个账号（包括管理员）默认都是免费套餐：每天 10 条 AI 消息（北京时间 00:00 重置）、最多 3 个项目。要放开，先运行 `docker compose exec server python scripts/seed_subscription_plans.py` 创建 Pro 套餐（也会建好免费套餐这一行），再在管理后台「订阅管理」里给账号开通 Pro，或在「订阅计划」里改免费套餐的额度。
+每个账号（包括管理员）默认都是免费套餐：每天 3 条 AI 消息（北京时间 00:00 重置）、最多 3 个项目。需要更多额度时，先运行 `docker compose exec server python scripts/seed_subscription_plans.py` 创建 Pro 套餐（也会建好免费套餐这一行），再在管理后台「订阅管理」里给账号开通 Pro。
 
 写作 Agent 固定用 DeepSeek 的 `deepseek-flash`（DeepSeek-V4.1-Flash），只需要这一个 Key。其他功能各要各的配置：用上面的快速启动时，后端变量加到 `docker-compose.yml` 里 `server` 的 `environment` 下，`VITE_*` 加到 `web` 下，再运行 `docker compose up -d`；仓库根目录的 `.env` 只给 compose 文件里的 `${…}` 取值（比如 `DEEPSEEK_API_KEY`、`JWT_SECRET_KEY`），不会把别的变量带进容器。换成 `docker-compose.full.yml` 时，变量写进 `apps/server/.env.docker` 和 `apps/web/.env.docker`。
 
@@ -346,7 +346,7 @@ Agent 用自己的模型写，ZenStory 负责存稿和整理上下文。`files p
 
 ### 免费版有哪些限制？
 
-在线版免费套餐：每天 10 条 AI 消息（北京时间 00:00 重置），最多 3 个项目，每个文件保留 10 个历史版本（满了照常保存，只是不再记新版本），导出 TXT，最多 3 个自定义技能；素材库是 Pro 功能。免费套餐不会到期。自动建议不占每日 AI 消息。
+在线版免费套餐：每天 3 条 AI 消息（北京时间 00:00 重置），最多 3 个项目，每个文件保留 10 个历史版本（满了照常保存，只是不再记新版本），导出 TXT，最多 3 个自定义技能；素材库是 Pro 功能。免费套餐不会到期。自动建议不占每日 AI 消息。
 
 ### 能把已经写好的稿子导进来吗？
 
