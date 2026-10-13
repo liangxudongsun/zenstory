@@ -102,10 +102,10 @@ describe('LeaveWhileGeneratingDialog', () => {
     const stay = screen.getByTestId('leave-dialog-stay')
     const leave = screen.getByTestId('leave-dialog-leave')
     expect(stay).toHaveTextContent('继续等')
-    expect(stay.className).toContain('bg-[hsl(var(--accent-primary))]')
+    expect(stay.className).toContain('bg-[hsl(var(--primary))]')
     expect(leave).toHaveTextContent('离开')
     // Not the blue primary: leaving ends the round.
-    expect(leave.className).not.toContain('bg-[hsl(var(--accent-primary))]')
+    expect(leave.className).not.toContain('bg-[hsl(var(--primary))]')
     expect(document.activeElement).toBe(stay)
 
     fireEvent.click(leave)

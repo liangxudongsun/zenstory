@@ -46,35 +46,25 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     document.documentElement.classList.add(theme);
     localStorage.setItem('zenstory-theme', theme);
 
-    // Apply theme-specific CSS variables
-    if (theme === 'dark') {
-      document.documentElement.style.setProperty('--bg-primary', '30 10% 11%');      /* #1e1e1e */
-      document.documentElement.style.setProperty('--bg-secondary', '30 10% 16%');    /* #252526 */
-      document.documentElement.style.setProperty('--bg-tertiary', '30 10% 20%');     /* #2d2d2d */
-      document.documentElement.style.setProperty('--text-primary', '0 0% 88%');      /* #e0e0e0 */
-      document.documentElement.style.setProperty('--text-secondary', '0 0% 53%');    /* #888888 */
-      document.documentElement.style.setProperty('--border-color', '0 0% 24%');    /* #3d3d3d */
-      document.documentElement.style.setProperty('--bg-card', '30 10% 18%');         /* #2e2e2e */
-    } else {
-      document.documentElement.style.setProperty('--bg-primary', '210 20% 98%');    /* #fafafa */
-      document.documentElement.style.setProperty('--bg-secondary', '210 20% 96%');  /* #f5f5f5 */
-      document.documentElement.style.setProperty('--bg-tertiary', '210 20% 94%');   /* #f0f0f0 */
-      document.documentElement.style.setProperty('--text-primary', '210 15% 15%');  /* #262626 */
-      document.documentElement.style.setProperty('--text-secondary', '210 15% 50%'); /* #808080 */
-      document.documentElement.style.setProperty('--border-color', '210 15% 85%');  /* #d9d9d9 */
-      document.documentElement.style.setProperty('--bg-card', '0 0% 100%');          /* #ffffff */
-    }
+    // Surfaces and text belong to index.css, so every screen uses the same palette.
   }, [theme]);
 
   // Apply accent color
   useEffect(() => {
     const colorData = ACCENT_COLORS[accentColor] || ACCENT_COLORS['#4a9eff'];
 
-    document.documentElement.style.setProperty('--accent-primary', colorData.primary);
-    document.documentElement.style.setProperty('--accent-dark', colorData.dark);
+    const [hue, saturation, lightness] = colorData.primary.split(' ');
+    // A readable accent on a pale selected tint; preserve the user's chosen hue.
+    const lightText = ({ '#22c55e': 26, '#fbbf24': 28, '#f87171': 40, '#ec4899': 40 } as Record<string, number>)[accentColor] ?? 43;
+    const darkText = 76;
+    const solidLightness = Math.min(Number(lightness.replace('%', '')), lightText);
+    document.documentElement.style.setProperty('--accent-primary', `${hue} ${saturation} ${theme === 'light' ? lightText : darkText}%`);
+    document.documentElement.style.setProperty('--accent-dark', `${hue} ${saturation} ${theme === 'light' ? lightText - 6 : darkText - 8}%`);
     document.documentElement.style.setProperty('--accent-light', colorData.light);
+    document.documentElement.style.setProperty('--primary', `${hue} ${saturation} ${solidLightness}%`);
+    document.documentElement.style.setProperty('--primary-hover', `${hue} ${saturation} ${solidLightness - 6}%`);
     localStorage.setItem('zenstory-accent-color', accentColor);
-  }, [accentColor]);
+  }, [accentColor, theme]);
 
   const setTheme = (newTheme: ThemeMode) => {
     setThemeState(newTheme);

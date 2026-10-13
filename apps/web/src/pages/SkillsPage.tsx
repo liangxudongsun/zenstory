@@ -753,7 +753,7 @@ export default function SkillsPage() {
             </p>
             {importResult.warnings.length > 0 && (
               <div className="rounded-lg border border-[hsl(var(--warning)/0.4)] bg-[hsl(var(--warning)/0.08)] p-3">
-                <div className="flex items-center gap-2 mb-2 text-sm font-medium text-[hsl(var(--warning))]">
+                <div className="flex items-center gap-2 mb-2 text-sm font-medium text-[hsl(var(--warning-text))]">
                   <AlertTriangle className="w-4 h-4 shrink-0" />
                   {t("skills:import.warningsTitle", { count: importResult.warnings.length })}
                 </div>
@@ -911,7 +911,7 @@ function SkillCard({
   );
 
   return (
-    <div className={`group relative bg-[hsl(var(--bg-secondary))] rounded-lg border ${isSelected ? "border-[hsl(var(--accent-primary))]" : "border-[hsl(var(--border-color))]"} hover:border-[hsl(var(--accent-primary)/0.3)] hover:shadow-lg transition-all ${isMobile ? "p-3" : "p-4"}`}>
+    <div className={`group relative bg-[hsl(var(--bg-secondary))] rounded-2xl border ${isSelected ? "border-[hsl(var(--accent-primary))]" : "border-[hsl(var(--border-color))]"} hover:border-[hsl(var(--accent-primary)/0.3)] transition-colors ${isMobile ? "p-3" : "p-4"}`}>
       <div className="flex items-start justify-between gap-3">
         {/* Checkbox */}
         {onToggleSelect && (
@@ -1089,7 +1089,7 @@ function MySkillsContent({
               </button>
               <button
                 onClick={onBatchDelete}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-[hsl(var(--error)/0.1)] text-[hsl(var(--error))] hover:bg-[hsl(var(--error)/0.2)] transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-[hsl(var(--error)/0.1)] text-[hsl(var(--error-text))] hover:bg-[hsl(var(--error)/0.2)] transition-colors"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 {t("batch.delete")}
@@ -1259,7 +1259,7 @@ function AddedSkillCard({
   const localizedCategory = getLocalizedSkillCategory(skill.category, t);
 
   return (
-    <div className={`group relative bg-[hsl(var(--bg-secondary))] rounded-lg border ${isSelected ? "border-[hsl(var(--accent-primary))]" : "border-[hsl(var(--border-color))]"} hover:border-[hsl(var(--accent-primary)/0.3)] hover:shadow-lg transition-all ${isMobile ? "p-3" : "p-4"}`}>
+    <div className={`group relative bg-[hsl(var(--bg-secondary))] rounded-2xl border ${isSelected ? "border-[hsl(var(--accent-primary))]" : "border-[hsl(var(--border-color))]"} hover:border-[hsl(var(--accent-primary)/0.3)] transition-colors ${isMobile ? "p-3" : "p-4"}`}>
       <div className="flex items-start justify-between gap-3">
         {/* Checkbox */}
         {onToggleSelect && (
@@ -1418,6 +1418,7 @@ function DiscoverContent({
               setSearchQuery(e.currentTarget.value);
             }}
             placeholder={t("searchPlaceholder")}
+            aria-label={t("searchPlaceholder")}
             className="input pl-10 w-full"
             data-testid="public-skill-search"
           />
@@ -1524,7 +1525,7 @@ function PublicSkillCard({
   const instructions = fullInstructions ?? skill.instructions;
 
   return (
-    <div className={`flex flex-col h-full bg-[hsl(var(--bg-primary))] rounded-xl border border-[hsl(var(--border-color))] hover:border-[hsl(var(--border-color)/0.8)] hover:shadow-sm transition-all ${isMobile ? "p-3" : "p-5"}`}>
+    <div className={`flex flex-col h-full bg-[hsl(var(--bg-secondary))] rounded-2xl border border-[hsl(var(--border-color))] transition-colors ${isMobile ? "p-3" : "p-5"}`}>
       {/* Header */}
       <div className="flex items-center gap-3 mb-3">
         <div className="w-8 h-8 rounded-lg bg-[hsl(var(--accent-primary)/0.08)] flex items-center justify-center shrink-0">
@@ -1541,7 +1542,7 @@ function PublicSkillCard({
       </div>
 
       {/* Description - fixed 2-line height for alignment */}
-      <p className="text-xs leading-relaxed text-[hsl(var(--text-secondary))] line-clamp-2 min-h-[2.6em] mb-4">
+      <p className="text-sm leading-relaxed text-[hsl(var(--text-secondary))] line-clamp-2 min-h-[2.6em] mb-4">
         {skill.description || "\u00A0"}
       </p>
 
@@ -1550,7 +1551,7 @@ function PublicSkillCard({
         {canExpand && <button
           onClick={() => void handleToggleExpanded()}
           aria-expanded={expanded}
-          className="text-xs text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-secondary))] flex items-center gap-1 transition-colors"
+          className="min-h-11 text-xs text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))] flex items-center gap-1 transition-colors"
         >
           {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           {expanded ? t("collapse") : t("expand")}
@@ -1563,7 +1564,7 @@ function PublicSkillCard({
           <button
             onClick={onAdd}
             disabled={isAdded || adding}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            className={`min-h-11 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
               isAdded
                 ? "text-[hsl(var(--text-tertiary))] cursor-default"
                 : "text-[hsl(var(--accent-primary))] hover:bg-[hsl(var(--accent-primary)/0.08)]"
@@ -1604,7 +1605,7 @@ function CharCount({ value, max, inline }: { value: string; max: number; inline?
   return (
     <p
       className={`text-xs shrink-0 ${inline ? "" : "mt-1 text-right"} ${
-        nearLimit ? "text-[hsl(var(--warning))]" : "text-[hsl(var(--text-tertiary))]"
+        nearLimit ? "text-[hsl(var(--warning-text))]" : "text-[hsl(var(--text-tertiary))]"
       }`}
     >
       {value.length.toLocaleString()} / {max.toLocaleString()}
@@ -1613,9 +1614,9 @@ function CharCount({ value, max, inline }: { value: string; max: number; inline?
 }
 
 const SHARE_STATUS_STYLES: Record<SkillShareStatus, string> = {
-  pending: "bg-[hsl(var(--warning)/0.12)] text-[hsl(var(--warning))]",
-  approved: "bg-[hsl(var(--success)/0.12)] text-[hsl(var(--success))]",
-  unpublished: "bg-[hsl(var(--error)/0.1)] text-[hsl(var(--error))]",
+  pending: "bg-[hsl(var(--warning)/0.12)] text-[hsl(var(--warning-text))]",
+  approved: "bg-[hsl(var(--success)/0.12)] text-[hsl(var(--success-text))]",
+  unpublished: "bg-[hsl(var(--error)/0.1)] text-[hsl(var(--error-text))]",
 };
 
 // Review status of a skill the user shared to the public library

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import DashboardProjects from '../DashboardProjects'
 import { ApiError } from '../../lib/apiClient'
@@ -212,7 +213,7 @@ describe('DashboardProjects', () => {
     render(<DashboardProjects />)
 
     for (const project of mockProjects) {
-      const card = screen.getByRole('button', { name: `Open project ${project.name}` })
+      const card = screen.getByRole('button', { name: `Open project ${project.name}` }).closest('article')!
       const content = card.querySelector(':scope > .relative')
       const footer = content?.lastElementChild
       const meta = footer?.lastElementChild
@@ -304,7 +305,8 @@ describe('DashboardProjects', () => {
     ]
     rerender(<DashboardProjects />)
 
-    fireEvent.keyDown(screen.getByRole('button', { name: /Open project Keyboard Novel/ }), { key: 'Enter' })
+    screen.getByRole('button', { name: /Open project Keyboard Novel/ }).focus()
+    await userEvent.keyboard('{Enter}')
     expect(mockNavigate).toHaveBeenCalledWith('/project/project-3')
 
     fireEvent.click(screen.getByTitle('Delete project'))

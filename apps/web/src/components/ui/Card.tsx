@@ -102,8 +102,8 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
 const getVariantClasses = (variant: CardProps['variant']): string => {
   const variants = {
     default: 'bg-[hsl(var(--bg-secondary))]',
-    elevated: 'bg-[hsl(var(--bg-secondary))] shadow-[0_8px_30px_hsl(0_0%_0%_/_0.12),0_4px_12px_hsl(0_0%_0%_/_0.08),0_1px_3px_hsl(0_0%_0%_/_0.1)]',
-    outlined: 'bg-[hsl(var(--bg-secondary))] border-2',
+    elevated: 'bg-[hsl(var(--bg-secondary))] shadow-sm',
+    outlined: 'bg-[hsl(var(--bg-secondary))] border',
   };
   return variants[variant || 'default'];
 };

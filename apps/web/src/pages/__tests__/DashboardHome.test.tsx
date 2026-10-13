@@ -270,6 +270,15 @@ describe('DashboardHome featured inspirations section', () => {
       ai_conversations: { used, limit, reset_at: '2026-10-09T16:00:00Z' },
     }) as unknown as QuotaResponse
 
+  it('does not create a project when Enter confirms an IME composition', async () => {
+    renderDashboardHome()
+    const input = screen.getByTestId('dashboard-inspiration-input')
+    fireEvent.change(input, { target: { value: '灯塔守夜人' } })
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true, keyCode: 229 })
+    expect(mockCreateProject).not.toHaveBeenCalled()
+    expect(input).toHaveValue('灯塔守夜人')
+  })
+
   it('keeps the idea and explains, instead of creating an empty project, when today\'s AI messages are used up', async () => {
     vi.mocked(subscriptionApi.getQuota).mockResolvedValue(quotaWith(10))
     const { unmount } = renderDashboardHome()
@@ -413,7 +422,7 @@ describe('DashboardHome featured inspirations section', () => {
     renderDashboardHome()
 
     for (const project of mockProjects) {
-      const card = await screen.findByRole('button', { name: `Open project ${project.name}` })
+      const card = (await screen.findByRole('button', { name: `Open project ${project.name}` })).closest('article')!
       const content = card.querySelector(':scope > .relative')
       const footer = content?.lastElementChild
       const meta = footer?.lastElementChild
@@ -445,10 +454,10 @@ describe('DashboardHome featured inspirations section', () => {
     renderDashboardHome()
 
     const writing = await screen.findByRole('button', { name: 'Open project Writing' })
-    await waitFor(() => expect(within(writing).getByTestId('project-progress')).toHaveTextContent('dashboard:projectProgress.chapters'))
-    expect(within(screen.getByRole('button', { name: 'Open project Outline' })).getByTestId('project-progress'))
+    await waitFor(() => expect(within(writing.closest('article')!).getByTestId('project-progress')).toHaveTextContent('dashboard:projectProgress.chapters'))
+    expect(within(screen.getByRole('button', { name: 'Open project Outline' }).closest('article')!).getByTestId('project-progress'))
       .toHaveTextContent('dashboard:projectProgress.frameworkReady')
-    expect(within(screen.getByRole('button', { name: 'Open project Empty' })).queryByTestId('project-progress')).toBeNull()
+    expect(within(screen.getByRole('button', { name: 'Open project Empty' }).closest('article')!).queryByTestId('project-progress')).toBeNull()
   })
 
   it('retains the baseline templates and reports a template API failure', async () => {

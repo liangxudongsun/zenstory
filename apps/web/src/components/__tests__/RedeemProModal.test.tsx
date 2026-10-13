@@ -423,11 +423,11 @@ describe('RedeemProModal', () => {
       })
 
       const redeemButton = await screen.findByRole('button', { name: '兑换' })
-      expect(redeemButton).toHaveClass('bg-[hsl(var(--accent-primary))]', 'min-h-[40px]')
+      expect(redeemButton).toHaveClass('bg-[hsl(var(--primary))]', 'min-h-[40px]')
       expect(redeemButton.className).not.toMatch(/gradient/)
       const cancelButton = screen.getByRole('button', { name: '取消' })
       expect(cancelButton).toHaveClass('min-h-[40px]')
-      expect(cancelButton).not.toHaveClass('bg-[hsl(var(--accent-primary))]')
+      expect(cancelButton).not.toHaveClass('bg-[hsl(var(--primary))]')
     })
 
     it('updates button state when selecting more expensive option', async () => {

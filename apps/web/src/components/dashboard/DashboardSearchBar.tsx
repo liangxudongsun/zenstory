@@ -62,11 +62,12 @@ export function DashboardSearchBar({
     <div className={`relative ${className || ""}`}>
       <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[hsl(var(--text-secondary))]" />
       <input
-        type="text"
+        type="search"
+        aria-label={placeholder}
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--border-color))] rounded-lg min-h-[44px] sm:h-9 pl-9 pr-4 text-sm text-[hsl(var(--text-primary))] placeholder:text-[hsl(var(--text-secondary))] focus:outline-none focus:border-[hsl(var(--accent-primary)/0.5)]"
+        className="w-full bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--border-color))] rounded-xl min-h-[44px] pl-9 pr-4 text-sm text-[hsl(var(--text-primary))] placeholder:text-[hsl(var(--text-secondary))] focus:outline-none focus:border-[hsl(var(--accent-primary)/0.5)] focus:ring-2 focus:ring-[hsl(var(--accent-primary)/0.12)]"
       />
     </div>
   );

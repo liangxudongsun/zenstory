@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { ProjectCard } from '../ProjectCard'
 import type { Project, ProjectProgress } from '../../../types'
@@ -46,7 +47,7 @@ function renderCard(overrides: Partial<Project> = {}, progress: ProjectProgress 
       alwaysShowDelete
     />,
   )
-  return { onOpen, onDelete, card: screen.getByRole('button', { name: /Open project/ }) }
+  return { onOpen, onDelete, card: screen.getByRole('button', { name: /Open project/ }).closest('article')! }
 }
 
 describe('ProjectCard', () => {
@@ -94,10 +95,22 @@ describe('ProjectCard', () => {
     expect(onOpen).toHaveBeenCalledTimes(1)
   })
 
-  it('opens the project with Enter on the card itself', () => {
-    const { onOpen, card } = renderCard()
+  it('opens with native Space, while nested controls stay separate', async () => {
+    const { onOpen, onDelete } = renderCard()
+    screen.getByRole('button', { name: /Open project/ }).focus()
+    await userEvent.keyboard(' ')
+    expect(onOpen).toHaveBeenCalledTimes(1)
+    screen.getByRole('button', { name: 'Delete project' }).focus()
+    await userEvent.keyboard(' ')
+    expect(onDelete).toHaveBeenCalledTimes(1)
+    expect(onOpen).toHaveBeenCalledTimes(1)
+  })
 
-    fireEvent.keyDown(card, { key: 'Enter' })
+  it('opens the project with native Enter on its opening control', async () => {
+    const { onOpen } = renderCard()
+
+    screen.getByRole('button', { name: /Open project/ }).focus()
+    await userEvent.keyboard('{Enter}')
 
     expect(onOpen).toHaveBeenCalledTimes(1)
   })

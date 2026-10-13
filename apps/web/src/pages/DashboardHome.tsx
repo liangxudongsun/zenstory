@@ -595,6 +595,7 @@ export default function DashboardHome() {
   const resolvedInspirationPlaceholder = t(`dashboard:inspiration.example.${activeTab}`);
   return (
     <>
+      <section className="dashboard-start" aria-label={t("inspiration.title")}>
       {/* Header Section */}
       <DashboardPageHeader
         title={t('hero.greeting', { name: user?.nickname || user?.username || t('hero.defaultName') })}
@@ -676,10 +677,27 @@ export default function DashboardHome() {
         </div>
       )}
 
-      {/* Project Type Tabs */}
-      <div className={`flex justify-center mb-5 ${isMobile ? "gap-2" : "gap-2.5"}`}>
+      {/* One surface owns the idea, its format and the creation action. */}
+      <div className="dashboard-composer mb-10" data-testid="dashboard-composer">
+          <textarea
+            placeholder={resolvedInspirationPlaceholder}
+            data-testid="dashboard-inspiration-input"
+            data-tour-id="dashboard-inspiration-input"
+            disabled={isQuickCreating}
+            aria-label={t('inspiration.title')}
+            className="dashboard-idea w-full resize-none bg-transparent text-base leading-7 text-[hsl(var(--text-primary))] placeholder:text-[hsl(var(--text-secondary))] disabled:cursor-not-allowed disabled:opacity-60"
+            value={inspiration}
+            onChange={(e) => setInspiration(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) {
+                e.preventDefault();
+                handleQuickCreate();
+              }
+            }}
+          />
+        <div className="dashboard-composer-footer">
         <div
-          className={`inline-flex items-center ${isMobile ? "gap-2" : "gap-2.5"}`}
+          className="flex flex-wrap items-center gap-1"
           data-tour-id="dashboard-project-type-tabs"
         >
           {availableProjectTypes.map((type) => {
@@ -692,12 +710,12 @@ export default function DashboardHome() {
                 onClick={() => setActiveTab(type)}
                 aria-pressed={isActive}
                 className={`
-                  flex items-center gap-2 rounded-full font-medium transition-all border touch-target
+                  dashboard-type-button flex items-center gap-2 rounded-lg font-medium transition-colors border-transparent! border touch-target
                   ${isMobile
-                    ? "px-3 py-2.5 text-xs"
+                    ? "px-2.5 py-2 text-xs"
                     : isTablet
-                      ? "px-3.5 py-2 text-sm"
-                      : "px-4 py-2 text-sm"
+                      ? "px-3 py-2 text-sm"
+                      : "px-3 py-2 text-sm"
                   }
                   ${isActive
                     ? "bg-[hsl(var(--accent-primary)/0.15)] text-[hsl(var(--accent-primary))] border-transparent!"
@@ -711,33 +729,13 @@ export default function DashboardHome() {
             );
           })}
         </div>
-      </div>
-
-      {/* Create Project Card */}
-      <div className="mb-8 rounded-[30px] border border-[hsl(var(--border-color)/0.22)] bg-[linear-gradient(180deg,hsl(var(--bg-secondary)/0.88),hsl(var(--bg-secondary)/0.82))] p-6 shadow-[0_16px_32px_hsl(0_0%_0%_/_0.18)] backdrop-blur-sm">
-        <div className={`${isMobile ? "flex flex-col gap-3" : "relative"}`}>
-          <textarea
-            placeholder={resolvedInspirationPlaceholder}
-            data-testid="dashboard-inspiration-input"
-            data-tour-id="dashboard-inspiration-input"
-            disabled={isQuickCreating}
-            className={`w-full resize-none rounded-[24px] border border-[hsl(var(--border-color)/0.12)] bg-[linear-gradient(180deg,hsl(var(--bg-tertiary)/0.96),hsl(var(--bg-secondary)/0.99))] text-[15px] leading-7 text-[hsl(var(--text-primary))] placeholder:text-[hsl(var(--text-secondary)/0.7)] shadow-[inset_0_1px_0_hsl(0_0%_100%_/_0.015)] transition-all focus:border-[hsl(var(--accent-primary)/0.18)] focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary)/0.05)] disabled:cursor-not-allowed disabled:opacity-60 ${isMobile ? "min-h-[248px] px-4 py-4" : "min-h-[136px] px-6 py-5 pr-[180px]"}`}
-            value={inspiration}
-            onChange={(e) => setInspiration(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleQuickCreate();
-              }
-            }}
-          />
           <Button
             onClick={handleQuickCreate}
             isLoading={isQuickCreating}
             loadingText={t('common.creatingProject', { defaultValue: '正在创建项目…' })}
             size={isMobile ? "touch" : "md"}
             leftIcon={<Sparkles className="h-4 w-4" />}
-            className={isMobile ? "w-full" : "absolute bottom-4 right-4 min-w-[128px]"}
+            className="dashboard-create-action shrink-0 min-w-[128px]"
             data-testid="create-project-button"
             data-tour-id="dashboard-create-project"
           >
@@ -752,6 +750,8 @@ export default function DashboardHome() {
           />
         )}
       </div>
+
+      </section>
 
       {/* Recent Projects Section */}
       <div className="mb-7">

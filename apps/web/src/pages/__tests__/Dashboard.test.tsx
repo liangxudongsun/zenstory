@@ -225,10 +225,25 @@ describe('Dashboard user panel and quick switches', () => {
     expect(screen.getByRole('button', { name: '打开菜单' })).toHaveFocus()
   })
 
+  it('exposes sidebar destinations as links with the selected page named', () => {
+    renderDashboard()
+    expect(screen.getByRole('link', { name: 'Home', exact: true })).toHaveAttribute('href', '/dashboard')
+    expect(screen.getByRole('link', { name: 'Home', exact: true })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('link', { name: 'Projects', exact: true })).toHaveAttribute('href', '/dashboard/projects')
+  })
+
+  it('starts the next page at the top after scrolling a long project list', () => {
+    renderDashboard()
+    const main = screen.getByRole('main')
+    main.scrollTop = 600
+    fireEvent.click(screen.getByRole('link', { name: 'Inspirations' }))
+    expect(main.scrollTop).toBe(0)
+  })
+
   it('highlights inspirations nav item for /dashboard/inspirations/* routes', () => {
     renderDashboard(['/dashboard/inspirations/test-inspiration-id'])
 
-    const inspirationsButton = screen.getByRole('button', { name: 'Inspirations' })
+    const inspirationsButton = screen.getByRole('link', { name: 'Inspirations' })
     expect(inspirationsButton.className).toContain('accent-primary')
     expect(screen.getByText('Inspiration Detail Page')).toBeInTheDocument()
   })
@@ -237,7 +252,7 @@ describe('Dashboard user panel and quick switches', () => {
     inspirationFeature.enabled = false
     const { unmount } = renderDashboard()
 
-    expect(screen.queryByRole('button', { name: 'Inspirations' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Inspirations' })).not.toBeInTheDocument()
     unmount()
 
     mockIsMobile = true
@@ -245,12 +260,12 @@ describe('Dashboard user panel and quick switches', () => {
     renderDashboard()
     fireEvent.click(screen.getByRole('button', { name: '打开菜单' }))
 
-    expect(screen.queryByRole('button', { name: 'Inspirations' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Inspirations' })).not.toBeInTheDocument()
   })
 
   it('does not render deprecated Lab nav entry', () => {
     renderDashboard()
 
-    expect(screen.queryByRole('button', { name: 'Lab' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Lab' })).not.toBeInTheDocument()
   })
 })
