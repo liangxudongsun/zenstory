@@ -1250,7 +1250,7 @@ function AddedSkillCard({
       {onExport && !hidden && (
         <ExportButton onExport={onExport} exporting={exporting} isMobile={isMobile} />
       )}
-      <IconButton
+      {!hidden && Boolean(skill.instructions.trim()) && <IconButton
         onClick={() => setExpanded(!expanded)}
         label={
           hidden
@@ -1259,7 +1259,7 @@ function AddedSkillCard({
         }
         aria-expanded={expanded}
         icon={expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-      />
+      />}
     </div>
   );
   const localizedCategory = getLocalizedSkillCategory(skill.category, t);
@@ -1295,7 +1295,7 @@ function AddedSkillCard({
             </span>
           </div>
           {skill.description && (
-            <p className={`text-xs text-[hsl(var(--text-secondary))] mb-2.5 ${hidden && expanded ? "" : "line-clamp-2"}`}>
+            <p className={`text-xs text-[hsl(var(--text-secondary))] mb-2.5 ${hidden ? "" : "line-clamp-2"}`}>
               {skill.description}
             </p>
           )}
@@ -1310,11 +1310,7 @@ function AddedSkillCard({
       </div>
       {isMobile && actions}
 
-      {expanded && hidden && (
-        <p className="mt-3 pt-3 border-t border-[hsl(var(--border-color))] text-xs text-[hsl(var(--text-tertiary))]">
-          {t("skills:instructionsHidden")}
-        </p>
-      )}
+
 
       {/* Instructions - Markdown rendered */}
       {expanded && !hidden && skill.instructions && (
@@ -1568,7 +1564,7 @@ function PublicSkillCard({
           className="min-h-11 text-xs text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))] flex items-center gap-1 transition-colors"
         >
           {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-          {expanded ? t("collapse") : t("expand")}
+          <span>{expanded ? t("collapse") : t("expand")}</span>
         </button>}
 
         <div className={`flex items-center gap-3 ${canExpand ? "" : "w-full justify-between"}`}>
