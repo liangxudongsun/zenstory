@@ -355,7 +355,7 @@ export default function OnboardingPersonaPage() {
   if (!user) return null;
 
   return (
-    <div className="min-h-screen bg-[hsl(var(--bg-primary))] relative overflow-hidden">
+    <div className="ui-sans-headings min-h-screen bg-[hsl(var(--bg-primary))] relative overflow-hidden">
       <div className="pointer-events-none absolute -top-24 -left-20 h-72 w-72 rounded-full bg-[hsl(var(--accent-primary)/0.12)] blur-3xl" />
       <div className="pointer-events-none absolute -bottom-32 right-0 h-80 w-80 rounded-full bg-[hsl(var(--purple)/0.14)] blur-3xl" />
 
@@ -471,7 +471,7 @@ export default function OnboardingPersonaPage() {
                       onClick={() => toggleGoal(goal.id)}
                       aria-pressed={active}
                       className={cn(
-                        "inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-xs sm:text-sm transition-colors",
+                        "inline-flex min-h-11 items-center gap-2 rounded-full border px-3.5 py-2 text-xs sm:text-sm transition-colors",
                         active
                           ? "border-[hsl(var(--accent-primary))] bg-[hsl(var(--accent-primary)/0.12)] text-[hsl(var(--accent-primary))]"
                           : "border-[hsl(var(--border-color))] text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))] hover:border-[hsl(var(--accent-primary)/0.35)]"
@@ -540,6 +540,7 @@ export default function OnboardingPersonaPage() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <Button
                 variant="ghost"
+                size="touch"
                 onClick={() => {
                   void handleSubmit(true);
                 }}
@@ -550,6 +551,7 @@ export default function OnboardingPersonaPage() {
 
               <div className="flex flex-col items-end gap-1.5">
                 <Button
+                  size="touch"
                   onClick={() => {
                     void handleSubmit(false);
                   }}

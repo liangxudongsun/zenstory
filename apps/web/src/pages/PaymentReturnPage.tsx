@@ -247,19 +247,19 @@ function ReturnActions({
   return (
     <div className="mt-5 flex flex-wrap justify-center gap-3">
       {onRefresh && (
-        <Button variant="secondary" onClick={onRefresh}>
+        <Button size="touch" variant="secondary" onClick={onRefresh}>
           {t('dashboard:billing.paymentRefresh', '刷新支付结果')}
         </Button>
       )}
       {onStartWriting ? (
         <>
-          <Button variant="secondary" onClick={onBilling}>
+          <Button size="touch" variant="secondary" onClick={onBilling}>
             {t('dashboard:billing.backToBilling', '返回订阅权益')}
           </Button>
-          <Button onClick={onStartWriting}>{t('dashboard:billing.startWriting', '开始写作')}</Button>
+          <Button size="touch" onClick={onStartWriting}>{t('dashboard:billing.startWriting', '开始写作')}</Button>
         </>
       ) : (
-        <Button onClick={onBilling}>{t('dashboard:billing.backToBilling', '返回订阅权益')}</Button>
+        <Button size="touch" onClick={onBilling}>{t('dashboard:billing.backToBilling', '返回订阅权益')}</Button>
       )}
     </div>
   )

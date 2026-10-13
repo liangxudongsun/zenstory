@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Check, ArrowRight, RefreshCw, ShieldCheck } from "lucide-react";
+import { Check, Minus, ArrowRight, RefreshCw, ShieldCheck } from "lucide-react";
 import { PublicHeader } from "../components/PublicHeader";
 import { Card } from "../components/ui/Card";
 import { Badge } from "../components/ui/Badge";
@@ -396,7 +396,11 @@ export default function PricingPage() {
                     <div key={metric.key} className="flex items-center justify-between text-sm gap-3">
                       <div className="text-[hsl(var(--text-secondary))] min-w-0">
                         <div className="flex items-center gap-1.5">
-                          <Check className="w-3.5 h-3.5 text-[hsl(var(--success))] shrink-0" />
+                          {metric.compareValue(plan) === 0 ? (
+                            <Minus aria-hidden="true" className="w-3.5 h-3.5 text-[hsl(var(--text-tertiary))] shrink-0" />
+                          ) : (
+                            <Check aria-hidden="true" className="w-3.5 h-3.5 text-[hsl(var(--success))] shrink-0" />
+                          )}
                           <span className="truncate">{metric.label}</span>
                         </div>
                         <p className="ml-5 mt-0.5 text-xs text-[hsl(var(--text-tertiary))]">{metric.outcome}</p>

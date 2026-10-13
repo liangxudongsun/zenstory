@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import PaymentOrderManagement from "../PaymentOrderManagement";
 import { adminApi } from "../../../lib/adminApi";
+import { useIsDesktop } from "../../../hooks/useMediaQuery";
+
+vi.mock("../../../hooks/useMediaQuery", () => ({ useIsDesktop: vi.fn(() => true) }));
 
 const queryMock = vi.fn();
 const refetch = vi.fn();
@@ -52,10 +55,23 @@ const order = {
 describe("PaymentOrderManagement", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(useIsDesktop).mockReturnValue(true);
     queryMock.mockReturnValue({
       data: { items: [order], total: 21, page: 1, page_size: 20 },
       isLoading: false, isFetching: false, isError: false, refetch,
     });
+  });
+
+  it("keeps payment, fulfillment and details accessible in the compact order list", () => {
+    vi.mocked(useIsDesktop).mockReturnValue(false);
+    render(<PaymentOrderManagement />, { wrapper: MemoryRouter });
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.getByText(order.out_trade_no)).toBeInTheDocument();
+    const card = within(screen.getByRole("article"));
+    expect(card.getByText("paymentOrders.status.paid")).toBeInTheDocument();
+    expect(card.getByText("paymentOrders.fulfillment.succeeded")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "paymentOrders.details" }));
+    expect(within(screen.getByRole("dialog")).getByText("provider-1")).toBeInTheDocument();
   });
 
   it("lists payment and activation separately and opens read-only details", () => {

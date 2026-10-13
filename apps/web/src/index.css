@@ -437,8 +437,6 @@ code, pre, .font-mono {
     }
 
     .dashboard-start {
-        max-width: 900px;
-        margin-inline: auto;
         padding-top: 12px;
     }
 

@@ -1,4 +1,6 @@
 import { Modal } from "../../components/ui/Modal";
+import { Button } from "../../components/ui/Button";
+import { IconButton } from "../../components/ui/IconButton";
 import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -82,7 +84,7 @@ export const PromptManagement: React.FC = () => {
 
   return (
     <div className="admin-page">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col items-start justify-between gap-4 lg:flex-row">
         <div>
           <h1 className="admin-page-title">
             {t("prompts.title")}
@@ -91,22 +93,23 @@ export const PromptManagement: React.FC = () => {
             {t("prompts.subtitle")}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
             onClick={handleReload}
             disabled={isReloading || reloadMutation.isPending}
-            className="flex items-center gap-2 px-4 py-2 bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--separator-color))] rounded-lg hover:bg-[hsl(var(--bg-tertiary))] transition-colors disabled:opacity-50"
+            variant="secondary"
+            size="touch"
+            leftIcon={<RefreshCw size={16} className={isReloading || reloadMutation.isPending ? "animate-spin" : ""} />}
           >
-            <RefreshCw size={18} className={isReloading || reloadMutation.isPending ? "animate-spin" : ""} />
             {t("prompts.reload")}
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={handleCreateClick}
-            className="flex items-center gap-2 px-4 py-2 bg-[hsl(var(--accent-primary))] text-white rounded-lg hover:opacity-90 transition-opacity"
+            size="touch"
+            leftIcon={<Plus size={16} />}
           >
-            <Plus size={18} />
             {t("prompts.create")}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -169,27 +172,25 @@ export const PromptManagement: React.FC = () => {
               </div>
 
               <div className="mt-4 pt-3 border-t border-[hsl(var(--separator-color))] flex items-center justify-end gap-2">
-                <button
+                <IconButton
                   onClick={(e) => {
                     e.stopPropagation();
                     handleCardClick(prompt.project_type);
                   }}
-                  className="p-1.5 hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors"
-                  title={t("prompts.edit")}
-                >
-                  <Edit size={16} className="text-[hsl(var(--text-primary))]" />
-                </button>
-                <button
+                  tone="strong"
+                  label={t("prompts.edit")}
+                  icon={<Edit size={16} />}
+                />
+                <IconButton
                   onClick={(e) => {
                     e.stopPropagation();
                     handleDeletePrompt(prompt.project_type);
                   }}
                   disabled={deleteMutation.isPending}
-                  className="p-1.5 hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors disabled:opacity-50"
-                  title={t("prompts.delete")}
-                >
-                  <Trash2 size={16} className="text-red-500" />
-                </button>
+                  tone="danger"
+                  label={t("prompts.delete")}
+                  icon={<Trash2 size={16} />}
+                />
               </div>
             </div>
           ))}

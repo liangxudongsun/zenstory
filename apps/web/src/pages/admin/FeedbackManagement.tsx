@@ -189,9 +189,9 @@ export default function FeedbackManagement() {
 
       <form
         onSubmit={handleSearchSubmit}
-        className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_repeat(3,minmax(0,180px))_auto]"
+        className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(180px,1fr)_repeat(3,minmax(0,180px))_auto]"
       >
-        <div className="relative">
+        <div className="relative min-w-0 sm:col-span-2 xl:col-span-1">
           <Search
             size={16}
             className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[hsl(var(--text-secondary))]"
@@ -205,6 +205,7 @@ export default function FeedbackManagement() {
         </div>
 
         <AdminSelect
+          fullWidth
           value={statusFilter}
           onChange={(event) => {
             setStatusFilter(event.target.value as AdminFeedbackStatus | "");
@@ -221,6 +222,7 @@ export default function FeedbackManagement() {
         </AdminSelect>
 
         <AdminSelect
+          fullWidth
           value={sourceFilter}
           onChange={(event) => {
             setSourceFilter(event.target.value as "dashboard" | "editor" | "");
@@ -234,6 +236,7 @@ export default function FeedbackManagement() {
         </AdminSelect>
 
         <AdminSelect
+          fullWidth
           value={screenshotFilter}
           onChange={(event) => {
             setScreenshotFilter(event.target.value as ScreenshotFilter);

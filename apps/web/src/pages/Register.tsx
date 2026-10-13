@@ -386,7 +386,7 @@ export const Register: React.FC = () => {
               aria-live="assertive"
               className="bg-[hsl(var(--error)/0.1)] border border-[hsl(var(--error)/0.3)] rounded-xl p-4 mb-6"
             >
-              <p className="text-[hsl(var(--error))] text-sm">{formError}</p>
+              <p className="text-[hsl(var(--error-text))] text-sm">{formError}</p>
             </div>
           )}
 
@@ -577,7 +577,7 @@ export const Register: React.FC = () => {
               {confirmPassword.length > 0 && !isPasswordMatched ? (
                 <p
                   id="register-confirm-password-helper"
-                  className="mt-2 text-xs text-[hsl(var(--error))]"
+                  className="mt-2 text-xs text-[hsl(var(--error-text))]"
                 >
                   {t('auth:register.passwordMismatchHint', '两次输入的密码不一致')}
                 </p>
@@ -612,11 +612,11 @@ export const Register: React.FC = () => {
                 />
                 <span>
                   {t('auth:register.agreePrefix')}{" "}
-                  <Link to="/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-[hsl(var(--accent-primary))] hover:text-[hsl(var(--accent-light))]">
+                  <Link to="/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-[hsl(var(--accent-primary))] underline underline-offset-2 hover:text-[hsl(var(--accent-light))]">
                     {t('auth:register.terms')}
                   </Link>{" "}
                   {t('auth:register.and')}{" "}
-                  <Link to="/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-[hsl(var(--accent-primary))] hover:text-[hsl(var(--accent-light))]">
+                  <Link to="/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-[hsl(var(--accent-primary))] underline underline-offset-2 hover:text-[hsl(var(--accent-light))]">
                     {t('auth:register.privacy')}
                   </Link>
                 </span>
@@ -659,7 +659,7 @@ export const Register: React.FC = () => {
 
         {/* Footer */}
         <div className="mt-8 text-center">
-          <p className="text-[hsl(var(--text-secondary))] text-xs opacity-60">
+          <p className="text-[hsl(var(--text-secondary))] text-xs">
             {t('home:footer.copyright', { year: new Date().getFullYear() })}
           </p>
         </div>

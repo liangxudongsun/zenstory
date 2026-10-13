@@ -115,6 +115,8 @@ export default function SkillsPage() {
   const [isSearchComposing, setIsSearchComposing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [discoverLoading, setDiscoverLoading] = useState(false);
+  const [discoverError, setDiscoverError] = useState(false);
+  const [mySkillsError, setMySkillsError] = useState(false);
   const [loadingMorePublic, setLoadingMorePublic] = useState(false);
   const [publicTotal, setPublicTotal] = useState(0);
   const [publicPage, setPublicPage] = useState(1);
@@ -147,6 +149,7 @@ export default function SkillsPage() {
     const owner = ownerRef.current;
     if (!owner) return;
     const requestId = ++mySkillsRequestRef.current;
+    setMySkillsError(false);
     try {
       // Only show loading spinner on initial load, not during search
       if (showLoading) {
@@ -162,6 +165,7 @@ export default function SkillsPage() {
     } catch (error) {
       if (owner !== ownerRef.current || requestId !== mySkillsRequestRef.current) return;
       logger.error("Failed to load skills:", error);
+      setMySkillsError(true);
     } finally {
       if (owner === ownerRef.current && requestId === mySkillsRequestRef.current) {
         setHasLoadedMySkills(true);
@@ -175,6 +179,7 @@ export default function SkillsPage() {
     const requestId = ++publicSkillsRequestRef.current;
     if (page === 1) {
       setDiscoverLoading(true);
+      setDiscoverError(false);
     } else {
       setLoadingMorePublic(true);
     }
@@ -205,6 +210,7 @@ export default function SkillsPage() {
     } catch (error) {
       if (requestId !== publicSkillsRequestRef.current) return true;
       logger.error("Failed to load public skills:", error);
+      if (page === 1) setDiscoverError(true);
       return false;
     } finally {
       if (requestId === publicSkillsRequestRef.current) {
@@ -597,6 +603,8 @@ export default function SkillsPage() {
           onSwitchToDiscover={() => setActiveTab("discover")}
           loading={loading}
           hasLoaded={hasLoadedMySkills}
+          hasError={mySkillsError}
+          onRetry={() => void loadSkills(mySkillsSearchQuery, true)}
           searchQuery={mySkillsSearchQuery}
           setSearchQuery={setMySkillsSearchQuery}
           selectedSkillIds={selectedSkillIds}
@@ -616,6 +624,8 @@ export default function SkillsPage() {
           setSearchQuery={setSearchInput}
           onSearchCompositionChange={setIsSearchComposing}
           loading={discoverLoading}
+          hasError={discoverError}
+          onRetry={() => void loadPublicSkills(1)}
           loadingMore={loadingMorePublic}
           hasMore={publicSkills.length < publicTotal}
           onLoadMore={() => void handleLoadMorePublic()}
@@ -993,6 +1003,18 @@ function SkillCard({
 }
 
 // My Skills Content Component
+function SkillListError({ onRetry }: { onRetry: () => void }) {
+  const { t } = useTranslation(["skills", "common"]);
+  return (
+    <div role="alert" className="mb-4 rounded-2xl border border-[hsl(var(--error)/0.3)] bg-[hsl(var(--error)/0.08)] p-4">
+      <p className="text-sm text-[hsl(var(--text-primary))]">{t("errors.loadFailed")}</p>
+      <Button variant="secondary" size="touch" className="mt-3" onClick={onRetry}>
+        {t("common:retry")}
+      </Button>
+    </div>
+  );
+}
+
 function MySkillsContent({
   userSkills,
   addedSkills,
@@ -1008,6 +1030,8 @@ function MySkillsContent({
   onSwitchToDiscover,
   loading,
   hasLoaded,
+  hasError,
+  onRetry,
   searchQuery,
   setSearchQuery,
   selectedSkillIds,
@@ -1030,6 +1054,8 @@ function MySkillsContent({
   onSwitchToDiscover: () => void;
   loading?: boolean;
   hasLoaded?: boolean;
+  hasError: boolean;
+  onRetry: () => void;
   searchQuery: string;
   setSearchQuery: (q: string) => void;
   selectedSkillIds: Set<string>;
@@ -1040,7 +1066,8 @@ function MySkillsContent({
 }) {
   const { t } = useTranslation(["skills"]);
 
-  if (loading || !hasLoaded) {
+  const hasSkills = userSkills.length > 0 || addedSkills.length > 0;
+  if ((loading || !hasLoaded) && !hasSkills) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[hsl(var(--accent-primary))]" />
@@ -1057,6 +1084,9 @@ function MySkillsContent({
         placeholder={t("searchMySkillsPlaceholder")}
         className="mb-6"
       />
+
+      {hasError && <SkillListError onRetry={onRetry} />}
+      {(!hasError || hasSkills) && <>
 
       {/* Batch Action Bar */}
       {(userSkills.length > 0 || addedSkills.length > 0) && (
@@ -1200,6 +1230,7 @@ function MySkillsContent({
           </div>
         )}
       </div>
+      </>}
     </div>
   );
 }
@@ -1371,6 +1402,8 @@ function DiscoverContent({
   setSearchQuery,
   onSearchCompositionChange,
   loading,
+  hasError,
+  onRetry,
   loadingMore,
   hasMore,
   onLoadMore,
@@ -1390,6 +1423,8 @@ function DiscoverContent({
   setSearchQuery: (q: string) => void;
   onSearchCompositionChange: (composing: boolean) => void;
   loading: boolean;
+  hasError: boolean;
+  onRetry: () => void;
   loadingMore: boolean;
   hasMore: boolean;
   onLoadMore: () => void;
@@ -1438,12 +1473,14 @@ function DiscoverContent({
         />
       </div>
 
+      {hasError && <SkillListError onRetry={onRetry} />}
+
       {/* Skills Grid */}
       {loading ? (
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[hsl(var(--accent-primary))]" />
         </div>
-      ) : publicSkills.length === 0 ? (
+      ) : hasError && publicSkills.length === 0 ? null : publicSkills.length === 0 ? (
         // Decide on the query these results came from, not the text still in its debounce window.
         appliedSearchQuery.trim() || selectedCategory ? (
           <DashboardEmptyState
@@ -1483,7 +1520,7 @@ function DiscoverContent({
         </>
       )}
 
-      {!loading && hasMore && (
+      {!loading && !hasError && hasMore && (
         <div className="flex justify-center mt-6">
           <Button variant="secondary" onClick={onLoadMore} isLoading={loadingMore}>
             {t("loadMore")}
@@ -1557,24 +1594,24 @@ function PublicSkillCard({
       </p>
 
       {/* Footer - pushed to bottom */}
-      <div className="flex items-center justify-between mt-auto pt-3 border-t border-[hsl(var(--border-color)/0.5)]">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 mt-auto pt-3 border-t border-[hsl(var(--border-color)/0.5)]">
         {canExpand && <button
           onClick={() => void handleToggleExpanded()}
           aria-expanded={expanded}
-          className="min-h-11 text-xs text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))] flex items-center gap-1 transition-colors"
+          className="min-h-11 shrink-0 whitespace-nowrap text-xs text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))] flex items-center gap-1 transition-colors"
         >
           {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           <span>{expanded ? t("collapse") : t("expand")}</span>
         </button>}
 
-        <div className={`flex items-center gap-3 ${canExpand ? "" : "w-full justify-between"}`}>
-          <span className="text-xs text-[hsl(var(--text-tertiary))]">
+        <div className={`flex max-w-full flex-wrap items-center gap-3 ${canExpand ? "" : "w-full justify-between"}`}>
+          <span className="shrink-0 text-xs text-[hsl(var(--text-tertiary))]">
             {skill.add_count} {t("addCount")}
           </span>
           <button
             onClick={onAdd}
             disabled={isAdded || adding}
-            className={`min-h-11 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            className={`min-h-11 whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
               isAdded
                 ? "text-[hsl(var(--text-tertiary))] cursor-default"
                 : "text-[hsl(var(--accent-primary))] hover:bg-[hsl(var(--accent-primary)/0.08)]"

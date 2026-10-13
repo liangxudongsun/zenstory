@@ -185,7 +185,7 @@ export default function OAuthCallback() {
               <div className="flex flex-col items-center justify-center gap-4">
                 <div className="w-16 h-16 rounded-full bg-[hsl(var(--error)/0.1)] flex items-center justify-center">
                   <svg
-                    className="w-8 h-8 text-[hsl(var(--error))]"
+                    className="w-8 h-8 text-[hsl(var(--error-text))]"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -199,7 +199,7 @@ export default function OAuthCallback() {
                   </svg>
                 </div>
                 <div className="text-center">
-                  <p className="text-[hsl(var(--error))] font-medium mb-2">{error}</p>
+                  <p className="text-[hsl(var(--error-text))] font-medium mb-2">{error}</p>
                   <p className="text-[hsl(var(--text-secondary))] text-sm">
                     {t('auth:errors.oauthErrorHint')}
                   </p>

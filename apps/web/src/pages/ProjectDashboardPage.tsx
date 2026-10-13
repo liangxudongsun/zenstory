@@ -78,13 +78,15 @@ export default function ProjectDashboardPage() {
   // Loading state
   if (isDashboardLoading) {
     return (
-      <div className="min-h-screen bg-[hsl(var(--bg-primary))]">
+      <div className="ui-sans-headings min-h-screen bg-[hsl(var(--bg-primary))]">
         {/* Header */}
         <div className={`${isMobile ? 'p-4' : 'p-6'} border-b border-[hsl(var(--border-color))]`}>
           <div className="flex items-center gap-4">
             <button
+              type="button"
               onClick={handleBack}
-              className="p-2 rounded-lg hover:bg-[hsl(var(--bg-secondary))] transition-colors"
+              aria-label={t('common.back', '返回')}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-[hsl(var(--bg-secondary))] transition-colors"
             >
               <ArrowLeft className="w-5 h-5 text-[hsl(var(--text-secondary))]" />
             </button>
@@ -123,7 +125,7 @@ export default function ProjectDashboardPage() {
   // Error state
   if (error) {
     return (
-      <div className="min-h-screen bg-[hsl(var(--bg-primary))] flex items-center justify-center p-4">
+      <div className="ui-sans-headings min-h-screen bg-[hsl(var(--bg-primary))] flex items-center justify-center p-4">
         <div className="text-center max-w-md">
           <div className="w-16 h-16 rounded-2xl bg-[hsl(var(--error)/0.1)] flex items-center justify-center mx-auto mb-4">
             <AlertCircle className="w-8 h-8 text-[hsl(var(--error))]" />
@@ -149,20 +151,22 @@ export default function ProjectDashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[hsl(var(--bg-primary))]">
+    <div className="ui-sans-headings min-h-screen bg-[hsl(var(--bg-primary))]">
       {/* Header */}
       <div className={`${isMobile ? 'p-4' : 'p-6'} border-b border-[hsl(var(--border-color))]`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
             <button
+              type="button"
               onClick={handleBack}
-              className="p-2 rounded-lg hover:bg-[hsl(var(--bg-secondary))] transition-colors"
+              aria-label={t('common.back', '返回')}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-[hsl(var(--bg-secondary))] transition-colors"
               title={t('common.back', '返回')}
             >
               <ArrowLeft className="w-5 h-5 text-[hsl(var(--text-secondary))]" />
             </button>
-            <div>
-              <h1 className={`font-bold text-[hsl(var(--text-primary))] ${isMobile ? 'text-lg' : 'text-xl'}`}>
+            <div className="min-w-0">
+              <h1 className={`break-words font-bold text-[hsl(var(--text-primary))] ${isMobile ? 'text-lg' : 'text-xl'}`}>
                 {project?.name || t('dashboard.title', '项目数据统计')}
               </h1>
               <p className={`text-[hsl(var(--text-secondary))] ${isMobile ? 'text-xs' : 'text-sm'}`}>
@@ -173,8 +177,10 @@ export default function ProjectDashboardPage() {
 
           {/* Refresh button */}
           <button
+            type="button"
             onClick={() => void refetch()}
-            className="p-2 rounded-lg hover:bg-[hsl(var(--bg-secondary))] transition-colors"
+            aria-label={t('common.refresh', '刷新')}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-[hsl(var(--bg-secondary))] transition-colors"
             title={t('common.refresh', '刷新')}
           >
             <RefreshCw className={`w-5 h-5 text-[hsl(var(--text-secondary))] ${isDashboardLoading ? 'animate-spin' : ''}`} />
@@ -192,9 +198,11 @@ export default function ProjectDashboardPage() {
             return (
               <button
                 key={tab.id}
+                type="button"
                 onClick={() => setActiveTab(tab.id)}
+                aria-pressed={isActive}
                 className={`
-                  flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all shrink-0
+                  flex min-h-11 items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all shrink-0
                   ${isMobile ? 'px-3 py-2 text-xs' : 'px-4 py-2 text-sm'}
                   ${isActive
                     ? 'bg-[hsl(var(--accent-primary))] text-white shadow-sm'

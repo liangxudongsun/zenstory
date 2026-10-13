@@ -152,6 +152,7 @@
     "unpublished": "Unpublished"
   },
   "errors": {
+    "loadFailed": "Failed to load skills. Please try again.",
     "saveFailed": "Failed to save the skill. Please try again.",
     "addFailed": "Failed to add the skill. Please try again.",
     "deleteFailed": "Failed to delete the skill. Please try again.",
