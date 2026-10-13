@@ -4,13 +4,13 @@ The library breaks reference novels into chapter summaries, characters, lore, an
 
 ## Free trial and Pro
 
-Free accounts can try one book's first 20 chapters once per account, as shown on the page. When selecting a full book, the interface identifies the chapters retained for analysis. Trial results remain available to read.
+Materials Library breakdowns are a Pro benefit. When the page offers a free trial, free accounts can try one book's first 20 chapters once per account. When selecting a full book, the interface identifies the chapters retained for analysis. Trial results remain available to read.
 
 Pro includes 5 breakdowns per month, with up to 300,000 characters per book. Check the library and Plans & Benefits for current availability. If a platform failure occurs, inspect the refund message before uploading again.
 
 ## Prepare and upload
 
-1. Open Materials in the workbench and choose Upload or the free trial.
+1. Open Materials in the workbench and choose Upload (Pro), or the free trial when the page offers one.
 2. Select a TXT you have the right to use; check its title and chapter scope.
 3. Confirm and wait for processing.
 

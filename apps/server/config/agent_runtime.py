@@ -128,8 +128,12 @@ AGENT_ENABLE_GRAPH_AUTO_REVIEW = _get_bool_env(
 # per-agent runs, enough for a long multi-chapter turn with review rounds.
 AGENT_RUN_MAX_MODEL_CALLS = _get_int_env("AGENT_RUN_MAX_MODEL_CALLS", 120)
 
-# Wall-clock budget for the whole streaming request, in seconds.
-AGENT_RUN_WALL_CLOCK_TIMEOUT_S = _get_int_env("AGENT_RUN_WALL_CLOCK_TIMEOUT_S", 1200)
+# Wall-clock budget for the whole streaming request, in seconds. Railway closes a
+# public HTTP connection after 15 minutes even while bytes (heartbeats) flow, so
+# the run must end well before that: the remaining margin covers cancelling the
+# producer, the timeout frame, refund settlement and the trailing quota frame.
+RAILWAY_HTTP_CONNECTION_LIMIT_S = 900
+AGENT_RUN_WALL_CLOCK_TIMEOUT_S = _get_int_env("AGENT_RUN_WALL_CLOCK_TIMEOUT_S", 780)
 
 # Interval between SSE keep-alive comment frames (": ping") while streaming.
 AGENT_SSE_HEARTBEAT_INTERVAL_S = _get_int_env("AGENT_SSE_HEARTBEAT_INTERVAL_S", 15)

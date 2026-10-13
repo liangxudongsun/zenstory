@@ -31,3 +31,25 @@ export function buildStagedUpgradeSource(
   if (stage === "normal") return normalizedBase;
   return `${normalizedBase}:${stage}`;
 }
+
+const AUTO_PROMPT_KEY_PREFIX = "zenstory-upgrade-auto-prompted";
+const autoPromptedWithoutStorage = new Set<string>();
+
+/**
+ * 保存成功时附带的主动升级提醒（例如正文已保存、只是版本快照额度满了）：同一账号、
+ * 同一限制类型在当前标签页会话内只弹一次，作者关掉后不会被之后的自动或手动保存、
+ * 重新挂载或切换项目再次打断。真正被额度挡下的操作（保存失败、恢复历史版本）不走
+ * 这里，每次都照常反馈。sessionStorage 不可用时退回本页内存。返回 true 表示这次可以提醒。
+ */
+export function claimAutoUpgradePrompt(userId: string | null, kind: string): boolean {
+  const key = `${AUTO_PROMPT_KEY_PREFIX}:${kind}:${userId ?? "anonymous"}`;
+  try {
+    if (sessionStorage.getItem(key)) return false;
+    sessionStorage.setItem(key, "1");
+    return true;
+  } catch {
+    if (autoPromptedWithoutStorage.has(key)) return false;
+    autoPromptedWithoutStorage.add(key);
+    return true;
+  }
+}

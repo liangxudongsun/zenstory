@@ -10,7 +10,7 @@ Open Forgot Password from Login, request a six-digit code with your registered e
 
 ### What does Free include?
 
-3 AI messages per day, 3 projects, 3 owned custom skills, and a one-time trial of a book's first 20 chapters as offered on the page. Messages reset at 00:00 Beijing time. TXT export is included. See [Plans & Benefits](../user-guide/billing-benefits.md).
+3 AI messages per day, 3 projects, and 3 owned custom skills; Materials Library breakdowns are a Pro benefit. Messages reset at 00:00 Beijing time. TXT export is included. See [Plans & Benefits](../user-guide/billing-benefits.md).
 
 ### Why is Pro missing after payment?
 

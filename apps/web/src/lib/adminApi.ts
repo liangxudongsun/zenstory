@@ -215,6 +215,7 @@ function normalizeSubscriptionPlan(plan: unknown): SubscriptionPlan {
   const raw = resolvePayloadRecord(plan);
   const rawName = asText(raw.name, "free");
   const featuresRecord = asRecord(raw.features) ?? asRecord(raw.entitlements) ?? {};
+  const effectiveFeatures = asRecord(raw.effective_features);
 
   return {
     id: asText(raw.id, rawName),
@@ -224,6 +225,7 @@ function normalizeSubscriptionPlan(plan: unknown): SubscriptionPlan {
     price_monthly_cents: asNumber(raw.price_monthly_cents, 0),
     price_yearly_cents: asNumber(raw.price_yearly_cents, 0),
     features: featuresRecord as SubscriptionFeatures,
+    ...(effectiveFeatures ? { effective_features: effectiveFeatures as SubscriptionFeatures } : {}),
     is_active: asBoolean(raw.is_active, true),
     created_at: asNullableIsoDate(raw.created_at) ?? undefined,
     updated_at: asNullableIsoDate(raw.updated_at) ?? undefined,

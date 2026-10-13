@@ -126,7 +126,7 @@ Each skill is a `SKILL.md` in the open Agent Skills format ([`apps/server/agent/
 
 ### Hosted
 
-Sign up at [app.zenstory.ai](https://app.zenstory.ai); a friend's invite code is optional. The free plan includes 10 AI messages a day (reset at 00:00 Beijing time) and up to 3 projects; the [pricing page](https://app.zenstory.ai/pricing) compares the plans.
+Sign up at [app.zenstory.ai](https://app.zenstory.ai); a friend's invite code is optional. The free plan includes 3 AI messages a day (reset at 00:00 Beijing time) and up to 3 projects; the [pricing page](https://app.zenstory.ai/pricing) compares the plans.
 
 Create a Short Story project. A good first request asks for an outline you can edit rather than a chapter (the example comes from the [quick start](https://zenstory.ai/docs/getting-started/quick-start#en); the English docs are below the Chinese on each page):
 
@@ -161,7 +161,7 @@ docker compose exec -e ZENSTORY_ADMIN_EMAIL=you@example.com \
 
 Sign in at <http://localhost:5173>; the API reference is at <http://localhost:8000/docs>. The database is SQLite and lives in a Docker volume together with uploads, so `docker compose down` and image rebuilds keep your data.
 
-Every account, the admin included, starts on the free plan: 10 AI messages a day (reset at 00:00 Beijing time) and up to 3 projects. To lift that, run `docker compose exec server python scripts/seed_subscription_plans.py` to create the Pro plan (it also creates the free-plan row), then give an account Pro under Subscriptions in the admin console, or raise the free plan's limits under Subscription Plans.
+Every account, the admin included, starts on the free plan: 3 AI messages a day (reset at 00:00 Beijing time) and up to 3 projects. To lift that, run `docker compose exec server python scripts/seed_subscription_plans.py` to create the Pro plan (it also creates the free-plan row), then give an account Pro under Subscriptions in the admin console, or raise the free plan's limits under Subscription Plans.
 
 The writing agents use DeepSeek `deepseek-flash` (DeepSeek-V4.1-Flash) and need only that key. Other features need their own settings. With the quick start above, add backend variables under `server.environment` in `docker-compose.yml` and `VITE_*` variables under `web.environment`, then run `docker compose up -d`; the repo-root `.env` only fills the `${…}` placeholders in the compose file (such as `DEEPSEEK_API_KEY` and `JWT_SECRET_KEY`) and passes nothing else into the containers. With `docker-compose.full.yml`, put them in `apps/server/.env.docker` and `apps/web/.env.docker` instead.
 
@@ -350,7 +350,7 @@ No. To let it read an entry, use Attach to Chat in the project's Novel Reference
 
 ### What does the free plan include?
 
-Hosted free plan: 10 AI messages a day (reset at 00:00 Beijing time, UTC+8), up to 3 projects, 10 versions per file (your text still saves after that, just without new versions), TXT export, up to 3 custom skills; the Materials Library is Pro. The free plan does not expire. Inline suggestions don't count toward daily AI messages.
+Hosted free plan: 3 AI messages a day (reset at 00:00 Beijing time, UTC+8), up to 3 projects, 10 versions per file (your text still saves after that, just without new versions), TXT export, up to 3 custom skills; the Materials Library is Pro. The free plan does not expire. Inline suggestions don't count toward daily AI messages.
 
 ### Can I bring in a manuscript I've already written?
 

@@ -18,7 +18,7 @@ vi.mock("../apiClient", () => ({
 }));
 
 import { streamAgentRequest } from "../agentApi";
-import { AgentStreamError, createAgentStreamTelemetry } from "../agentStreamTelemetry";
+import { AgentStreamCallbackError, AgentStreamError, createAgentStreamTelemetry } from "../agentStreamTelemetry";
 
 const PROMPT = "第三章写主角在雨夜发现秘密";
 
@@ -174,6 +174,97 @@ describe("agent stream telemetry", () => {
     expect(trackEventMock).toHaveBeenCalledWith("ai_chat_cancelled", expect.any(Object));
     expect(onError).not.toHaveBeenCalled();
     expect(captureExceptionMock).not.toHaveBeenCalled();
+  });
+
+  describe("after the terminal frame", () => {
+    /** Deliver the frames, then reject the next read like a connection reset. */
+    function framesThenReadRejects(frames: string[]) {
+      let index = 0;
+      const read = vi.fn(async () => {
+        if (index < frames.length) {
+          return { done: false, value: new TextEncoder().encode(frames[index++]) };
+        }
+        throw new TypeError(PROMPT);
+      });
+      return { ...sseResponse([]), body: { getReader: () => ({ read }) } };
+    }
+
+    async function run(response: unknown, extra: Parameters<typeof streamAgentRequest>[1] = {}) {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
+      const callbacks = { onDone: vi.fn(), onError: vi.fn(), onClosed: vi.fn(), ...extra };
+      streamAgentRequest({ project_id: "project-1", message: PROMPT }, callbacks);
+      await vi.waitFor(() => expect(callbacks.onClosed).toHaveBeenCalledTimes(1));
+      return callbacks;
+    }
+
+    const eventNames = () => trackEventMock.mock.calls.map(([name]) => name);
+
+    it("still fails a round whose read rejects before any terminal frame", async () => {
+      const { onError } = await run(framesThenReadRejects(['event: content\ndata: {"text":"partial"}\n\n']));
+
+      expect(onError).toHaveBeenCalledWith(expect.any(String), "STREAM_ERROR", true);
+      expect(eventNames()).toEqual(["ai_chat_failed"]);
+      expect(captureExceptionMock).toHaveBeenCalledWith(expect.any(AgentStreamError), expect.objectContaining({ failure_phase: "read" }));
+    });
+
+    it("keeps a completed round when the tail read rejects", async () => {
+      const { onDone, onError } = await run(framesThenReadRejects(['event: done\ndata: {"assistant_message_id":"m-1"}\n\n']));
+
+      expect(onDone).toHaveBeenCalledTimes(1);
+      expect(onError).not.toHaveBeenCalled();
+      expect(eventNames()).toEqual(["ai_chat_completed", "ai_chat_tail_failed"]);
+      expect(trackEventMock).toHaveBeenLastCalledWith("ai_chat_tail_failed", expect.objectContaining({ failure_phase: "read", exception_type: "TypeError" }));
+      expect(captureExceptionMock).not.toHaveBeenCalled();
+    });
+
+    it("keeps an author stop and its delivered output when the tail read rejects", async () => {
+      const onWorkflowStopped = vi.fn();
+      const { onDone, onError } = await run(framesThenReadRejects([
+        'event: workflow_stopped\ndata: {"reason":"user_stopped","message":"stopped"}\n\n',
+        'event: done\ndata: {"stop_reason":"user_stopped","produced_output":true}\n\n',
+      ]), { onWorkflowStopped });
+
+      expect(onWorkflowStopped).toHaveBeenCalledTimes(1);
+      expect(onDone).toHaveBeenCalledWith(expect.objectContaining({ stop_reason: "user_stopped", produced_output: true }));
+      expect(onError).not.toHaveBeenCalled();
+      expect(eventNames()).toEqual(["ai_chat_stopped", "ai_chat_tail_failed"]);
+    });
+
+    it("keeps the server error code and retry rule when the tail read rejects", async () => {
+      const { onError } = await run(framesThenReadRejects([
+        'event: error\ndata: {"message":"x","code":"ERR_AGENT_RUN_TIMEOUT","retryable":false}\n\n',
+      ]));
+
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onError).toHaveBeenCalledWith(expect.any(String), "ERR_AGENT_RUN_TIMEOUT", false);
+      expect(trackEventMock).toHaveBeenCalledWith("ai_chat_failed", expect.objectContaining({ error_code: "ERR_AGENT_RUN_TIMEOUT" }));
+      expect(eventNames()).not.toContain("ai_chat_cancelled");
+    });
+
+    it("still delivers a refund that arrived before the tail read rejected", async () => {
+      const onQuotaRefunded = vi.fn();
+      const { onError } = await run(framesThenReadRejects([
+        'event: done\ndata: {"stop_reason":"user_stopped","produced_output":false}\n\n',
+        'event: quota_refunded\ndata: {"refunded":true,"kind":"stopped"}\n\n',
+      ]), { onQuotaRefunded });
+
+      expect(onQuotaRefunded).toHaveBeenCalledWith("stopped", []);
+      expect(onError).not.toHaveBeenCalled();
+    });
+
+    it("reports a throwing onDone as a callback error, not a network failure", async () => {
+      const { onError } = await run(sseResponse(['event: done\ndata: {}\n\n']), {
+        onDone: vi.fn(() => { throw new TypeError(PROMPT); }),
+      });
+
+      expect(onError).not.toHaveBeenCalled();
+      expect(eventNames()).toEqual(["ai_chat_completed", "ai_chat_tail_failed"]);
+      expect(captureExceptionMock).toHaveBeenCalledTimes(1);
+      const [error, properties] = captureExceptionMock.mock.calls[0] as [Error, Record<string, unknown>];
+      expect(error).toBeInstanceOf(AgentStreamCallbackError);
+      expect(properties).toEqual(expect.objectContaining({ failure_phase: "callback", exception_type: "TypeError" }));
+      expect(JSON.stringify(captureExceptionMock.mock.calls)).not.toContain(PROMPT);
+    });
   });
 
   it("settles only once per stream", () => {

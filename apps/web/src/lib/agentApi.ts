@@ -345,11 +345,11 @@ export function streamAgentRequest(
 
   const fetchStream = async (accessToken: string | null = entryAccess, isRetry = false) => {
     let failurePhase: import("./agentStreamTelemetry").AgentStreamFailurePhase = "fetch";
+    // Track whether we received a terminal SSE event ("done" or "error").
+    // If the server/proxy closes the connection without a terminal event,
+    // the frontend would otherwise remain stuck in "processing" state.
+    let receivedTerminalEvent = false;
     try {
-      // Track whether we received a terminal SSE event ("done" or "error").
-      // If the server/proxy closes the connection without a terminal event,
-      // the frontend would otherwise remain stuck in "processing" state.
-      let receivedTerminalEvent = false;
       const language = localStorage.getItem("zenstory-language") || "zh";
 
       const response = await fetch(`${getApiBase()}/api/v1/agent/stream`, {
@@ -877,6 +877,18 @@ export function streamAgentRequest(
       if (abortController.signal.aborted || err.name === "AbortError") {
         // Request was cancelled, don't call onError
         telemetry.cancelled();
+        return;
+      }
+      if (receivedTerminalEvent) {
+        // 完成、作者停止或服务端错误已经交给界面。之后读 quota_refunded 等尾帧时
+        // 连接断开，或业务回调自己抛错，都不能把这一轮改成失败、覆盖原错误码或
+        // 露出重发入口；单独记诊断，不当作网络读取失败。
+        telemetry.noteFailureAfterTerminal(failurePhase, error);
+        if (failurePhase === "callback") {
+          logger.error("[AgentAPI] Stream callback threw after the terminal event:", error);
+        } else {
+          logger.warn("[AgentAPI] Stream tail failed after the terminal event:", failurePhase);
+        }
         return;
       }
       telemetry.noteFailure(failurePhase, error);

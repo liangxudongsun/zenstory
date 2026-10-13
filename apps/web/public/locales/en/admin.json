@@ -491,7 +491,9 @@
       "custom_skills_limit": "Custom Skills Limit",
       "inspiration_copies_monthly": "Inspiration Copies / Month",
       "priority_support": "Priority Support",
-      "priority_queue_level": "Queue Priority Level"
+      "priority_queue_level": "Queue Priority Level",
+      "materials_library_access": "Materials Library",
+      "effectiveHint": "Shows the entitlements users actually get and are held to. The edit box holds the stored configuration; keys that have no effect are not shown."
     }
   },
   "points": {

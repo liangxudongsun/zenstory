@@ -36,6 +36,8 @@ export interface SubscriptionPlan {
   price_monthly_cents: number;
   price_yearly_cents: number;
   features: SubscriptionFeatures;
+  /** Admin plans only: the resolved entitlements users get (defaults filled, export formats normalized). */
+  effective_features?: SubscriptionFeatures;
   is_active: boolean;
   created_at?: string;
   updated_at?: string;

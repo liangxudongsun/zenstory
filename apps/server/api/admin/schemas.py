@@ -4,12 +4,22 @@ Shared Pydantic models for Admin API endpoints.
 This module contains all request and response schemas used across
 the admin API modules.
 """
-from datetime import date
-from typing import Annotated, Literal
+from datetime import date, datetime
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictInt, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    StrictInt,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from config.datetime_utils import UTCDateTime
+from services.subscription.defaults import normalize_export_formats
 
 # ==================== User Management Schemas ====================
 
@@ -178,11 +188,42 @@ class SubscriptionFeatures(BaseModel):
     custom_skills_limit: QuotaLimit | None = None
     skill_creates_monthly: QuotaLimit | None = None
     inspiration_copies_monthly: QuotaLimit | None = None
-    export_formats: list[Literal["txt"]] | None = None
+    export_formats: list[str] | None = None
     custom_prompts: bool | None = None
     materials_library_access: bool | None = None
     priority_support: bool | None = None
     priority_queue_level: Literal["standard", "priority"] | None = None
+
+    @field_validator("export_formats")
+    @classmethod
+    def _keep_supported_export_formats(cls, value: list[str] | None) -> list[str] | None:
+        # 旧数据里存着 md/docx/pdf，管理后台原样回存时不能 422；只保留真正支持的格式，
+        # 与用户侧 /plans、/catalog 的规范化一致。一个支持的格式都不剩时仍拒绝，
+        # 否则 ["pdf"] 会被存成 []，这个套餐的用户就再也不能导出。
+        if value is None:
+            return None
+        supported = normalize_export_formats(value)
+        if value and not supported:
+            raise ValueError("export_formats must include a supported format")
+        return supported
+
+
+class AdminPlanResponse(BaseModel):
+    """A stored plan plus the entitlements users actually get and are held to."""
+
+    id: str
+    name: str
+    display_name: str
+    display_name_en: str | None = None
+    price_monthly_cents: int
+    price_yearly_cents: int
+    stripe_price_id_monthly: str | None = None
+    stripe_price_id_yearly: str | None = None
+    features: dict[str, Any]
+    effective_features: dict[str, Any]
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
 
 
 class PlanUpdateRequest(BaseModel):

@@ -9,7 +9,7 @@ Open **Plans & Benefits** in the workbench to check your plan, today's messages,
 | AI messages | 3 per day | Unlimited |
 | Projects | 3 | Unlimited |
 | Owned custom skills | 3 | 20 |
-| Material breakdowns | One free trial, first 20 chapters | 5 per month |
+| Material breakdowns | Not included | 5 per month |
 | Manuscript export | TXT | TXT |
 
 Free messages reset at 00:00 Beijing time (UTC+8). Monthly material allowance resets on the first day of the month. Custom skills count those you currently own; deleting an unused owned skill frees a slot.

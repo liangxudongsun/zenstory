@@ -839,7 +839,8 @@ class FileVersionService:
         if not plan:
             return True, 0, -1
 
-        max_versions = plan.features.get("file_versions_per_file", 10)
+        # 与 /plans、后台卡片同一个解析：缺键时用该套餐自己的默认值（Pro 为 100）。
+        max_versions = quota_service.get_plan_feature(plan, "file_versions_per_file", 10)
         if max_versions == -1:
             return True, 0, -1
 

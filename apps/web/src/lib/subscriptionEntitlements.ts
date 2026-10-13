@@ -279,6 +279,8 @@ export function getSubscriptionFeatureRows(
   const monthUnit = translate(t, "dashboard:billing.timesPerMonth", "次/月");
   const dayUnit = translate(t, "dashboard:billing.messagesPerDay", "条/天");
   const countUnit = translate(t, "dashboard:billing.projectsUnit", "个");
+  const skillsUnit = translate(t, "dashboard:billing.skillsUnit", "个");
+  const versionsUnit = translate(t, "dashboard:billing.versionsUnit", "个");
   const notIncluded = translate(t, "settings:subscription.notIncluded", "不含");
   const hasMaterials = features.materials_library_access === true;
   const materialValue = (key: string) => (hasMaterials ? withUnit(numberOf(key), monthUnit) : notIncluded);
@@ -302,7 +304,7 @@ export function getSubscriptionFeatureRows(
     {
       key: "custom_skills",
       label: translate(t, "dashboard:billing.metricCustomSkills", "自定义技能"),
-      value: withUnit(numberOf("custom_skills"), countUnit) ?? "",
+      value: withUnit(numberOf("custom_skills"), skillsUnit) ?? "",
     },
     inspirationsConfig.enabled
       ? {
@@ -314,7 +316,7 @@ export function getSubscriptionFeatureRows(
     {
       key: "file_versions_per_file",
       label: translate(t, "dashboard:billing.metricFileVersions", "每个文件保留的历史版本"),
-      value: withUnit(numberOf("file_versions_per_file"), countUnit) ?? "",
+      value: withUnit(numberOf("file_versions_per_file"), versionsUnit) ?? "",
     },
   ];
 

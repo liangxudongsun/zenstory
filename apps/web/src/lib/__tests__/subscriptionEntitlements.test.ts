@@ -166,6 +166,22 @@ describe("getSubscriptionFeatureRows", () => {
     priority_support: false,
   };
 
+  it("counts skills and versions in their own unit, not projects", () => {
+    const english: Record<string, string> = {
+      "dashboard:billing.projectsUnit": "projects",
+      "dashboard:billing.skillsUnit": "skills",
+      "dashboard:billing.versionsUnit": "versions",
+    };
+    const tEn = (key: string, fallback: string) => english[key] ?? fallback;
+    const rows = Object.fromEntries(
+      getSubscriptionFeatureRows({ ...proFeatures, max_projects: 3 }, tEn, "en-US").map((row) => [row.key, row.value]),
+    );
+
+    expect(rows.max_projects).toBe("3 projects");
+    expect(rows.custom_skills).toBe("20 skills");
+    expect(rows.file_versions_per_file).toBe("100 versions");
+  });
+
   it("lists only enforced limits with labels, never raw keys or unimplemented perks", () => {
     const rows = getSubscriptionFeatureRows(proFeatures, t, "zh-CN");
     const text = rows.map((row) => `${row.label}:${row.value}`).join("|");
