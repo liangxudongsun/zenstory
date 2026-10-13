@@ -547,6 +547,30 @@ const phrases = (...parts) => parts.map((part) => `<span class="ph">${part}</spa
  * hands over to native controls. Without JavaScript the native controls in the HTML are used.
  */
 const playerScript = `<script>(function(){var f=document.querySelectorAll('.media-frame');for(var i=0;i<f.length;i++){(function(frame){var v=frame.querySelector('video'),b=frame.querySelector('button.play');if(!v||!b)return;v.controls=false;b.hidden=false;function start(){b.hidden=true;v.controls=true}b.addEventListener('click',function(){start();var p=v.play();if(p&&p.catch)p.catch(function(){})});v.addEventListener('play',start)})(f[i])}})()</script>`
+// Keep the native scroll-snap carousel usable without JavaScript. Buttons enhance it on phones;
+// the position follows native scrolling too, and movement respects reduced-motion preferences.
+const carouselScript = `<script>(function(){
+  var grid=document.querySelector('.showcase-grid'),controls=document.querySelector('.showcase-controls');
+  if(!grid||!controls)return;
+  var cards=Array.from(grid.querySelectorAll('.case-card')),previous=controls.querySelector('[data-previous]'),next=controls.querySelector('[data-next]'),position=controls.querySelector('.showcase-position'),pending=false;
+  function current(){
+    var start=grid.getBoundingClientRect().left+parseFloat(getComputedStyle(grid).paddingLeft),index=0,distance=Infinity;
+    cards.forEach(function(card,i){var d=Math.abs(card.getBoundingClientRect().left-start);if(d<distance){distance=d;index=i}});
+    return index;
+  }
+  function update(){
+    pending=false;var i=current(),text=(i+1)+' / '+cards.length;
+    if(position.textContent!==text)position.textContent=text;
+    previous.disabled=i===0;next.disabled=i===cards.length-1;
+  }
+  function move(delta){
+    var i=Math.max(0,Math.min(cards.length-1,current()+delta)),start=grid.getBoundingClientRect().left+parseFloat(getComputedStyle(grid).paddingLeft);
+    grid.scrollTo({left:grid.scrollLeft+cards[i].getBoundingClientRect().left-start,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
+  }
+  previous.addEventListener('click',function(){move(-1)});next.addEventListener('click',function(){move(1)});
+  grid.addEventListener('scroll',function(){if(!pending){pending=true;requestAnimationFrame(update)}},{passive:true});
+  window.addEventListener('resize',update);controls.hidden=false;update();
+})()</script>`
 const homePage = () => {
   const route = '/'
   const title = t('ZenStory AI — Open-source AI tools for writing and adapting stories', 'ZenStory AI — 开源 AI 写小说、做短剧、改游戏与视频解说工具')
@@ -584,7 +608,12 @@ const homePage = () => {
       <p class="section-lede">${t('Demos and playable prototypes from our project READMEs, each with the method behind it.', '各项目 README 里的演示与可试玩原型，每个都附创作方法。')}</p>
     </header>
     <p class="swipe-hint" aria-hidden="true">${((n) => t(`Swipe to see all ${n} demos`, `左右滑动，查看全部 ${n} 个演示`))(showcases.filter((item) => !item.chain).length)}<span class="arrow">→</span></p>
-    <div class="showcase-grid">${showcaseCards()}</div>
+    <div class="showcase-controls" hidden>
+      <span class="showcase-position" aria-live="polite" aria-atomic="true" aria-label="${t('Demo position', '演示位置')}">1 / ${showcases.filter((item) => !item.chain).length}</span>
+      <button type="button" data-previous aria-label="${t('Previous demo', '前一个演示')}" aria-controls="showcase-list" disabled><span aria-hidden="true">←</span></button>
+      <button type="button" data-next aria-label="${t('Next demo', '下一个演示')}" aria-controls="showcase-list"><span aria-hidden="true">→</span></button>
+    </div>
+    <div class="showcase-grid" id="showcase-list">${showcaseCards()}</div>
     <p class="more stage-next"><a href="#start-h">${t('Pick a path for what you have', '看看从哪里开始')}<span class="arrow" aria-hidden="true">↓</span></a></p>
   </div></section>
   <section class="band" aria-labelledby="start-h"><div class="wrap">
@@ -626,7 +655,7 @@ const homePage = () => {
     <p class="actions"><a class="btn" href="${appHref(LANG, '/register', 'org_home_closing')}">${t('Open ZenStory Workbench', '打开 ZenStory 工作台')}${extGlyph}</a><a class="btn ghost" href="#choose-h">${t('Install a skill pack in your agent', '在 Agent 中安装 skill 包')}<span class="arrow" aria-hidden="true">↑</span></a></p>
   </div></section>
 </article>
-${playerScript}`
+${playerScript}${carouselScript}`
   write(route, page({ route, title, description, ogType: 'website', ld, body, pageId: 'home', fonts: HOME_FONTS }))
 }
 
