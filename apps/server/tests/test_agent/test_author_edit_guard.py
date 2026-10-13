@@ -7,33 +7,26 @@
 import json
 
 import pytest
-from fastapi import BackgroundTasks
 from sqlmodel import Session
 
 from agent.service import routing_from_router_decided
 from agent.tools import mcp_tools
 from agent.tools.author_edit_guard import (
     AUTHOR_EDIT_PROTECTED_ERROR,
-    CONFIRM_FILE_IDS_ROUTING_KEY,
-    AuthorEditRefusals,
     AuthorScope,
     _title_sequence,
     author_accepts_offer,
-    confirmed_file_ids_from_history,
     ends_with_conditional_offer,
-    latest_text_is_authors,
     mentioned_sequences,
     previous_offer_context_from_history,
     previous_offer_from_history,
     previous_offer_items,
     referenced_file_ids_from_metadata,
-    rename_source_terms,
     request_deletes_file,
     request_deletes_folder,
     request_targets_file,
     resolve_offer_context_file,
 )
-from agent.tools.file_ops import FileCRUD
 from api import files as files_api
 from models import File, Project, User
 from services.features.activation_event_service import activation_event_service
@@ -58,7 +51,6 @@ class TestRequestTargetsFile:
     def test_continue_next_chapter_does_not_target_the_open_chapter(self):
         # 审计原样：作者正开着第 3 章，说「继续写下一章」。
         assert _targets("继续写下一章", focus="ch3") is False
-        assert _targets("继续写下一章", focus="ch3", edits=[{"op": "append", "text": "续写"}]) is False
 
     def test_named_chapter_is_targeted(self):
         assert _targets("把第三章结尾改一下") is True
@@ -72,21 +64,6 @@ class TestRequestTargetsFile:
         assert _targets("别动第3章，写第4章") is False
         assert _targets("不要统一称呼，按我改的来") is False
         assert mentioned_sequences("不用管第2章，把第3章的结尾改一下") == {(3, "novel")}
-
-    def test_rename_request_allows_only_replacing_the_old_name(self):
-        assert rename_source_terms("帮我把老秦全部改成老周") == {"老秦"}
-        rename = {"op": "replace", "old": "老秦在收摊。", "new": "老周在收摊。"}
-        unrelated = {"op": "replace", "old": "折叠桌一张张码上三轮车。", "new": "桌子收好了。"}
-        assert _targets("把老秦改回老周", edits=[rename]) is True
-        assert _targets("把老秦改回老周", edits=[rename, unrelated]) is False
-
-    def test_continue_writing_the_open_chapter_may_only_append(self):
-        assert _targets("继续写", focus="ch3", edits=[{"op": "append", "text": "后来"}]) is True
-        assert _targets(
-            "继续写", focus="ch3", edits=[{"op": "replace", "old": "老秦", "new": "老周"}]
-        ) is False
-        # 不是正开着的文件，追加也不行。
-        assert _targets("继续写", focus="ch2", edits=[{"op": "append", "text": "后来"}]) is False
 
     def test_this_chapter_refers_to_the_open_file(self):
         assert _targets("帮我润色一下这一章", focus="ch3") is True
@@ -106,61 +83,6 @@ class TestRequestTargetsFile:
             file_id="ch3",
             title="第3章",
         ) is True
-        # 上一轮因为作者手改过没改它，作者这一轮说清了往哪改。
-        assert request_targets_file(
-            AuthorScope(messages=("统一成老周吧",), confirmed_file_ids=frozenset({"ch3"})),
-            file_id="ch3",
-            title="第3章",
-            edits=[{"op": "replace", "old": "老秦", "new": "老周"}],
-        ) is True
-
-    @pytest.mark.parametrize(
-        ("reply", "unlocked"),
-        [
-            # 说清了往哪改（不点名别的章）：放行把这一章往这个写法改。
-            ("统一成老周吧", True),
-            ("改回老周", True),
-            ("可以，统一成老周，然后写下一章", True),
-            # 上一轮 AI 问的是「要把第2章也改成老秦吗？」：「好 / 可以」答应的是改第2章，
-            # 不放开作者改过的第3章（审计复查：答应改别的章时第3章被改回去）。
-            ("可以", False),
-            ("好", False),
-            ("行", False),
-            ("嗯", False),
-            ("OK", False),
-            ("没问题", False),
-            ("改吧", False),
-            ("好，改吧，然后写下一章", False),
-            ("可以，第2章也改成老秦", False),
-            ("第2章改成老秦", False),
-            # 往作者的写法统一：用不着动作者改过的这一章。
-            ("统一成老秦吧", False),
-            # 作者不同意、或只是让 AI 往下写：上一轮问过也不放行。
-            ("不用改，继续写下一章", False),
-            ("不用改，第3章就叫老秦", False),
-            ("先不改，按我的来", False),
-            ("好，继续写下一章", False),
-            ("继续写第5章", False),
-            ("继续写下一章，人名要统一", False),
-            ("统一吧", False),
-            ("要统一", False),
-            ("继续写第5章，写好一点", False),
-            ("继续写下一章，开头改得有悬念一点", False),
-            ("我已经把老周改成老秦了，继续写下一章", False),
-            ("我自己改好了", False),
-        ],
-    )
-    def test_reply_to_the_ais_question_unlocks_only_with_a_direction(self, reply, unlocked):
-        scope = AuthorScope(messages=(reply,), confirmed_file_ids=frozenset({"ch3"}))
-        revert = [{"op": "replace", "old": "老秦", "new": "老周", "replace_all": True}]
-        assert request_targets_file(scope, file_id="ch3", title="第3章 三十年", edits=revert) is unlocked
-
-    def test_direction_reply_still_allows_only_edits_toward_it(self):
-        scope = AuthorScope(messages=("统一成老周吧",), confirmed_file_ids=frozenset({"ch3"}))
-        unrelated = {"op": "replace", "old": "折叠桌一张张码上三轮车。", "new": "桌子收好了。"}
-        assert request_targets_file(scope, file_id="ch3", title="第3章 三十年", edits=[unrelated]) is False
-        # 没有逐处修改（删除 / 整份重写）不算答应。
-        assert request_targets_file(scope, file_id="ch3", title="第3章 三十年") is False
 
     def test_edit_request_on_the_open_chapter(self):
         # 作者正开着第 1 章、直接提改动：就是改这一章。
@@ -171,17 +93,6 @@ class TestRequestTargetsFile:
         assert _targets("把第3章开头改一下", title="第1章 夜班", file_id="ch1", focus="ch1") is False
         assert _targets("继续写下一章，开头改得有悬念一点", title="第1章 夜班", file_id="ch1", focus="ch1") is False
         assert _targets("不用改，继续写", title="第1章 夜班", file_id="ch1", focus="ch1") is False
-
-    def test_rename_by_description_allows_only_the_new_name(self):
-        rename = {"op": "replace", "old": "张三", "new": "李明", "replace_all": True}
-        in_context = {"op": "replace", "old": "张三推开门。", "new": "李明推开门。"}
-        unrelated = {"op": "replace", "old": "折叠桌一张张码上三轮车。", "new": "桌子收好了。"}
-        message = "帮我把主角的名字改成李明"
-        assert _targets(message, edits=[rename]) is True
-        assert _targets(message, edits=[rename, in_context]) is True
-        assert _targets(message, edits=[rename, unrelated]) is False
-        # 开着的那一章：提了改动，整章都算作者要改的。
-        assert _targets(message, focus="ch3", edits=[unrelated]) is True
 
     def test_title_word_or_unify_alone_is_not_a_request_to_edit(self):
         # 提到「夜市」只是在说下一章的内容。
@@ -197,25 +108,20 @@ class TestRequestTargetsFile:
     def test_unify_without_a_direction_does_not_unlock_the_open_chapter(self):
         # 作者刚把第 3 章的老周改成老秦、还开着它：「人名要统一」「统一一下格式」不能让 AI
         # 把老秦改回老周；点名「这一章」或说清「统一成老周」才算。
-        revert = [{"op": "replace", "old": "老秦", "new": "老周"}]
-        assert _targets("人名要统一", focus="ch3", edits=revert) is False
-        assert _targets("把格式统一一下", focus="ch3", edits=revert) is False
-        assert _targets("这一章的人名统一一下", focus="ch3", edits=revert) is True
-        assert _targets("第3章人名统一一下", edits=revert) is True
-        assert _targets("老秦统一成老周", focus="ch3", edits=revert) is True
+        assert _targets("人名要统一", focus="ch3") is False
+        assert _targets("把格式统一一下", focus="ch3") is False
+        assert _targets("这一章的人名统一一下", focus="ch3") is True
+        assert _targets("第3章人名统一一下") is True
 
     def test_words_that_only_look_like_an_edit_request(self):
         # 「改变」「继续更新」不是要改已有章节；作者讲自己改过的也不是。
         assert _targets("继续写第四章，夜市里主角命运改变", title="第3章 夜市") is False
-        assert _targets("继续更新", focus="ch3", edits=[{"op": "replace", "old": "老秦", "new": "老周"}]) is False
         assert _targets("今天更新两章") is False
         assert _targets("我把第3章的老周改成老秦了，继续写下一章") is False
         assert _targets("第3章夜市那段我改过了，你继续写第4章", title="第3章 夜市") is False
         assert _targets("我在第3章把人名改了，继续写下一章") is False
         assert _targets("第3章已经改好了，继续写第4章") is False
         # 接着往下写时，开着的文件只能往后追加，不能改作者写过的字。
-        assert _targets("接着写，节奏改快点", focus="ch3", edits=[{"op": "replace", "old": "老秦", "new": "老周"}]) is False
-        assert _targets("接着写，节奏改快点", focus="ch3", edits=[{"op": "append", "text": "后来"}]) is True
         # 真正的要求照常放行。
         assert _targets("帮我把第3章改了") is True
         assert _targets("我想把第3章的开头改一下") is True
@@ -257,9 +163,7 @@ class TestRequestTargetsFile:
     def test_naming_the_chapter_as_the_standard_or_reporting_an_edit_does_not_unlock_it(self, message):
         # 审计复查：这些话里作者都是在让 AI 跟着第3章走；模型要是反过来统一，就会把
         # 作者手改的「老秦」改回「老周」。
-        revert = [{"op": "replace", "old": "老秦", "new": "老周", "replace_all": True}]
         assert _targets(message) is False
-        assert _targets(message, edits=revert) is False
 
     @pytest.mark.parametrize(
         "message",
@@ -307,15 +211,6 @@ class TestRequestTargetsFile:
 
 
 def test_history_and_metadata_helpers():
-    history = [
-        {"role": "user", "content": "继续写下一章"},
-        {"role": "assistant", "content": "…", "routing": {CONFIRM_FILE_IDS_ROUTING_KEY: ["ch3"]}},
-        {"role": "user", "content": "可以"},
-    ]
-    assert confirmed_file_ids_from_history(history) == ["ch3"]
-    # 只看上一条 assistant 消息：更早问过的不算。
-    later = [*history, {"role": "assistant", "content": "好的", "routing": {}}]
-    assert confirmed_file_ids_from_history(later) == []
     assert referenced_file_ids_from_metadata(
         {"attached_file_ids": ["a"], "text_quotes": [{"fileId": "b", "text": "x"}], "current_file_id": "c"}
     ) == ["a", "b"]
@@ -393,55 +288,6 @@ def _revert_rename_edit(file_id):
     ]}
 
 
-async def test_ai_cannot_revert_the_authors_rename_in_an_unrequested_chapter(db_session, owner_project):
-    user, project = owner_project
-    chapter = _ai_chapter(db_session, project)
-    _author_saves(db_session, user, chapter, AUTHOR_CH3)
-    refusals = AuthorEditRefusals()
-
-    payload = await _run(
-        mcp_tools.edit_file, db_session, user, project, _revert_rename_edit(chapter.id),
-        message="继续写下一章", refusals=refusals, focus_file_id=chapter.id,
-    )
-
-    assert payload["status"] == "error"
-    assert payload["error_type"] == AUTHOR_EDIT_PROTECTED_ERROR
-    assert payload["mutation_applied"] is False
-    # 给模型的说明：以作者为准、不要重试、去问作者；给作者的话不带内部名字。
-    assert "以作者为准" in payload["error"] and "问作者" in payload["error"]
-    assert "手动改过" in payload["user_message"] and "edit_file" not in payload["user_message"]
-    db_session.expire_all()
-    assert db_session.get(File, chapter.id).content == AUTHOR_CH3
-    # 记下来随路由落库，作者下一轮回答时放行。
-    assert refusals.file_ids() == [chapter.id]
-
-
-@pytest.mark.parametrize(("change_type", "protected"), [("edit", True), ("ai_edit", False)])
-async def test_comparison_save_keeps_the_rename_protected_only_as_an_author_edit(
-    db_session, owner_project, change_type, protected
-):
-    """作者改名还没自动保存时 AI 写了这一章，作者在对比里保留自己的改名后点完成：
-    编辑器按作者编辑保存（change_type=edit），下一轮 AI 不能把改名改回去。
-    作者接受的 AI 修改（去AI味审阅，change_type=ai_edit）照旧不算作者的文字。"""
-    user, project = owner_project
-    chapter = _ai_chapter(db_session, project)
-    files_api.update_file(
-        chapter.id,
-        files_api.FileUpdate(content=AUTHOR_CH3, change_type=change_type, change_source="user"),
-
-        current_user=user,
-        session=db_session,
-    )
-    db_session.expire_all()
-    assert latest_text_is_authors(db_session, db_session.get(File, chapter.id)) is protected
-
-    payload = await _run(
-        mcp_tools.edit_file, db_session, user, project, _revert_rename_edit(chapter.id),
-        message="继续写下一章",
-    )
-    assert (payload.get("error_type") == AUTHOR_EDIT_PROTECTED_ERROR) is protected
-
-
 async def test_author_can_still_ask_for_the_change(db_session, owner_project):
     user, project = owner_project
     chapter = _ai_chapter(db_session, project)
@@ -457,29 +303,6 @@ async def test_author_can_still_ask_for_the_change(db_session, owner_project):
     assert db_session.get(File, chapter.id).content == AI_CH3
 
 
-async def test_reply_to_the_ais_question_unlocks_the_file(db_session, owner_project):
-    user, project = owner_project
-    chapter = _ai_chapter(db_session, project)
-    _author_saves(db_session, user, chapter, AUTHOR_CH3)
-
-    # AI 上一轮问「要把第2章也改成老秦吗？」，作者回「可以」：答应的是改第2章，第3章不动。
-    agreed = await _run(
-        mcp_tools.edit_file, db_session, user, project, _revert_rename_edit(chapter.id),
-        message="可以", author_confirmed_file_ids=[chapter.id],
-    )
-    assert agreed["error_type"] == AUTHOR_EDIT_PROTECTED_ERROR
-    db_session.expire_all()
-    assert db_session.get(File, chapter.id).content == AUTHOR_CH3
-
-    # 作者说清了往回统一：放行。
-    payload = await _run(
-        mcp_tools.edit_file, db_session, user, project, _revert_rename_edit(chapter.id),
-        message="统一成老周吧", author_confirmed_file_ids=[chapter.id],
-    )
-
-    assert payload["status"] == "success"
-
-
 async def test_ai_written_chapter_is_still_editable_this_round(db_session, owner_project):
     """审稿返工改本轮刚写的章节（最新版本是 AI 的）不受影响。"""
     user, project = owner_project
@@ -492,24 +315,6 @@ async def test_ai_written_chapter_is_still_editable_this_round(db_session, owner
     )
 
     assert payload["status"] == "success"
-
-
-async def test_unversioned_manual_edit_is_protected_too(db_session, owner_project):
-    """作者的版本额度用满时正文照存、不留版本：正文和最新 AI 版本不一致也算作者改过。"""
-    user, project = owner_project
-    chapter = _ai_chapter(db_session, project)
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(FileVersionService, "check_user_version_quota", lambda *_a, **_kw: (False, 10, 10))
-        _author_saves(db_session, user, chapter, AUTHOR_CH3)
-    db_session.expire_all()
-    assert latest_text_is_authors(db_session, db_session.get(File, chapter.id)) is True
-
-    payload = await _run(
-        mcp_tools.edit_file, db_session, user, project, _revert_rename_edit(chapter.id),
-        message="继续写下一章",
-    )
-
-    assert payload["error_type"] == AUTHOR_EDIT_PROTECTED_ERROR
 
 
 async def test_delete_of_an_author_edited_chapter_is_refused(db_session, owner_project):
@@ -563,37 +368,6 @@ async def test_guard_is_off_without_an_author_message(db_session, owner_project)
         mcp_tools.ToolContext.clear_context()
 
     assert json.loads(raw["content"][0]["text"])["status"] == "success"
-
-
-async def test_declined_reply_keeps_the_file_protected(db_session, owner_project):
-    """上一轮被拒、AI 问过作者；作者回「不用改，继续写下一章」时第 3 章仍然改不了。"""
-    user, project = owner_project
-    chapter = _ai_chapter(db_session, project)
-    _author_saves(db_session, user, chapter, AUTHOR_CH3)
-    first_round = AuthorEditRefusals()
-    refused = await _run(
-        mcp_tools.edit_file, db_session, user, project, _revert_rename_edit(chapter.id),
-        message="继续写下一章", refusals=first_round,
-    )
-    assert refused["error_type"] == AUTHOR_EDIT_PROTECTED_ERROR
-    history = [
-        {"role": "user", "content": "继续写下一章"},
-        {
-            "role": "assistant",
-            "content": "第4章写好了。第3章是你手动改过的，我没动它：那里摊主叫老秦，第2章写的是老周，要统一吗？",
-            "routing": {CONFIRM_FILE_IDS_ROUTING_KEY: first_round.file_ids()},
-        },
-    ]
-
-    payload = await _run(
-        mcp_tools.edit_file, db_session, user, project, _revert_rename_edit(chapter.id),
-        message="不用改，继续写下一章",
-        author_confirmed_file_ids=confirmed_file_ids_from_history(history),
-    )
-
-    assert payload["error_type"] == AUTHOR_EDIT_PROTECTED_ERROR
-    db_session.expire_all()
-    assert db_session.get(File, chapter.id).content == AUTHOR_CH3
 
 
 async def test_author_can_edit_the_chapter_they_have_open(db_session, owner_project):
@@ -980,86 +754,6 @@ class TestUnnamedOfferResolvesFromContext:
         assert _context_target(history, [_CH2_NIGHT, _CH3_NIGHT], {"n2", "n3"}) == "n3"
 
 
-async def test_option_number_for_an_unnamed_offer_edits_the_discussed_file(db_session, owner_project):
-    """上一轮选项没点名文件、作者回「1」：改的是上一轮在谈的那个作者手改过的章节。"""
-    user, project = owner_project
-    chapter = _ai_chapter(db_session, project, title="第二章 夜渡", content="雾是傍晚起的。")
-    _author_saves(db_session, user, chapter, "雾是傍晚起的。他等船。")
-    other = _ai_chapter(db_session, project, title="第三章 上岸", content="上岸了。")
-    history = [
-        {"role": "user", "content": _ASK_CH2},
-        {"role": "assistant", "content": _SUGGEST_UNNAMED},
-    ]
-    context = {
-        "author_previous_offer": previous_offer_from_history(history),
-        "author_previous_offer_context": previous_offer_context_from_history(history),
-    }
-    edit = {"id": chapter.id, "edits": [{"op": "replace", "old": "他等船。", "new": "雾里有铃声。"}]}
-
-    payload = await _run(mcp_tools.edit_file, db_session, user, project, edit, message="1", **context)
-    assert payload["status"] == "success"
-
-    # 第三章也被作者手改过：上一轮在谈的是哪一章说不清（作者问的是第二章，AI 回复又点了
-    # 第三章），不猜，照旧拒。
-    db_session.expire_all()
-    _author_saves(db_session, user, db_session.get(File, chapter.id), "雾里有铃声。他还在等。")
-    _author_saves(db_session, user, db_session.get(File, other.id), "上岸了，天还没亮。")
-    ambiguous = [
-        {"role": "user", "content": _ASK_CH2},
-        {"role": "assistant", "content": _SUGGEST_UNNAMED.replace("拖的地方", "第三章开头也拖，拖的地方")},
-    ]
-    refused = await _run(
-        mcp_tools.edit_file, db_session, user, project,
-        {"id": chapter.id, "edits": [{"op": "replace", "old": "他还在等。", "new": "他不等了。"}]},
-        message="1",
-        author_previous_offer=previous_offer_from_history(ambiguous),
-        author_previous_offer_context=previous_offer_context_from_history(ambiguous),
-    )
-    assert refused["error_type"] == AUTHOR_EDIT_PROTECTED_ERROR
-
-
-async def test_agreeing_to_the_ais_own_proposal_edits_the_author_edited_file(db_session, owner_project):
-    """AI 上一轮提议改作者手改过的第四节、作者回「好的，继续」：这一轮改得了。"""
-    user, project = owner_project
-    chapter = _ai_chapter(db_session, project, title="第四节 码头夜谈", content="货早就出不去了。")
-    _author_saves(db_session, user, chapter, "他说，货早就出不去了。")
-    history = [
-        {"role": "user", "content": "诱饵那颗雷再实一点"},
-        {"role": "assistant", "content": _OFFER_CH4, "routing": {CONFIRM_FILE_IDS_ROUTING_KEY: [chapter.id]}},
-    ]
-    edit = {"id": chapter.id, "edits": [
-        {"op": "replace", "old": "货早就出不去了。", "new": "冷库停电三天，最大的客户也转了单。"},
-    ]}
-
-    payload = await _run(
-        mcp_tools.edit_file, db_session, user, project, edit,
-        message="好的，继续",
-        author_confirmed_file_ids=confirmed_file_ids_from_history(history),
-        author_previous_offer=previous_offer_from_history(history),
-    )
-
-    assert payload["status"] == "success"
-    db_session.expire_all()
-    assert "冷库停电" in db_session.get(File, chapter.id).content
-
-    # 作者又手改了一次；这回 AI 问的是别的章，作者回「好」：第四节照样不动。
-    db_session.expire_all()
-    _author_saves(db_session, user, db_session.get(File, chapter.id), "冷库停电三天，大客户也走了。")
-    other = [
-        {"role": "user", "content": "继续"},
-        {"role": "assistant", "content": "第四节是你手动改过的，我没动它。要把第三节也改成冷库停电吗？"},
-    ]
-    refused = await _run(
-        mcp_tools.edit_file, db_session, user, project,
-        {"id": chapter.id, "edits": [{"op": "replace", "old": "冷库停电三天", "new": "冷库停电五天"}]},
-        message="好",
-        author_previous_offer=previous_offer_from_history(other),
-    )
-    assert refused["error_type"] == AUTHOR_EDIT_PROTECTED_ERROR
-
-
-# Live run 5 scenario C2: the AI listed three sectioned 改法 headings, the last one with
-# its own 好处 / 代价 bullets. 「1」 picked the bullet 「好处…」 instead of 改法一.
 _SECTIONED_OFFER_REPLY = """看了开头，慢在背景说明太集中。下面三个改法按改动大小排，都只动开头。
 
 **改法一｜最小改动：压缩背景，提前钩子**

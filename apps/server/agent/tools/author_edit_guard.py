@@ -1,36 +1,27 @@
-"""作者手动改过的文件：作者本轮没点名时，AI 不改、不删，改为问作者。
+"""作者手动改过的文件：作者本轮没点名时，AI 不删、不整份重写，改为问作者。
+
+只管三件事：delete_file 删它、递归删除的文件夹里有它、create_file 复用了同名的已有剧集
+（接下来的 <file> 正文会整份覆盖它）。修改（edit_file）从 2026-10-12 起不走这里：按字符串判断
+作者有没有「授权」修改，作者说「直接写进第2集结尾，我那句台词保持我改的版本」仍被拒（生产审计
+drama）。现在作者改了什么（版本历史的净差异）给模型看，由模型保留或按作者的新要求改，见
+agent/tools/author_changes.py 和 .agents/notes/implemented/architecture/2026-10-12-author-edits-shown-not-guessed.md。
 
 2026-10-09 审计 P1-3：作者把第 3 章的「老周」手动改成「老秦」（19 处），接着发「继续写
 下一章」。AI 写完第 4 章后把第 3 章 19 处全改了回去，还在总结里说「顺手修的两处」。
 
 规则（工具层兜底，提示词里有同一条要求）：
 - 文件的当前正文最后是作者自己写下的（最新版本不是 AI 写的，或正文在 AI 版本之后又被
-  改过却没留版本），而作者本轮的话没有指向这个文件时，edit_file / delete_file（含递归删除
-  文件夹里的这类文件）/ create_file 复用同名剧集不执行，返回 error_type=author_edit_protected，
-  告诉模型以作者的写法为准、有出入就问作者。
-- 「指向这个文件」：作者点名它并要求改它（标题或标题里的词、第 N 章 / 集、前 N 章，同一分句
-  或下一分句里有「改 / 润色 / 精简…」）、「全书 / 所有章节」并要求改、大纲 / 人设这类文件
-  类别并要求改、附加或引用了它；作者正开着它时说「这一章 / 这里」，或者提了改动且没点名别的
-  文件、不是要下一章或接着往下写（「把开头改得更有悬念一点」）；上一轮 AI 因为这条规则没改
-  它、作者这一轮不点名别的章、说清了往哪改（「统一成老周吧」「改回老周」），且每处修改都是
-  换成这个写法；上一轮 AI 收尾的提议（选项 / 问句）里要改它的那一项被作者答应或选中
-  （「好的，继续」答应第一项、「1」「两件都做」、复述了那一项的说法）。上一轮 AI 问的是
-  「要把第2章也改成老秦吗？」时，「好 / 可以」答应的是改第2章，不放开作者改过的这一章；
-  AI 没提议改它时「好」也不放开。
-- 点名了但不是要改它：拿它当标准 / 来源（「以第3章为准」「按第3章统一人名」「和第3章的
-  人名保持统一」「第4章沿用第3章的改动」）；作者在讲它改过了（「第3章改好了」「第3章老周
-  改成老秦了」「第3章有改动」「第3章是我改过的，以它为准统一一下其他章」——讲完改过的，
-  下一分句的要求不算到它头上）。
-- 不算要求改的说法：「改变 / 改天」（「把结局改变一下」算）、「继续更新」（发新章）、作者讲
-  自己改过的（「我把老周改成老秦了」「第3章我改过了」）、抱怨（「你怎么把第3章改了」）；
-  没点名哪一章时不带方向的「统一」（「人名要统一」「统一一下格式」）——作者改的写法是最新
-  设定，往回统一要作者说清楚。
+  改过却没留版本），而作者本轮的话没有指向这个文件时，上面三种写入不执行，返回
+  error_type=author_edit_protected，告诉模型先问作者。
+- 删除（含递归删除里的文件）：作者附加 / 引用了它并说删，或点名它（标题、第 N 章 / 集；
+  正开着它时说「这一章」）并在点名的那一分句或下一分句说删。「第3章改一下，把废稿删了」
+  删的是废稿。
 - 递归删除文件夹：作者点名这个文件夹并说删它（「正文里的第2章删掉」删的是里面的东西，不算）
   才整个删；否则里面作者手改过的文件要点名并在那一处说删。
-- 「把老秦改成老周」这类改名要求：只替换 / 删除含「老秦」的原文时放行；「把主角的名字改成
-  李明」只放行改成的文字里有「李明」的小段替换。
-- 作者正开着的文件只追加（op=append）、且本轮不是写下一章时放行：作者写了半章说
-  「继续写」，AI 接着往后写不改动作者已写的字。
+- 整份重写同名剧集（request_targets_file）：作者点名它并要求改它（标题或标题里的词、第 N 章 /
+  集、前 N 章）、「全书 / 所有章节」并要求改、大纲 / 人设这类文件类别并要求改、附加或引用了它；
+  作者正开着它时说「这一章 / 这里」或提了改动且不是要下一章；上一轮 AI 收尾的提议里要改它的
+  那一项被作者答应或选中。点名了但只是拿它当标准、或在讲它改过了，不算。
 
 只在应用内对话（ToolContext 带着作者原话）时生效；没有作者原话的调用路径不受影响。
 """
@@ -180,18 +171,6 @@ _DECLINE_RE = re.compile(
 )
 # 作者在让 AI 接着往下写（不是在回答要不要改）。
 _MOVING_ON_MARKERS: tuple[str, ...] = ("继续写", "接着写", "往下写", "续写", "继续更新", "接着更新")
-
-# 「把老秦改成老周」：改名 / 替换的来源词和目标词。
-_RENAME_VERB_RE = re.compile(
-    r"(?:改成|改为|改回|换成|替换成|替换为|改叫|改名为|改名成|改名叫|统一成|统一为|统一叫)"
-)
-_RENAME_SOURCE_SPLIT_RE = re.compile(r"[的把将，,。；;、\s「」“”\"'『』（）()]+")
-_RENAME_SOURCE_TRAILING_RE = re.compile(r"(?:全部|全都|都|统一|一律|也|再)+$")
-_RENAME_TARGET_SPLIT_RE = re.compile(r"[，,。；;、！？!?\s「」“”\"'『』（）()]+")
-_RENAME_TARGET_TRAILING_RE = re.compile(r"(?:吧|了|啊|呀|哦|嘛|呢|就行|就好|即可|好了)+$")
-# 「把主角的名字改成李明」：被换掉的是「名字」这类泛称，原文里找不到，按新名字判断。
-_RENAME_GENERIC_SOURCES: tuple[str, ...] = ("名字", "名称", "称呼", "叫法", "姓名", "人名", "名号")
-_RENAME_MAX_OLD_CHARS = 80
 
 _TITLE_TOKEN_SPLIT_RE = re.compile(r"[\s　·・:：，,。、《》「」“”\"'（）()\-—_/|]+")
 _BOOK_TITLE_RE = re.compile(r"《([^》]{1,40})》")
@@ -518,105 +497,6 @@ def mentioned_sequences(text: str) -> set[tuple[int, str]]:
     for numbers, _, _ in _sequence_mentions(_normalize_text(text)):
         found.update(numbers)
     return found
-
-
-def _rename_pairs(text: str) -> list[tuple[str, str]]:
-    """「把老秦改成老周」「把主角的名字改成李明」里的（被换掉的词, 换成的词）。"""
-    normalized = _normalize_text(text)
-    pairs: list[tuple[str, str]] = []
-    for match in _RENAME_VERB_RE.finditer(normalized):
-        if _is_negated(normalized, match.start()):
-            continue
-        before = normalized[max(0, match.start() - 16):match.start()]
-        segments = [segment for segment in _RENAME_SOURCE_SPLIT_RE.split(before) if segment]
-        source = _RENAME_SOURCE_TRAILING_RE.sub("", segments[-1]) if segments else ""
-        after = normalized[match.end():match.end() + 16]
-        targets = [segment for segment in _RENAME_TARGET_SPLIT_RE.split(after) if segment]
-        target = _RENAME_TARGET_TRAILING_RE.sub("", targets[0]) if targets else ""
-        pairs.append((source, target))
-    return pairs
-
-
-def rename_source_terms(text: str) -> set[str]:
-    """「把老秦改成老周」「老秦都换成老周」里被换掉的词（至少 2 个字）。"""
-    return {source for source, _ in _rename_pairs(text) if len(source) >= 2}
-
-
-def _edits_are_requested_rename(raw_text: str, edits: list[dict[str, Any]]) -> bool:
-    """每一处替换 / 删除都是作者要的改名。
-
-    原文含被换掉的词（「把老秦改成老周」只替换含「老秦」的原文）；被换掉的是「名字」
-    这类泛称时（「把主角的名字改成李明」），改成的文字里有新名字、原文里没有，且原文
-    只是一小段。
-    """
-    pairs = _rename_pairs(raw_text)
-    ops = [str(edit.get("op") or "").strip() for edit in edits]
-    if not pairs or not all(op in {"replace", "delete"} for op in ops):
-        return False
-    sources = {source for source, _ in pairs if len(source) >= 2}
-    generic_targets = {
-        target
-        for source, target in pairs
-        if 2 <= len(target) <= 8 and any(word in source for word in _RENAME_GENERIC_SOURCES)
-    }
-
-    def allowed(edit: dict[str, Any]) -> bool:
-        old = str(edit.get("old") or "")
-        new = str(edit.get("new") or "")
-        if any(source in old for source in sources):
-            return True
-        return (
-            str(edit.get("op") or "").strip() == "replace"
-            and len(old) <= _RENAME_MAX_OLD_CHARS
-            and any(target in new and target not in old for target in generic_targets)
-        )
-
-    return all(allowed(edit) for edit in edits)
-
-
-def author_confirms_change(
-    text: str, *, sequence: tuple[int, str] | None = None, edits: list[Any] | None = None
-) -> bool:
-    """上一轮 AI 因为作者手改过而没改这个文件，作者这一轮是不是说清了把它往哪改。
-
-    这里不看上一轮 AI 提议了什么：「好 / 可以 / 行 / 没问题」是不是答应改这一章，由
-    author_accepts_offer 按上一轮的提议原文判断（AI 问的是「要把第2章也改成老秦吗？」时
-    答应的是第2章）；「可以，第2章也改成老秦」点名的是别的章，也不算。作者点名这一章要求改
-    （「第3章改回老周」）走点名的规则。
-    这里只放行没点名、但说清了往哪改的回答（「统一成老周吧」「改回老周」「可以，统一成老周，
-    然后写下一章」），而且每一处修改都是换成这个写法（或替换掉作者说要换掉的词）：作者说
-    「统一成老秦」（作者自己的写法）时，把这一章的老秦改成老周仍然不行。
-    出现不改的说法（不用 / 别 / 先不 / 保持 / 就叫 / 我自己…）不算；删除、整份重写
-    （没有逐处修改）不算。sequence：这个文件的章 / 集号。
-    """
-    normalized = _normalize_text(text)
-    if not normalized or _DECLINE_RE.search(normalized):
-        return False
-    if any(sequence is None or sequence not in numbers for numbers, _, _ in _sequence_mentions(normalized)):
-        return False
-    if not edits or not all(isinstance(edit, dict) for edit in edits):
-        return False
-    pairs = [(source, target) for source, target in _rename_pairs(text) if target]
-    if not pairs:
-        return False
-    sources = {source for source, _ in pairs if len(source) >= 2}
-    targets = {target for _, target in pairs if len(target) <= 8}
-
-    def toward_target(edit: dict[str, Any]) -> bool:
-        op = str(edit.get("op") or "").strip()
-        old = str(edit.get("old") or "")
-        new = str(edit.get("new") or "")
-        if op not in {"replace", "delete"}:
-            return False
-        if any(source in old for source in sources):
-            return True
-        return (
-            op == "replace"
-            and len(old) <= _RENAME_MAX_OLD_CHARS
-            and any(target in new and target not in old for target in targets)
-        )
-
-    return all(toward_target(edit) for edit in edits)
 
 
 def _title_tokens(title: str) -> list[str]:
@@ -1261,7 +1141,6 @@ class AuthorScope:
 
     messages: tuple[str, ...] = ()
     referenced_file_ids: frozenset[str] = frozenset()
-    confirmed_file_ids: frozenset[str] = frozenset()
     focus_file_id: str | None = None
     # 上一轮 AI 收尾时给作者的提议（previous_offer_from_history）。
     previous_offer: tuple[OfferItem, ...] = ()
@@ -1279,10 +1158,9 @@ def request_targets_file(
     file_id: str,
     title: str | None,
     file_type: str | None = None,
-    edits: list[Any] | None = None,
     offer_context_file: Callable[[], str | None] | None = None,
 ) -> bool:
-    """作者这一轮的话是否指向了这个文件（或这次修改本身就是作者要的改名 / 续写）。
+    """作者这一轮的话是否指向了这个文件（create_file 复用同名剧集、要整份重写它时用）。
 
     offer_context_file：上一轮提议没点名文件时，上一轮在谈的那个被保护文件的 id
     （resolve_offer_context_file，要查库，只在需要时调用）。
@@ -1298,12 +1176,6 @@ def request_targets_file(
     title_text = title or ""
     file_type_text = str(file_type or "")
     sequence = _title_sequence(title_text)
-
-    # 上一轮因为作者手改过没改它：作者说清了往哪改（「统一成老周吧」）。
-    if file_id in scope.confirmed_file_ids and author_confirms_change(
-        raw_text, sequence=sequence, edits=edits
-    ):
-        return True
 
     # 上一轮 AI 提议改这个文件，作者答应 / 选了这一项（「好的，继续」「两件都做」「1」）。
     if scope.previous_offer and author_accepts_offer(
@@ -1352,21 +1224,7 @@ def request_targets_file(
                 return True
 
     markers = _FILE_TYPE_MARKERS.get(file_type_text)
-    if markers and _any_positive(text, markers) and _has_edit_verb(text):
-        return True
-
-    if edits:
-        if not all(isinstance(edit, dict) for edit in edits):
-            return False
-        ops = [str(edit.get("op") or "").strip() for edit in edits]
-        # 作者正开着这个文件、本轮不是写下一章：只往末尾追加，不动作者写过的字。
-        if is_focus and all(op == "append" for op in ops) and not wants_next_unit:
-            return True
-        # 作者要的改名：只替换被换掉的那个词。
-        if _edits_are_requested_rename(raw_text, edits):
-            return True
-
-    return False
+    return bool(markers and _any_positive(text, markers) and _has_edit_verb(text))
 
 
 # 「正文里的第2章删掉」「把正文里重复的段落删掉」：删的是文件夹里的东西，不是文件夹。
@@ -1437,6 +1295,7 @@ def latest_text_is_authors(session: Any, file: Any) -> bool:
       就是这样保存的），True。
     - 最新版本是 AI 写的（change_source=ai，或作者审阅后接受的 AI 修改
       change_type=ai_edit）：False；其余（作者编辑、恢复、导入、系统备份）：True。
+      这条只管删除 / 整份覆盖，保持 2026-10-12 之前的口径，不放宽也不收紧。
     """
     content = getattr(file, "content", None) or ""
     if not content.strip():
@@ -1451,50 +1310,48 @@ def latest_text_is_authors(session: Any, file: Any) -> bool:
     latest_content = service._get_contents_for_versions(session, {file.id: latest})[file.id]
     if latest_content != content:
         return True
-    return not (
-        latest.change_source == _AI_CHANGE_SOURCE or latest.change_type == _AI_EDIT_CHANGE_TYPE
-    )
+    return not (latest.change_source == _AI_CHANGE_SOURCE or latest.change_type == _AI_EDIT_CHANGE_TYPE)
 
 
-def protected_refusal_message(title: str | None, *, action: str = "edit") -> str:
-    """给模型看的拒绝说明：不要重试，以作者写法为准，有出入就问作者。
+def protected_refusal_message(title: str | None, *, action: str = "delete") -> str:
+    """给模型看的拒绝说明：不要重试，以作者写法为准，要删 / 整份重写就先问作者。
 
-    action：edit（edit_file / delete_file）、rewrite（create_file 复用了同名的已有剧集，
-    接下来的 <file> 正文会整份覆盖它）、folder（递归删除的文件夹里有这类文件）。
+    修改（edit_file）不再走这里：作者改了什么见 <author_edits>（agent/tools/author_changes.py）。
+    action：delete（delete_file）、rewrite（create_file 复用了同名的已有剧集，接下来的
+    <file> 正文会整份覆盖它）、folder（递归删除的文件夹里有这类文件）。
     """
     label = f"《{title}》" if title else "这个文件"
     if action == "rewrite":
         lead = (
-            f"已经有一个{label}，正文是作者自己改过的，作者本轮没有要求重写它，这次没有复用它，"
-            "不要用 <file> 写它的正文。要写新的一集请换成还没有的集数和标题。"
+            f"已经有一个{label}，正文是作者自己改过的，作者本轮没有要求整份重写它，这次没有复用它，"
+            "不要用 <file> 写它的正文。要改这一集里的内容，用 edit_file 改具体的地方"
+            "（作者改过哪里见 <author_edits> 或 query_files 读到的 author_edits），不要整份重写；"
+            "本来就是要写新的一集，换成还没有的集数和标题。"
         )
     elif action == "folder":
         lead = f"这个文件夹里的{label}是作者自己改过的，作者本轮没有要求删它，这次删除没有执行。"
     else:
-        lead = f"{label}现在的正文是作者自己改过的，作者本轮没有要求改它，这次修改没有执行。"
+        lead = f"{label}现在的正文是作者自己改过的，作者本轮没有要求删除它，这次删除没有执行。"
     return (
         f"{lead}"
-        "作者手改的写法（人名、称呼、用词、情节）就是最新设定，以作者为准："
-        "不要再尝试修改或删除这个文件，也不要把它改回以前的写法；新写的内容沿用作者的写法。"
-        "如果你觉得它和其他章节有出入，只在给作者的回复里用一句话指出位置，问作者往哪边改，"
-        "默认建议按作者改的写法改其他章节（例如「第3章是你手动改过的，我没动它：那里摊主叫老秦，"
-        "第2章写的是老周，要把第2章也改成老秦吗？」），"
-        "不要说「改不动」「被拦下」；作者同意后下一轮再改其他章节。"
-        "给作者的选项里不要提议把作者改的写法改回去。作者这一轮要的修改正落在这个文件里时，"
-        "在回复里说清打算怎么改，并给一个点名这个文件的选项（如「按这个改，写进第3章」）："
-        "作者下一轮回「好」或选这一项就能改，不要让作者照抄某句口令。"
+        "不要再尝试删除或整份覆盖它。作者确实想删或整份重写时，在给作者的回复里点名这个文件、"
+        "说清打算怎么做并问作者；作者回复里点名它并说删（或整份重写）时才会执行，只回「好」不会执行。"
+        "不要说「改不动」「被拦下」，也不要让作者照着念某句话。"
     )
 
 
 def protected_user_message(title: str | None) -> str:
-    """给作者看的一句话（工具卡片）。"""
+    """给作者看的一句话（工具卡片）：删除 / 整份覆盖作者手改过的文件前先问。"""
     label = f"《{title}》" if title else "这个文件"
-    return f"{label}有你手动改过的内容，AI 没有动它；需要改的话会先问你。"
+    return f"{label}有你手动改过的内容，AI 没有删除或整份重写它；需要的话会先问你。"
 
 
 @dataclass
 class AuthorEditRefusals:
-    """本次请求里因为作者手改而没改成的文件（跨工作线程共享），落库后下一轮放行。"""
+    """本次请求里因为作者手改而没删 / 没整份重写的文件（跨工作线程共享）。
+
+    交接给下一个 agent 时说明这些文件保持原样（writing_graph），免得审稿人要求返工。
+    """
 
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _file_ids: list[str] = field(default_factory=list)
@@ -1509,26 +1366,6 @@ class AuthorEditRefusals:
     def file_ids(self) -> list[str]:
         with self._lock:
             return list(self._file_ids)
-
-
-# 落库在 assistant 消息 routing 里的字段名：上一轮问过作者的文件。
-CONFIRM_FILE_IDS_ROUTING_KEY = "author_confirm_file_ids"
-MAX_CONFIRM_FILE_IDS = 20
-
-
-def confirmed_file_ids_from_history(history_messages: Iterable[Any]) -> list[str]:
-    """上一条 assistant 消息里记下的「问过作者要不要改」的文件。"""
-    for message in reversed(list(history_messages or [])):
-        if not isinstance(message, dict) or message.get("role") != "assistant":
-            continue
-        routing = message.get("routing")
-        if not isinstance(routing, dict):
-            return []
-        raw = routing.get(CONFIRM_FILE_IDS_ROUTING_KEY)
-        if not isinstance(raw, list):
-            return []
-        return [str(item) for item in raw if isinstance(item, str) and item][:MAX_CONFIRM_FILE_IDS]
-    return []
 
 
 def referenced_file_ids_from_metadata(metadata: dict[str, Any] | None) -> list[str]:

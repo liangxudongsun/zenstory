@@ -147,14 +147,15 @@ Agent 可以通过两种方式交接：
 - 作者要了规划（原话里有大纲 / 分章 / 分集 / 规划，不是只想聊聊）、规划师却把至少 5 个
   「第 N 章 / 集」的规划只贴在对话里、本请求的大纲文件又没覆盖时，同一个规划师补一轮把规划写进
   大纲文件（每请求一次，`author_scope.chat_only_plan_units` / `request_asks_for_a_plan`）。
-- 作者手动改过的文件（最新版本不是 AI 写的，或正文在版本之后又被改过）：作者本轮没点名并要求改、
-  也不是正开着它提改动时，`edit_file` / `delete_file`（含递归删文件夹里的这类文件）/ 剧本
-  `create_file` 复用同名剧集都不执行，返回 `error_type="author_edit_protected"`，让 agent 以作者
-  写法为准、在回复里问作者（默认问要不要把其他章改成作者的写法）；被拒的文件随 routing 落库
-  （`author_confirm_file_ids`），作者下一轮说清往哪改（「统一成老周」）且每处修改都朝这个方向时
-  放行（「好 / 可以」答应的是改其他章，「不用改」、不带方向的「要统一」都不放行）。点名但拿它当
-  标准（「以第3章为准」「和第3章保持统一」）或讲它改过了（「第3章改好了」）不算要改它。删除
-  （单个文件或递归删文件夹里的）要作者在点名的那一处说删。
+- 作者手动改过的文件，**修改不再拦**（2026-10-12）：`tools/author_changes.py` 按版本历史算出作者在 AI 写过之后
+  的净差异，放进工作集旁的 `<author_edits>`，`query_files` 按 id 读全文时带 `author_edits`，由模型保留作者写法或按作者
+  新要求改。`edit_file` 在锁内比对本请求里模型看到的正文（`_ReadSnapshots`：本轮开始时以全文给出的上下文/工作集、当前 agent
+  这一程 query_files 读到的（下一次模型调用起才算，`usage_hooks.ReadSnapshotPromotionMixin`）、本请求自己写入的（提交前记）；换 agent 时清掉「读到的」），作者生成期间又改了就拒绝（`stale_content`，列出新改动，卡片按「有意没动」显示），本请求没看过全文的文件只按逐字匹配；
+  改到作者写的段落时结果带 `author_edits_touched`，卡片如实提示、可撤销。
+- 删除和整份覆盖仍拦：作者本轮没点名要删 / 重写、也不是正开着它提出时，`delete_file`（含递归删文件夹里的这类
+  文件）/ 剧本 `create_file` 复用同名剧集都不执行，返回 `error_type="author_edit_protected"`，让 agent 在回复里问作者；
+  作者在消息里点名这个文件并说删（或整份重写）时才执行。删除（单个文件或递归删文件夹里的）要作者在点名的那一处说删。
+  （原先随 routing 落库的 `author_confirm_file_ids` 已删：它只服务过 edit_file 的放行。）
   规则见 `tools/author_edit_guard.py`；工作集也会标注这类文件。前端工具卡片把
   `author_edit_protected` / `clarify_first` 显示成「保留了你改过的内容」/「先问清楚再改」，不显示「失败」。
 - 每个 agent run 的 TEXT 经 `core/author_facing_text.AgentTextShaper` 整理：和前一个角色的文字之间、

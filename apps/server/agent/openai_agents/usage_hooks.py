@@ -7,7 +7,9 @@ timestamp, so peak/off-peak pricing is exact per call.
 
 The agent run hooks also tell the pending-empty-file guard, before the SDK executes
 this call's tools, that the latest pending file's body was fully written in this
-reply (see ``PendingBodyStreamedMixin``).
+reply (see ``PendingBodyStreamedMixin``), and on every model call start, that file
+text read in the previous reply is now in front of the model
+(see ``ReadSnapshotPromotionMixin``).
 """
 
 from __future__ import annotations
@@ -105,6 +107,21 @@ class PendingBodyStreamedMixin:
                 logger.warning(f"Pending file body check after model call failed: {exc}")
 
 
+class ReadSnapshotPromotionMixin:
+    """``on_llm_start``：上一条回复里读到的正文，从这次模型调用起才算模型看过。
+
+    query_files 读到的全文、陈旧写入错误里完整列出的新改动，都要模型看到之后才能当作
+    edit_file 的比较基准；同一条回复里排在读取后面的修改是看到结果之前写的，仍按旧快照判陈旧。
+    """
+
+    async def on_llm_start(self, context: Any, agent: Any, system_prompt: Any, input_items: Any) -> None:
+        try:
+            ToolContext.promote_pending_reads()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Read snapshot promotion before model call failed: {exc}")
+        await super().on_llm_start(context, agent, system_prompt, input_items)  # type: ignore[misc]
+
+
 # Keyed by the SDK's RunHooks class so a stubbed ``agents`` module in tests
 # never leaks a subclass of the stub into runs that use the real SDK.
 _hook_classes: dict[Any, type] = {}
@@ -117,7 +134,8 @@ def _hooks_class() -> type:
     if cls is None:
         # 检查 mixin 在前：它先 super() 到计量，再做检查
         cls = types.new_class(
-            "AgentRunHooks", (PendingBodyStreamedMixin, UsageMeteringMixin, RunHooks)
+            "AgentRunHooks",
+            (ReadSnapshotPromotionMixin, PendingBodyStreamedMixin, UsageMeteringMixin, RunHooks),
         )
         _hook_classes[RunHooks] = cls
     return cls

@@ -38,10 +38,9 @@ WORKING_SET_HEADER = (
 )
 WORKING_SET_USER_MESSAGE_LABEL = "【本轮用户消息】"
 # 工作集里「作者在 AI 之后手动改过」的文件标注。
-WORKING_SET_AUTHOR_EDITED_NOTE = (
-    "（现在的正文是作者手动改过的：改过的人名、称呼、用词和情节以作者为准，后面的内容沿用，"
-    "不要改回去；作者没要求改这个文件时不要动它）"
-)
+WORKING_SET_AUTHOR_EDITED_NOTE = "（作者在 AI 写过之后亲手改过，改了哪几处见 <author_edits>）"
+# 本轮开始时给哪些文件算作者手改差异：跨轮工作集、焦点 / 附加、上下文里其余文件，按这个顺序最多这么多个。
+AUTHOR_EDITS_MAX_FILES = 30
 
 # 工具名 → 面包屑里的动作（读取类只认按 id 精确读取的 query_files）
 _BREADCRUMB_VERBS_ZH = {
@@ -71,6 +70,11 @@ class SessionData:
     working_set_refs: list[dict[str, Any]] = field(default_factory=list)
     # 按当前库内容渲染的跨轮工作集纯文本块；没有可注入内容时为空串
     working_set_context: str = ""
+    # 作者在 AI 写过之后亲手改了什么（<author_edits> 块，agent/tools/author_changes.py）；没有时为空串
+    author_edits_context: str = ""
+    author_edited_file_ids: set[str] = field(default_factory=set)
+    # 本轮开始时模型看到的文件正文（file_id → 正文），edit_file 据此拒绝基于旧正文的修改
+    read_snapshots: dict[str, str] = field(default_factory=dict)
 
 
 class SessionLoader:
@@ -378,6 +382,82 @@ class SessionLoader:
                 )
         return refs
 
+    def attach_author_edits(self, session: Session, result: SessionData) -> None:
+        """上下文和工作集里的文件：算作者在 AI 写过之后亲手改了什么（<author_edits>）；
+        组装上下文里以 [全文] 给出的文件记下本轮开始时的正文快照（工作集全文块在 attach_working_set 里记）。
+
+        增益信息，出错时不影响本轮：单个文件算不出来时明说「没算出来」；没有快照的文件 edit_file 只按逐字匹配改。
+        """
+        from agent.tools.author_changes import AuthorChanges, author_changes, render_author_edits_block
+        from models import File
+
+        if not self.user_id:
+            return
+        working_set_ids = [str(ref.get("file_id") or "") for ref in result.working_set_refs]
+        primary_ids: list[str] = []
+        other_ids: list[str] = []
+        for item in getattr(result.context_data, "items", None) or []:
+            if not isinstance(item, dict):
+                continue
+            metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+            if not metadata.get("file_type") or metadata.get("retrieved") or metadata.get("library_material"):
+                continue
+            file_id = str(item.get("id") or "").strip()
+            if metadata.get("is_focus") or metadata.get("relation") == "attached":
+                primary_ids.append(file_id)
+            else:
+                other_ids.append(file_id)
+        ordered = list(dict.fromkeys(f for f in [*working_set_ids, *primary_ids, *other_ids] if f))
+        if not ordered:
+            return
+        try:
+            files = session.exec(
+                select(File).where(
+                    File.id.in_(ordered),
+                    File.project_id == self.project_id,
+                    File.is_deleted.is_(False),
+                )
+            ).all()
+        except Exception as exc:
+            log_with_context(
+                logger,
+                30,  # WARNING
+                "Author edits build failed",
+                project_id=self.project_id,
+                user_id=self.user_id,
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            return
+        by_id = {str(f.id): f for f in files if getattr(f, "file_type", None) != "folder"}
+        present = [file_id for file_id in ordered if file_id in by_id]
+        checked, unchecked = present[:AUTHOR_EDITS_MAX_FILES], present[AUTHOR_EDITS_MAX_FILES:]
+
+        def title_of(file: Any) -> str:
+            return str(file.title or "").strip() or "（未命名）"
+
+        entries = []
+        for file_id in checked:
+            file = by_id[file_id]
+            try:
+                with session.begin_nested():
+                    changes = author_changes(session, file)
+            except Exception:
+                changes = AuthorChanges(hunks=[], complete=False, failed=True)
+            if changes is not None:
+                entries.append((file_id, title_of(file), changes))
+                if changes.hunks:
+                    # 只核对不完整（窗口外 / 回放失败）的文件不标「作者改过」：不知道，就不下结论。
+                    result.author_edited_file_ids.add(file_id)
+        result.author_edits_context = render_author_edits_block(
+            entries, unchecked_titles=[f"《{title_of(by_id[file_id])}》" for file_id in unchecked]
+        )
+        # 快照只记模型这一轮真正看到全文的文件：截断的、只列了标题的不记（它们的 edit_file 只按逐字匹配）。
+        for file_id in self._full_text_context_ids(result.context_data):
+            file = by_id.get(file_id)
+            if file is not None:
+                result.read_snapshots[file_id] = file.content or ""
+
     def attach_working_set(self, session: Session, result: SessionData) -> None:
         """按当前库内容渲染跨轮工作集，写入 result.working_set_context。
 
@@ -392,6 +472,8 @@ class SessionLoader:
                 session=session,
                 refs=refs,
                 full_in_context_ids=self._full_text_context_ids(result.context_data),
+                author_edited_file_ids=result.author_edited_file_ids,
+                rendered_full_contents=result.read_snapshots,
             )
         except Exception as exc:  # 工作集是增益信息，失败不影响本轮请求
             log_with_context(
@@ -440,8 +522,13 @@ class SessionLoader:
         full_in_context_ids: set[str],
         max_files: int | None = None,
         max_chars: int | None = None,
+        author_edited_file_ids: set[str] | None = None,
+        rendered_full_contents: dict[str, str] | None = None,
     ) -> str:
-        """渲染工作集文本块：最多 max_files 份全文、合计不超过 max_chars 字。"""
+        """渲染工作集文本块：最多 max_files 份全文、合计不超过 max_chars 字。
+
+        rendered_full_contents：附了全文的文件记进去（file_id → 正文），作为本轮模型看到的正文快照。
+        """
         from models import File
 
         max_files = AGENT_WORKING_SET_MAX_FILES if max_files is None else max_files
@@ -468,11 +555,9 @@ class SessionLoader:
                 continue
             title = str(file.title or ref.get("title") or "").strip() or "（未命名）"
             label = f"《{title}》 (id={file.id})"
-            # 上一轮 AI 写过、之后作者又手动改过的文件：告诉 agent 以作者的写法为准，
-            # 不要当成笔误改回去（2026-10-09 审计 P1-3：作者把「老周」改成「老秦」，
-            # 下一轮 AI 把它全改了回去）。
-            author_edited = self._author_edited_after_ai(session, file)
-            if author_edited:
+            # 上一轮 AI 写过、之后作者又亲手改过的文件：指向 <author_edits> 里的具体改动
+            # （2026-10-09 审计 P1-3：作者把「老周」改成「老秦」，下一轮 AI 把它全改了回去）。
+            if author_edited_file_ids and str(file.id) in author_edited_file_ids:
                 label = f"{label}{WORKING_SET_AUTHOR_EDITED_NOTE}"
             if str(file.id) in full_in_context_ids:
                 in_context.append(f"- {label}")
@@ -486,6 +571,8 @@ class SessionLoader:
                 full_blocks.append(
                     f"### {label} [全文，{count_words(content)} 字；{action}]\n{content}".rstrip()
                 )
+                if rendered_full_contents is not None:
+                    rendered_full_contents[str(file.id)] = content
                 used_chars += len(content)
             else:
                 omitted.append(f"- {label}（{count_words(content)} 字）")
@@ -506,17 +593,6 @@ class SessionLoader:
             lines.append("")
         lines.append("</previous_turn_working_set>")
         return "\n".join(lines)
-
-    @staticmethod
-    def _author_edited_after_ai(session: Session, file: Any) -> bool:
-        """当前正文最后是不是作者写下的（判定失败时当作不是，不影响工作集）。"""
-        from agent.tools.author_edit_guard import latest_text_is_authors
-
-        try:
-            return latest_text_is_authors(session, file)
-        except Exception as exc:
-            logger.debug(f"Author-edit check failed for working set file {getattr(file, 'id', '')}: {exc}")
-            return False
 
     @staticmethod
     def attach_working_set_to_user_content(user_content: str, working_set_context: str) -> str:
@@ -558,6 +634,7 @@ class SessionLoader:
                 text_quotes,
                 max_tokens,
             )
+            self.attach_author_edits(read_session, result)
             self.attach_working_set(read_session, result)
             return result
 
@@ -1235,6 +1312,7 @@ class SessionLoader:
                 text_quotes,
                 max_tokens,
             )
+            self.attach_author_edits(session, result)
             self.attach_working_set(session, result)
 
         return result

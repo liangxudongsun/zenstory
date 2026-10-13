@@ -977,9 +977,16 @@ const EditorComponent: React.FC<EditorProps> = () => {
         // changes they accepted): record it as the author's edit, so the
         // server's author-edit guard keeps protecting it (ai_edit versions
         // count as AI text).
+        // A natural-polish review saves the AI polish the author accepted ("AI polish
+        // (reviewed)", counted as AI text); a review after the agent wrote the file
+        // saves the parts the author rejected back to their own text ("AI edit
+        // (reviewed)", counted as the author's choice) — see the server's author_changes.
         ...(conflictReview
           ? { change_type: "edit" as const, change_source: "user" as const }
-          : { change_type: "ai_edit" as const, change_summary: "AI edit (reviewed)" }),
+          : {
+              change_type: "ai_edit" as const,
+              change_summary: isNaturalPolishReview ? "AI polish (reviewed)" : "AI edit (reviewed)",
+            }),
         // 与 handleSaveFile 对齐的乐观并发令牌。这同样是一次整篇覆盖写，
         // 不带令牌就会无声盖掉审阅期间落库的其它改动。
         base_updated_at: file.updated_at,

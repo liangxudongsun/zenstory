@@ -1726,6 +1726,8 @@ async def run_writing_workflow_streaming(
         while current_agent_type and iteration < max_iterations:
             iteration += 1
             ToolContext.set_current_agent(current_agent_type)
+            # 上一程读到的新正文这一程看不到（工具结果不跨 agent 回放），edit_file 的陈旧检查不再认它。
+            ToolContext.begin_agent_run()
 
             log_with_context(
                 logger,
@@ -1782,10 +1784,9 @@ async def run_writing_workflow_streaming(
                     work_summary = read_guard.handoff_summary()
                     if work_summary:
                         work_log_text = f"\n\n[本请求的读写记录]: {work_summary}"
-                # 被「作者手改保护」拒绝的写入只出现在上一个 agent 的工具结果里，不跨 agent
-                # 回放：不说出来，审稿人会把「这个文件没改」当成缺陷要求返工（10-11 U094）。
-                # 只列拒绝后本请求里始终没写成的文件（追加写、作者中途同意后都可能写成），
-                # 也只说发生了什么：守卫按每次修改和作者的话判断，不承诺后面一定拒绝。
+                # 被「作者手改保护」拒绝的删除 / 整份重写只出现在上一个 agent 的工具结果里，不跨
+                # agent 回放：不说出来，审稿人会把「这个文件没动」当成缺陷要求返工（10-11 U094）。
+                # 只列拒绝后本请求里始终没写成的文件，也只说发生了什么。修改（edit_file）不再被拦。
                 written_ids = set(read_guard.written_file_ids()) if read_guard is not None else set()
                 refused_ids = [
                     file_id
@@ -1798,9 +1799,9 @@ async def run_writing_workflow_streaming(
                         for file_id in refused_ids
                     )
                     work_log_text += (
-                        f"\n\n[本请求没有改成的文件]: 对 {refused_labels} 的修改被作者手改保护拒绝了"
-                        "（作者手动改过它们），文件没有改成；不要因为它们没改成就要求返工，"
-                        "需要改时在给作者的回复里问作者；作者在本请求的消息里明确同意改的，以作者的话为准。"
+                        f"\n\n[本请求没有删除或重写的文件]: 对 {refused_labels} 的删除或整份重写被作者手改保护拒绝了"
+                        "（作者手动改过它们），文件保持原样；不要因此要求返工，"
+                        "确实要删或整份重写时在给作者的回复里问作者。"
                     )
 
                 # 刷新文件清单

@@ -60,9 +60,11 @@ from utils.title_sequence import (
 from .edit import (
     NORMALIZED_QUOTE_FILE_TYPES,
     acquire_file_write_lock,
+    attach_author_edits_for_agent,
     remember_pre_write_content,
     resolve_write_quote_style,
     stage_pre_ai_write_backup,
+    written_snapshot_for_commit,
 )
 from .serialization import (
     _summary_projection_preview_length,
@@ -541,7 +543,12 @@ class FileCRUD:
                     extra={"file_id": file.id, "error": str(exc)},
                 )
 
-        self.session.commit()
+        if file.file_type != FILE_TYPE_FOLDER:
+            # 记这次自己写下的正文（提交前记、失败还原），不记 refresh 后的（提交后作者可能已经又存了一版）。
+            with written_snapshot_for_commit(file.id, content or "", full=True):
+                self.session.commit()
+        else:
+            self.session.commit()
         self.session.refresh(file)
 
         if file.file_type != FILE_TYPE_FOLDER:
@@ -778,7 +785,12 @@ class FileCRUD:
                     extra={"file_id": id, "error": str(exc)},
                 )
 
-        self.session.commit()
+        if content_changed:
+            # 记这次自己写下的整份正文（提交前记、失败还原），不记 refresh 后的（提交后作者可能已经又存了一版）。
+            with written_snapshot_for_commit(file.id, prospective_content or "", full=True):
+                self.session.commit()
+        else:
+            self.session.commit()
         self.session.refresh(file)
 
         if content_changed:
@@ -1000,7 +1012,7 @@ class FileCRUD:
         if metadata_filter:
             files = self._filter_by_metadata(files, metadata_filter)
 
-        return [
+        serialized = [
             serialize_query_file(
                 file,
                 response_mode=response_mode,
@@ -1011,6 +1023,9 @@ class FileCRUD:
             )
             for file in files
         ]
+        if id and len(files) == 1 and isinstance(serialized[0].get("content"), str):
+            attach_author_edits_for_agent(self.session, files[0], serialized[0])
+        return serialized
 
     def _execute_query_files(
         self,

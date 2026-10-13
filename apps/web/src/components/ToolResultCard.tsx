@@ -301,6 +301,12 @@ const getToolDisplayInfo = (toolName: string, t: (key: string) => string): { ico
   }
 };
 
+/** An edit_file result rewrote paragraphs the author wrote after the AI (server-side, by position). */
+const touchedAuthorEdits = (result: Record<string, unknown> | undefined): boolean => {
+  const data = result?.data && typeof result.data === 'object' ? (result.data as Record<string, unknown>) : result;
+  return Array.isArray(data?.author_edits_touched) && data.author_edits_touched.length > 0;
+};
+
 const readUserFacingText = (value: unknown): string | undefined =>
   typeof value === 'string' && value.trim() ? value.trim() : undefined;
 
@@ -310,14 +316,15 @@ type ToolFailureKind =
   | 'fileMissing'
   | 'repeatRead'
   | 'authorEdited'
+  | 'authorChanged'
   | 'clarifyFirst'
   | 'generic';
 
 /**
- * AI 有意没动文件（不是没做成）：作者手改过的文件没点名就不改（author_edit_protected），
+ * AI 有意没动文件（不是没做成）：作者手改过的文件没点名就不删、不整份重写（author_edit_protected），
  * 要求太笼统先问清楚（clarify_first）。卡片标题按这一类说，不写「失败」。
  */
-const INTENTIONAL_SKIP_KINDS: ReadonlySet<ToolFailureKind> = new Set(['authorEdited', 'clarifyFirst']);
+const INTENTIONAL_SKIP_KINDS: ReadonlySet<ToolFailureKind> = new Set(['authorEdited', 'authorChanged', 'clarifyFirst']);
 
 /**
  * 按 error_type 归到作者能看懂的几类。error_type 由各工具自己定义，这里只认
@@ -328,6 +335,8 @@ const classifyToolFailure = (errorType: string | undefined): ToolFailureKind => 
   const normalized = errorType.toLowerCase();
   if (normalized === 'repeated_read') return 'repeatRead';
   if (normalized === 'author_edit_protected') return 'authorEdited';
+  // The file changed after the AI read it (usually the author's own edit): not edited on the old text.
+  if (normalized === 'stale_content') return 'authorChanged';
   if (normalized === 'clarify_first') return 'clarifyFirst';
   if (/(^|_)file_(not_found|missing|deleted)$/.test(normalized)) return 'fileMissing';
   if (/(ambiguous|multiple_match)/.test(normalized)) return 'ambiguous';
@@ -823,8 +832,12 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
         /** Word count of the inserted text (server `count_words`); absent on older servers. */
         text_words?: number;
         deleted_preview?: string;
+        /** Text actually replaced (fuzzy/approximate matches); `old_preview` is the model's quote. */
+        matched_original?: string;
         count?: number;
       }> || [];
+      // The edit rewrote paragraphs the author wrote after the AI (server-side, by position).
+      const authorEditsTouched = touchedAuthorEdits(data);
       
       const getOpIcon = (op: string) => {
         switch (op) {
@@ -861,6 +874,11 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
             <span className="text-sm text-[hsl(var(--success-light))] font-medium">
               {t('chat:tool.edit_success')}
             </span>
+            {authorEditsTouched && (
+              <span className="text-xs text-[hsl(var(--text-secondary))]">
+                {t('chat:tool.edit_touched_author_edits')}
+              </span>
+            )}
             {onUndo && undoTarget && (
               <button
                 onClick={() => handleUndo(undoTarget)}
@@ -874,7 +892,7 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
           </div>
           
           {details && details.length > 0 && (
-            <details className="mt-3">
+            <details className="mt-3" open={authorEditsTouched || undefined}>
               <summary className="cursor-pointer select-none text-xs text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))] flex items-center gap-1 list-none"
                 style={{ listStyle: 'none' }}
               >
@@ -911,7 +929,7 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
                             <span className="text-xs text-[hsl(var(--diff-remove-text))]">{t('chat:edit.label_delete')}</span>
                           </div>
                           <div className="text-xs leading-5 text-[hsl(var(--text-primary))] whitespace-pre-wrap break-words font-normal max-h-56 overflow-auto">
-                            {detail.old_preview}
+                            {detail.matched_original || detail.old_preview}
                           </div>
                         </div>
                         <div className="bg-[hsl(var(--diff-add-bg))] p-2 rounded border-l-2 border-[hsl(var(--diff-add-text))]">
@@ -1009,7 +1027,18 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
       const failed =
         (data.failed as number) ??
         tasks.filter((task) => task.status === 'failed').length;
-      const anyFailed = failed > 0;
+      const taskResultOf = (task: Record<string, unknown>) =>
+        task.result && typeof task.result === 'object'
+          ? (task.result as Record<string, unknown>)
+          : undefined;
+      // 有意没动的子任务（作者手改过、读过之后作者又改了）不算没做成，不标警告色。
+      const isIntentionalSkip = (task: Record<string, unknown>) =>
+        task.status === 'failed' &&
+        INTENTIONAL_SKIP_KINDS.has(resolveToolFailure(taskResultOf(task), t).kind);
+      // 标题里的「失败」数不含有意没动的子任务（它们在下面逐条说明）。
+      const skippedCount = tasks.filter(isIntentionalSkip).length;
+      const shownFailed = Math.max(0, failed - skippedCount);
+      const anyFailed = shownFailed > 0;
       const accentClass = anyFailed
         ? 'text-[hsl(var(--warning))]'
         : 'text-[hsl(var(--success-light))]';
@@ -1025,16 +1054,17 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
           <div className="flex items-center gap-2">
             <Layers className={`w-4 h-4 ${accentClass}`} />
             <span className={`text-sm ${accentClass}`}>
-              {t('chat:tool.parallel_summary', { total, completed, failed })}
+              {skippedCount > 0
+                ? t('chat:tool.parallel_summary_with_skipped', { total, completed, skipped: skippedCount, failed: shownFailed })
+                : t('chat:tool.parallel_summary', { total, completed, failed })}
             </span>
           </div>
           {tasks.length > 0 && (
             <div className="mt-2 space-y-1">
               {tasks.map((task, index) => {
                 const isFailed = task.status === 'failed';
-                const taskResult = task.result && typeof task.result === 'object'
-                  ? (task.result as Record<string, unknown>)
-                  : undefined;
+                const taskResult = taskResultOf(task);
+                const skipped = isIntentionalSkip(task);
                 // Localized task kind; unknown internal types are hidden, never shown raw.
                 const taskLabel = getParallelTaskLabel(task.type, t);
                 const desc =
@@ -1047,7 +1077,9 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
                     key={(task.id as string) || index}
                     className="flex items-start gap-2 text-xs"
                   >
-                    {isFailed ? (
+                    {skipped ? (
+                      <Info className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[hsl(var(--text-secondary))]" />
+                    ) : isFailed ? (
                       <XCircle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[hsl(var(--text-secondary))]" />
                     ) : (
                       <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[hsl(var(--success-light))]" />
@@ -1061,9 +1093,17 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
                       <span className="text-[hsl(var(--text-primary))] break-words">
                         {desc}
                       </span>
-                      {isFailed ? (
+                      {skipped ? (
+                        <div className="text-[hsl(var(--text-secondary))] break-words">
+                          {resolveToolFailure(taskResult, t).message}
+                        </div>
+                      ) : isFailed ? (
                         <div className="text-[hsl(var(--text-secondary))] break-words">
                           {(isChineseUi() ? readUserFacingText(taskResult?.user_message) : null) ?? t('chat:tool.taskNotCompleted')}
+                        </div>
+                      ) : touchedAuthorEdits(taskResult) ? (
+                        <div className="text-[hsl(var(--text-secondary))] break-words">
+                          {t('chat:tool.edit_touched_author_edits')}
                         </div>
                       ) : null}
                     </div>

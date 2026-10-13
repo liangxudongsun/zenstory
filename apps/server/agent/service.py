@@ -72,10 +72,7 @@ from .skills.active_skills import list_active_skill_resources
 from .skills.content_budget import split_selected_budget
 from .stream_adapter import create_stream_adapter
 from .tools.author_edit_guard import (
-    CONFIRM_FILE_IDS_ROUTING_KEY,
-    MAX_CONFIRM_FILE_IDS,
     AuthorEditRefusals,
-    confirmed_file_ids_from_history,
     previous_offer_context_from_history,
     previous_offer_from_history,
     referenced_file_ids_from_metadata,
@@ -706,14 +703,11 @@ class AgentService:
         assistant_display_events: list[dict[str, Any]] = []
         # 本轮路由（ROUTER_DECIDED + 最后一个 AGENT_SELECTED），随 assistant 消息落库
         assistant_routing: dict[str, Any] = {}
-        # 本轮因为作者手改过而没改成的文件：随 routing 落库，下一轮作者回答时放行。
+        # 本轮因为作者手改过而没删 / 没整份重写的文件：交接给下一个 agent 时说明（writing_graph）。
         author_edit_refusals = AuthorEditRefusals()
 
         def _routing_for_save() -> dict[str, Any] | None:
-            refused = author_edit_refusals.file_ids()[:MAX_CONFIRM_FILE_IDS]
-            if not refused:
-                return assistant_routing or None
-            return {**assistant_routing, CONFIRM_FILE_IDS_ROUTING_KEY: refused}
+            return assistant_routing or None
 
         display_text_run_type: str | None = None
         pending_done_payload: dict[str, Any] | None = None
@@ -1114,6 +1108,12 @@ class AgentService:
             working_set_context = getattr(session_data, "working_set_context", "")
             if not isinstance(working_set_context, str):
                 working_set_context = ""
+            # 作者在 AI 写过之后亲手改了什么（agent/tools/author_changes.py），和工作集放在一起。
+            author_edits_context = getattr(session_data, "author_edits_context", "")
+            if isinstance(author_edits_context, str) and author_edits_context:
+                working_set_context = (
+                    f"{working_set_context}\n\n{author_edits_context}" if working_set_context else author_edits_context
+                )
             if working_set_context:
                 user_content = SessionLoader.attach_working_set_to_user_content(
                     user_content, working_set_context
@@ -1208,11 +1208,13 @@ class AgentService:
                 # 作者原话：update_project 据此确认 author_requested 真是作者要求的改名
                 author_message=message,
                 author_steering=consumed_steering,
-                # 作者手改过的文件：作者本轮没点名时 AI 不改（agent/tools/author_edit_guard.py）。
+                # 作者手改过的文件：删除、整份覆盖要作者点名（agent/tools/author_edit_guard.py）；
+                # 修改不再拦，作者改了什么见 <author_edits>（agent/tools/author_changes.py）。
                 focus_file_id=focus_file_id if isinstance(focus_file_id, str) else None,
                 referenced_file_ids=referenced_file_ids_from_metadata(metadata),
-                author_confirmed_file_ids=confirmed_file_ids_from_history(history_messages),
                 author_edit_refusals=author_edit_refusals,
+                # 本轮开始时模型看到的正文：edit_file 拒绝基于旧正文的修改（作者生成期间又改了）。
+                read_snapshots=getattr(session_data, "read_snapshots", None),
                 # 上一轮 AI 的提议：作者答应 / 选中改某个文件的那一项时放行它。
                 author_previous_offer=previous_offer_from_history(history_messages),
                 author_previous_offer_context=previous_offer_context_from_history(history_messages),

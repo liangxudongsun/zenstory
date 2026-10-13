@@ -980,3 +980,39 @@ async def test_continue_after_exhaustion_skips_llm_router():
     assert calls == ["writer"]
     decided = next(e for e in events if e.type == StreamEventType.ROUTER_DECIDED)
     assert decided.data["routing_metadata"]["reason"] == "resume_after_exhaustion"
+
+
+def test_stale_content_lets_the_file_be_read_again_without_the_unchanged_hint():
+    """edit_file 说文件在读过之后被作者改了：再读是在看新内容，不能提示「之后未被修改」，也不能拦下。"""
+    guard = RepeatReadGuard()
+    for _ in range(READ_BLOCK_AT - 1):
+        _guarded_read(guard)
+    edit_args = json.dumps({"id": "f1", "edits": [{"op": "replace", "old": "a", "new": "b"}]})
+    guard.observe(
+        "edit_file",
+        guard.plan("edit_file", edit_args),
+        json.dumps({"status": "error", "error_type": "stale_content", "error": "…"}, ensure_ascii=False),
+    )
+    reread = json.loads(_guarded_read(guard))
+    assert reread["status"] == "success" and "read_hint" not in reread
+    assert guard.write_succeeded is False
+
+
+def test_parallel_stale_edit_also_lets_the_file_be_read_again():
+    """parallel_execute 里的 edit_file 报 stale_content：与直接调用一样，之前的读取计数作废。"""
+    guard = RepeatReadGuard()
+    for _ in range(READ_BLOCK_AT - 1):
+        _guarded_read(guard)
+    raw = json.dumps(
+        {"tasks": [{"type": "edit_file", "description": "改第一章", "params": {"id": "f1", "edits": []}}]},
+        ensure_ascii=False,
+    )
+    stale = {
+        "type": "edit_file",
+        "status": "failed",
+        "description": "改第一章",
+        "result": {"status": "error", "error_type": "stale_content", "error": "…"},
+    }
+    guard.observe("parallel_execute", guard.plan("parallel_execute", raw), _parallel_output([stale]))
+    reread = json.loads(_guarded_read(guard))
+    assert reread["status"] == "success" and "read_hint" not in reread
