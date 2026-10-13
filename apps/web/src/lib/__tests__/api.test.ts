@@ -532,9 +532,25 @@ describe('api', () => {
         )
       })
 
-      it('rejects non-txt file before request is sent', async () => {
+      it('uploads md file as material like draft import', async () => {
+        global.fetch = vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ id: '2', title: '设定', file_type: 'snippet' }),
+        })
+        const file = new File(['# 设定'], '设定.MD', { type: 'text/markdown' })
+
+        await fileApi.upload('project-1', file)
+
+        expect(global.fetch).toHaveBeenCalledTimes(1)
+        expect(analyticsMocks.trackEventMock).toHaveBeenCalledWith(
+          'material_uploaded',
+          expect.objectContaining({ project_id: 'project-1', file_extension: 'md' })
+        )
+      })
+
+      it('rejects non-text file before request is sent', async () => {
         global.fetch = vi.fn()
-        const file = new File(['test content'], 'test.md', { type: 'text/markdown' })
+        const file = new File(['test content'], 'test.docx', { type: 'application/octet-stream' })
 
         await expect(fileApi.upload('project-1', file)).rejects.toThrow('ERR_FILE_TYPE_INVALID')
         expect(global.fetch).not.toHaveBeenCalled()

@@ -62,12 +62,20 @@ def follow_span_indentation(content: str, start: int, end: int, old: str, new: s
       换成 X；原文自己就混用、或 old 混用时不动。第一行在原文缩进之后开始时，只补缺的那部分，
       不会叠出两层缩进。
     - 标题行、空行、缩进既不是 X 也不是 Y 的行不动。逐字命中（exact）不走这里。
+    - 命中从行中间开始、old 第一行却带着段首缩进时，new 第一行照抄的同一段缩进去掉。
     """
     if not isinstance(new, str) or not new or start >= end:
         return new
     line_start = content.rfind("\n", 0, start) + 1
     prefix = content[line_start:start]
     first_is_paragraph = not prefix.strip(INLINE_SPACE)
+    # 命中从行中间开始（原文「相框。相框里…」），模型却把 old 的第一行当段首写了缩进、new 照抄：
+    # 这段缩进写进去就成了「相框。　　相框里」，去掉。
+    # 命中范围自己从空白开始时（「He said  hello」），那段空白是原文的，照常写回，不去。
+    if not first_is_paragraph and content[start:start + 1] not in INLINE_SPACE:
+        old_indent = _leading_indent(old.split("\n", 1)[0]) if isinstance(old, str) else ""
+        if old_indent and new.startswith(old_indent):
+            new = new[len(old_indent):]
 
     def paragraph_indents(lines: list[str], first_prefix: str) -> set[str]:
         found: set[str] = set()

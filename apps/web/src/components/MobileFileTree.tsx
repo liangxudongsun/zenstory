@@ -802,7 +802,7 @@ const MobileFileTreeComponent: React.FC<MobileFileTreeProps> = ({ className }) =
         type="file"
         ref={fileInputRef}
         onChange={handleFileUpload}
-        accept=".txt"
+        accept=".txt,.md"
         className="hidden"
       />
 

@@ -93,7 +93,7 @@ EDIT_FILE_TOOL: dict[str, Any] = {
                         },
                         "text": {
                             "type": "string",
-                            "description": "要写入的文本（insert_*/append/prepend 必填，不能为空）。在段尾/段首插入整段时，工具按本文已有的段落分隔与缩进补齐前后的换行；一整句话不会插在句子中间"
+                            "description": "要写入的文本（insert_*/append/prepend 必填，不能为空）。锚点是一段的结尾（insert_after）或开头（insert_before）时：要另起一段，insert_after 的 text 以换行开头、insert_before 的以换行结尾，工具会换成本文已有的段落分隔与缩进；不带换行的 text 接在这一段的末尾/开头（适合补一句）。一整句话不会插在句子中间"
                         },
                         "occurrence": {
                             "type": "integer",

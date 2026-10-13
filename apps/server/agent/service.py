@@ -17,6 +17,7 @@ import asyncio
 import time
 import uuid
 from collections.abc import AsyncGenerator
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import desc
@@ -613,6 +614,8 @@ class AgentService:
             SSE event strings
         """
         start_time = utcnow()
+        # 作者发出这条消息的时间：user 行落库在回合结束时，created_at 要用它，刷新后时间才不跳。
+        user_sent_at = start_time.replace(tzinfo=None)
         run_started_monotonic = time.monotonic()
         metrics = get_metrics_collector()
         metrics.increment_counter(AGENT_REQUESTS_TOTAL)
@@ -766,7 +769,9 @@ class AgentService:
                 assistant_display_events.append({"type": event_type, "content": content})
             display_text_run_type = event_type
 
-        def _append_user_messages_sync(texts: list[str]) -> int:
+        def _append_user_messages_sync(
+            texts: list[str], *, first_created_at: datetime | None = None
+        ) -> int:
             """把若干条文本作为 user 行追加进当前会话（不重写整轮历史）。
 
             两个用途：
@@ -775,6 +780,8 @@ class AgentService:
             2. 完全没有 assistant 内容的取消/失败路径 —— 只保留用户消息与已消费
                的 steering。
             message_count 按实际写入的行数递增，避免计数漂移。
+            first_created_at：texts[0] 是本轮作者发的那条消息时传入发出时间；晚到的
+            steering 不传。
             """
             from models import ChatMessage, ChatSession
 
@@ -808,12 +815,16 @@ class AgentService:
                     )
                     return 0
 
-                for text in cleaned:
+                for index, text in enumerate(texts):
+                    if not (isinstance(text, str) and text.strip()):
+                        continue
+                    sent_at = first_created_at if index == 0 else None
                     append_session.add(
                         ChatMessage(
                             session_id=chat_session.id,
                             role="user",
                             content=text,
+                            **({"created_at": sent_at} if sent_at else {}),
                         )
                     )
                 chat_session.message_count += len(cleaned)
@@ -945,7 +956,9 @@ class AgentService:
             """
             if not _has_assistant_payload() and not persist_empty_assistant:
                 # 空 assistant 不落库，只保留用户消息与已消费的 steering。
-                _append_user_messages_sync([message, *consumed_steering])
+                _append_user_messages_sync(
+                    [message, *consumed_steering], first_created_at=user_sent_at
+                )
                 return None
 
             recovery_manager = MessageManager(
@@ -967,6 +980,7 @@ class AgentService:
                     assistant_stop_reason=stop_reason,
                     assistant_routing=_routing_for_save(),
                     persist_empty_assistant=persist_empty_assistant,
+                    user_created_at=user_sent_at,
                 )
 
         try:
@@ -1439,6 +1453,7 @@ class AgentService:
                         await asyncio.to_thread(
                             _append_user_messages_sync,
                             [message, *consumed_steering],
+                            first_created_at=user_sent_at,
                         )
                         history_saved = True
                         return None
@@ -1455,6 +1470,7 @@ class AgentService:
                         steering_messages=consumed_steering or None,
                         assistant_display_events=assistant_display_events or None,
                         assistant_routing=_routing_for_save(),
+                        user_created_at=user_sent_at,
                     )
                     history_saved = True
                     return saved_id

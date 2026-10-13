@@ -429,6 +429,30 @@ def test_exact_and_mid_line_replacements_keep_new_byte_for_byte(editor):
     assert editor._apply_replace(mixed, edit, 0, [], []) == "　　炉子灭了。\n　　他走了。"
 
 
+
+def test_fuzzy_replace_starting_mid_line_drops_the_indent_copied_from_old(editor):
+    """2026-10-12 生产审计（short T2）：原文「相框。相框里…」在同一行，模型把「相框里」当段首，
+    old/new 都带「　　」；模糊命中从行中间开始，new 的缩进原样写进去成了「相框。　　相框里」。"""
+    content = "　　我抬头，看见墙上挂着相框。相框里是父亲，腕上戴着一块旧表。\n\n　　那块表，和钥匙是一对。\n\n　　门响了。"
+    applied: list[dict] = []
+    edit = {
+        "op": "replace",
+        "old": "　　相框里是父亲，腕上戴着一块旧表。\n\n　　那块表，和钥匙是一对。",
+        "new": "　　相框里是父亲，腕上戴着一块旧表。\n\n　　表壳上有半朵云。",
+    }
+    result = editor._apply_replace(content, edit, 0, applied, [])
+    assert applied[0]["match_mode"] == "fuzzy"
+    assert result == "　　我抬头，看见墙上挂着相框。相框里是父亲，腕上戴着一块旧表。\n\n　　表壳上有半朵云。\n\n　　门响了。"
+
+
+def test_fuzzy_replace_starting_on_inline_spacing_keeps_that_spacing(editor):
+    """命中范围自己从行中的空白开始：那段空白属于原文，new 照抄的同一段空白要保留。"""
+    applied: list[dict] = []
+    edit = {"op": "replace", "old": "  hello there friend", "new": "  goodbye friend"}
+    result = editor._apply_replace("He said  hello there, friend. Then left.", edit, 0, applied, [])
+    assert applied[0]["match_mode"] == "fuzzy"
+    assert result == "He said  goodbye friend. Then left."
+
 # ----------------------------------------------------- DB 级：成功就必须改了 --
 
 

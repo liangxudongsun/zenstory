@@ -332,7 +332,7 @@
   },
   "activity": {
     "elapsed": "AI 正在处理 · {{seconds}} 秒",
-    "longWaitHint": "写长内容通常要一两分钟，请稍等。"
+    "longWaitHint": "写长内容可能要几分钟，请稍等。"
   },
   "leaveWhileGenerating": {
     "title": "AI 还在写",

@@ -261,6 +261,9 @@ const CHAT_INPUT_PANEL_MAX_RATIO = 0.45;
 /** Minimum height reserved for the messages list in pixels */
 const CHAT_INPUT_PANEL_MIN_MESSAGES_PX = 160;
 
+// 历史加载完后这么久之内，列表变高（懒加载的 Markdown 渲染完）还继续贴底。
+const HISTORY_SETTLE_FOLLOW_MS = 5000;
+
 const isNearBottom = (el: HTMLElement, thresholdPx = 48) => {
   return el.scrollHeight - el.scrollTop - el.clientHeight < thresholdPx;
 };
@@ -558,6 +561,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
   const messageListRef = useRef<MessageListRef>(null);
   const messagesScrollContainerRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
+  const followLoadedHistoryUntilRef = useRef(0);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const autoScrollFrameRef = useRef<number | null>(null);
   const lastLoadedProjectRef = useRef<string | null>(null);
@@ -1550,6 +1554,42 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     handleScroll();
     return () => {
       scrollEl.removeEventListener("scroll", handleScroll);
+    };
+  }, [currentProjectId]);
+
+  // 刷新 / 重新登录后，历史消息的 Markdown 在第一次贴底之后才渲染完、把列表撑高，
+  // 列表就停在倒数第二轮（2026-10-12 生产审计）。历史加载完的几秒内、作者还没动过
+  // 这个列表时，内容变高就继续贴底；作者一滚动、点按或按键就不再跟。
+  useEffect(() => {
+    if (!isLoadingHistory) {
+      followLoadedHistoryUntilRef.current = performance.now() + HISTORY_SETTLE_FOLLOW_MS;
+    }
+  }, [isLoadingHistory]);
+
+  useEffect(() => {
+    const scrollEl = messagesScrollContainerRef.current;
+    const contentEl = scrollEl?.firstElementChild;
+    if (!scrollEl || !contentEl || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const stopFollowing = () => {
+      followLoadedHistoryUntilRef.current = 0;
+    };
+    const observer = new ResizeObserver(() => {
+      if (shouldAutoScrollRef.current && performance.now() < followLoadedHistoryUntilRef.current) {
+        messageListRef.current?.scrollToBottom(false);
+      }
+    });
+    observer.observe(contentEl);
+    const interactions = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+    for (const type of interactions) {
+      scrollEl.addEventListener(type, stopFollowing, { passive: true });
+    }
+    return () => {
+      observer.disconnect();
+      for (const type of interactions) {
+        scrollEl.removeEventListener(type, stopFollowing);
+      }
     };
   }, [currentProjectId]);
 

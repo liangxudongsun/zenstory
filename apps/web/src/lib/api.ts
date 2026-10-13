@@ -40,6 +40,7 @@ import { isFileTitleTooLong } from "./fileTitle";
 import { captureException, trackEvent } from "./analytics";
 
 const MATERIAL_UPLOAD_MAX_BYTES = 2_000_000; // 2MB
+const MATERIAL_UPLOAD_EXTENSIONS = [".txt", ".md"] as const;
 
 // Autosave fires after every typing pause; one file_saved per file per
 // 5 minutes is enough to see who writes, without paying per keystroke burst.
@@ -1124,19 +1125,19 @@ export const fileApi = {
   },
 
   /**
-   * Upload a .txt file as a material (snippet).
+   * Upload a .txt / .md file as a material (snippet), read as plain text.
    *
    * Used for importing external text files into the project.
    * Handles authentication with automatic token refresh on 401 errors.
    *
    * Constraints:
-   * - Only .txt files are allowed
+   * - Only .txt and .md files are allowed
    * - Maximum 2MB and 200,000 characters (约 20万字)
    *
    * @param projectId - The UUID of the project
    * @param file - The File object from an input element or drag-drop
    * @returns Promise resolving to the created File object
-   * @throws {ApiError} ERR_FILE_TYPE_INVALID if file is not .txt
+   * @throws {ApiError} ERR_FILE_TYPE_INVALID if file is not .txt / .md
    *
    * @example
    * ```ts
@@ -1147,7 +1148,8 @@ export const fileApi = {
    */
   upload: async (projectId: string, file: globalThis.File): Promise<File> => {
     const normalizedName = file.name.trim().toLowerCase();
-    if (!normalizedName.endsWith(".txt")) {
+    const fileExtension = MATERIAL_UPLOAD_EXTENSIONS.find((ext) => normalizedName.endsWith(ext));
+    if (!fileExtension) {
       trackEvent("material_upload_failed", {
         project_id: projectId,
         reason: "invalid_file_type",
@@ -1231,7 +1233,7 @@ export const fileApi = {
       file_id: uploaded.id,
       file_type: uploaded.file_type,
       file_size_bytes: file.size,
-      file_extension: "txt",
+      file_extension: fileExtension.slice(1),
     });
     return uploaded;
   },

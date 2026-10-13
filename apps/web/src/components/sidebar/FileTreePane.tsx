@@ -712,7 +712,7 @@ export const FileTreePane: React.FC = () => {
         type="file"
         ref={fileInputRef}
         onChange={handleFileUpload}
-        accept=".txt"
+        accept=".txt,.md"
         className="hidden"
       />
 

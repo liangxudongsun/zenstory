@@ -10,6 +10,7 @@ Handles:
 import asyncio
 import json as json_module
 import re
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import desc
@@ -99,6 +100,7 @@ class MessageManager:
         steering_messages: list[str] | None = None,
         assistant_display_events: list[dict[str, Any]] | None = None,
         assistant_routing: dict[str, Any] | None = None,
+        user_created_at: datetime | None = None,
     ) -> str | None:
         """
         Save messages to chat history.
@@ -138,6 +140,7 @@ class MessageManager:
                 steering_messages,
                 assistant_display_events,
                 assistant_routing,
+                user_created_at=user_created_at,
             )
         return self._save_messages_with_session(
             session,
@@ -152,6 +155,7 @@ class MessageManager:
             steering_messages,
             assistant_display_events,
             assistant_routing,
+            user_created_at=user_created_at,
         )
 
     def _should_offload_session_work(self, session: Session) -> bool:
@@ -173,6 +177,7 @@ class MessageManager:
         steering_messages: list[str] | None = None,
         assistant_display_events: list[dict[str, Any]] | None = None,
         assistant_routing: dict[str, Any] | None = None,
+        user_created_at: datetime | None = None,
     ) -> str | None:
         """Persist chat history with a fresh sync DB session."""
         with create_session() as session:
@@ -189,6 +194,7 @@ class MessageManager:
                 steering_messages,
                 assistant_display_events,
                 assistant_routing,
+                user_created_at=user_created_at,
             )
 
     def _save_messages_with_session(
@@ -206,6 +212,7 @@ class MessageManager:
         assistant_display_events: list[dict[str, Any]] | None = None,
         assistant_routing: dict[str, Any] | None = None,
         persist_empty_assistant: bool = False,
+        user_created_at: datetime | None = None,
     ) -> str | None:
         """Core chat-history persistence logic using the provided session.
 
@@ -301,10 +308,12 @@ class MessageManager:
                     session.refresh(chat_session)
 
             # Save user message
+            # 用户消息的时间是作者发出它的时间（回合开始），不是这一轮落库的时间。
             user_chat_message = ChatMessage(
                 session_id=chat_session.id,
                 role="user",
                 content=user_message,
+                **({"created_at": user_created_at} if user_created_at else {}),
             )
             session.add(user_chat_message)
             rows_added = 1
