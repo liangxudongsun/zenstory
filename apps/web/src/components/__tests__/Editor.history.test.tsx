@@ -2,8 +2,9 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Editor } from '../Editor'
 
-const { getFile, updateFile, getVersions, rollback, toastError, projectContext, t } = vi.hoisted(() => ({
+const { getFile, updateFile, getVersions, rollback, toastError, projectContext, t, authUser } = vi.hoisted(() => ({
   getFile: vi.fn(), updateFile: vi.fn(), getVersions: vi.fn(), rollback: vi.fn(), toastError: vi.fn(),
+  authUser: { id: 'user-1' },
   t: (key: string) => key,
   projectContext: {
     currentProjectId: 'project-1', selectedItem: { id: 'file-1', type: 'draft', title: 'Draft' },
@@ -20,7 +21,7 @@ vi.mock('../../lib/writingStatsApi', () => ({ writingStatsApi: { recordStats: vi
 vi.mock('../../lib/upgradeAnalytics', () => ({ trackUpgradeClick: vi.fn(), trackUpgradeExpose: vi.fn() }))
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t }) }))
 vi.mock('../../contexts/ProjectContext', () => ({ useProject: () => projectContext }))
-vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'user-1' } }) }))
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: authUser }) }))
 vi.mock('../../contexts/MaterialLibraryContext', () => ({ useMaterialLibraryContext: () => ({ preview: null }) }))
 vi.mock('../../contexts/MaterialAttachmentContext', () => ({ useMaterialAttachment: () => ({ addMaterial: vi.fn() }) }))
 vi.mock('../../contexts/TextQuoteContext', () => ({ useTextQuote: () => ({ addQuote: vi.fn() }) }))
@@ -40,7 +41,7 @@ describe('actual Editor / SimpleEditor / history restore integration', () => {
     }) as unknown as MediaQueryList)
     getVersions.mockResolvedValue({ total: 1, versions: [savedVersion] })
   })
-  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); authUser.id = 'user-1'; sessionStorage.clear() })
 
   it('keeps an already-submitted restore mounted through close/Escape and prevents duplicate submission', async () => {
     let completeRestore!: (value: { success: boolean; snapshot_created: boolean; version_quota_exceeded: boolean }) => void
@@ -116,6 +117,44 @@ describe('actual Editor / SimpleEditor / history restore integration', () => {
     await waitFor(() => expect(updateFile).toHaveBeenCalledWith('file-1', expect.objectContaining({
       content: `${restored.content}!`, base_updated_at: restored.updated_at, skip_version: true,
     })))
+  })
+
+  it('prompts about a full version history once per tab session while saves keep succeeding', async () => {
+    let saves = 0
+    getFile.mockResolvedValue(file)
+    updateFile.mockImplementation(async (_id: string, body: { content: string }) => {
+      saves += 1
+      return { ...file, content: body.content, updated_at: `2026-10-06T10:00:00.00001${saves}`, version_quota_exceeded: true }
+    })
+    const saveEdit = async (content: string, expectedSaves: number) => {
+      fireEvent.change(await screen.findByPlaceholderText('editor:placeholder.contentPlaceholder'), { target: { value: content } })
+      fireEvent.click(screen.getByRole('button', { name: 'editor:save' }))
+      await waitFor(() => expect(updateFile).toHaveBeenCalledTimes(expectedSaves))
+      await waitFor(() => expect(screen.queryByText('editor:unsaved')).not.toBeInTheDocument())
+    }
+
+    const first = render(<Editor />)
+    await saveEdit('First edit', 1)
+    expect(toastError).toHaveBeenCalledWith('editor:saveVersionQuotaExceeded')
+    expect(screen.getByRole('dialog', { name: 'editor:versionHistory.fileVersionLimitTitle' })).toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'editor:versionHistory.fileVersionLimitTitle' })).not.toBeInTheDocument())
+
+    // Later saves in the same tab, and a remounted editor, save quietly.
+    await saveEdit('Second edit', 2)
+    first.unmount()
+    const remounted = render(<Editor />)
+    await saveEdit('Third edit', 3)
+    expect(screen.queryByRole('dialog', { name: 'editor:versionHistory.fileVersionLimitTitle' })).not.toBeInTheDocument()
+    expect(toastError).toHaveBeenCalledTimes(1)
+    remounted.unmount()
+
+    // Another account in the same tab gets its own reminder.
+    authUser.id = 'user-2'
+    render(<Editor />)
+    await saveEdit('Other account edit', 4)
+    expect(screen.getByRole('dialog', { name: 'editor:versionHistory.fileVersionLimitTitle' })).toBeInTheDocument()
+    expect(toastError).toHaveBeenCalledTimes(2)
   })
 
   it.each([true, false])('refreshes content/token without destroying omitted-history feedback (quota=%s)', async (quotaExceeded) => {

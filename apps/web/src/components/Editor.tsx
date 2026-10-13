@@ -32,6 +32,7 @@ import { FileText, Users, BookOpen, Sparkles, Folder, Zap, Keyboard, ChevronDown
 import { LoadingSpinner } from "./LoadingSpinner";
 import { UpgradePromptModal } from "./subscription/UpgradePromptModal";
 import { buildUpgradeUrl, getUpgradePromptDefinition } from "../config/upgradeExperience";
+import { claimAutoUpgradePrompt } from "../lib/upgradeTriggerStrategy";
 import { captureException, trackEvent } from "../lib/analytics";
 import { useMobileLayout } from "../contexts/MobileLayoutContext";
 import {
@@ -822,7 +823,11 @@ const EditorComponent: React.FC<EditorProps> = () => {
       throw error;
     }
 
-    if (updated?.version_quota_exceeded) {
+    if (
+      updated?.version_quota_exceeded &&
+      // 自动保存会反复走到这里：本标签页内同一账号只主动提醒一次。
+      claimAutoUpgradePrompt(currentUserId, fileVersionUpgradePrompt.source)
+    ) {
       // 正文已保存，只是版本快照没生成——提示升级，不能报成保存失败。
       toast.error(t('editor:saveVersionQuotaExceeded'));
       if (fileVersionUpgradePrompt.surface === "modal") {
