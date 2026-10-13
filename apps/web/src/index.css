@@ -1759,7 +1759,6 @@ code, pre, .font-mono {
 .chat-timestamp {
     font-size: 0.75rem;
     color: hsl(var(--text-secondary));
-    opacity: 0.8;
 }
 
 /* Mobile adjustments */

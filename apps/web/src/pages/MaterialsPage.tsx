@@ -893,6 +893,7 @@ function MaterialCard({
 
   return (
     <div
+      data-testid="material-card"
       className={`group relative bg-[hsl(var(--bg-secondary))] rounded-2xl border border-[hsl(var(--border-color))] hover:border-[hsl(var(--accent-primary)/0.3)] transition-colors ${isMobile ? "p-3" : "p-4"}`}
     >
       <div

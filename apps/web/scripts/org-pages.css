@@ -1061,6 +1061,9 @@ html[data-lang="zh"] [data-page="home"] .library-search label { font-size: 13px;
   [data-page="home"] .act-figure { height: 82%; }
   [data-page="home"] .stage figcaption { justify-content: flex-start; gap: 4px 18px; font-size: 13.5px; }
   [data-page="home"] .stage-case { flex-basis: 100%; }
+  [data-page="home"] .stage-next { gap: 12px; }
+  [data-page="home"] .stage-next::before, [data-page="home"] .stage-next::after { min-width: 12px; }
+  [data-page="home"] .stage-next a { min-width: 0; white-space: normal; text-align: center; }
   [data-page="home"] .stage-band { margin-top: 56px; padding-top: 56px; }
   [data-page="home"] .showcase-grid { grid-template-columns: minmax(0, 1fr); gap: 44px; margin-top: 36px; }
   [data-page="home"] .showcase-grid > .case-card.is-feature { grid-column: auto; }

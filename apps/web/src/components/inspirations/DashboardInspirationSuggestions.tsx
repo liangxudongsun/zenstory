@@ -22,7 +22,7 @@ export function DashboardInspirationSuggestions({
 
   return (
     <div className="mt-5 flex flex-col gap-3" data-testid="dashboard-real-inspirations">
-      <div className="text-[12px] tracking-[0.02em] text-[hsl(var(--text-secondary)/0.62)]">
+      <div className="text-[12px] tracking-[0.02em] text-[hsl(var(--text-secondary))]">
         {t("dashboard.realInspirationsTitle", {
           defaultValue: "如果你还没想好，可以从这里开始：",
         })}
@@ -37,10 +37,10 @@ export function DashboardInspirationSuggestions({
             onClick={() => onSelect(`《${item.title}》：${item.hook}`)}
             className="grid grid-cols-[18px_minmax(0,1fr)] items-start gap-3 text-left transition-colors duration-150 hover:text-[hsl(var(--text-primary))]"
           >
-            <span className="pt-0.5 text-[13px] leading-7 text-[hsl(var(--text-secondary)/0.36)]">
+            <span className="pt-0.5 text-[13px] leading-7 text-[hsl(var(--text-secondary))]">
               {index + 1}
             </span>
-            <span className="max-w-[760px] text-[14px] leading-7 text-[hsl(var(--text-secondary)/0.84)]">
+            <span className="max-w-[760px] text-[14px] leading-7 text-[hsl(var(--text-secondary))]">
               {item.hook}
             </span>
           </button>
@@ -49,7 +49,7 @@ export function DashboardInspirationSuggestions({
       <button
         type="button"
         onClick={() => setRefreshSeed((current) => current + 1)}
-        className="w-fit text-[12px] text-[hsl(var(--text-secondary)/0.58)] transition-colors hover:text-[hsl(var(--text-primary))]"
+        className="w-fit text-[12px] text-[hsl(var(--text-secondary))] transition-colors hover:text-[hsl(var(--text-primary))]"
       >
         {t("dashboard.realInspirationsRefresh", { defaultValue: "换一批" })}
       </button>

@@ -47,7 +47,7 @@ vi.mock("../../contexts/AuthContext", () => ({
 }));
 
 vi.mock("../../hooks/useMediaQuery", () => ({
-  useIsMobile: () => mockIsMobile,
+  useIsDesktop: () => !mockIsMobile,
 }));
 
 vi.mock("../Logo", () => ({

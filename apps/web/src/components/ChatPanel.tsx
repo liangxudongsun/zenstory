@@ -2304,8 +2304,8 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
                 <div className="mt-3">
                   <div className={`bg-[hsl(var(--result-bg))] border border-[hsl(var(--result-border))] rounded-lg ${isMobile ? 'p-2' : 'p-3'}`}>
                     <div className="flex items-center gap-2 mb-2">
-                      <Edit3 className="w-4 h-4 text-[hsl(var(--success-light))]" />
-                      <span className={`text-[hsl(var(--success-light))] font-medium ${isMobile ? 'text-xs truncate flex-1' : 'text-sm'}`}>
+                      <Edit3 className="w-4 h-4 text-[hsl(var(--success-text))]" />
+                      <span className={`text-[hsl(var(--success-text))] font-medium ${isMobile ? 'text-xs truncate flex-1' : 'text-sm'}`}>
                         {t('chat:panel.editing')} {editProgress.title}
                       </span>
                     </div>
@@ -2318,7 +2318,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
                           }}
                         />
                       </div>
-                      <span className="text-xs text-[hsl(var(--success-light))]">
+                      <span className="text-xs text-[hsl(var(--success-text))]">
                         {editProgress.completedEdits}/{editProgress.totalEdits}
                       </span>
                     </div>
@@ -2352,7 +2352,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
                 <div className="mt-3 bg-[hsl(var(--warning)/0.1)] border border-[hsl(var(--warning)/0.3)] rounded-lg p-3 animate-in fade-in slide-in-from-top-2 duration-200">
                   <div className="flex items-start gap-2">
                     <svg
-                      className="w-4 h-4 text-[hsl(var(--warning))] mt-0.5 flex-shrink-0"
+                      className="w-4 h-4 text-[hsl(var(--warning-text))] mt-0.5 flex-shrink-0"
                       fill="currentColor"
                       viewBox="0 0 20 20"
                     >
@@ -2363,19 +2363,19 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
                       />
                     </svg>
                     <div className="flex-1 min-w-0">
-                      <p className="text-[hsl(var(--warning))] text-sm font-medium">
+                      <p className="text-[hsl(var(--warning-text))] text-sm font-medium">
                         {isAiQuotaLimit
                           ? t('chat:panel.quotaExceededTitle')
                           : t('chat:panel.streamErrorTitle')}
                       </p>
                       {!isAiQuotaLimit && (
-                        <p className="text-[hsl(var(--warning))] text-sm break-words">{error}</p>
+                        <p className="text-[hsl(var(--warning-text))] text-sm break-words">{error}</p>
                       )}
                       {retryable && lastRetryRequestRef.current?.projectId === currentProjectId && (
                         <button
                           type="button"
                           onClick={handleRetry}
-                          className="mt-2 inline-flex h-8 items-center rounded-md border border-[hsl(var(--warning)/0.35)] px-3 text-xs font-medium text-[hsl(var(--warning))] hover:bg-[hsl(var(--warning)/0.12)] transition-colors"
+                          className="mt-2 inline-flex h-8 items-center rounded-md border border-[hsl(var(--warning)/0.35)] px-3 text-xs font-medium text-[hsl(var(--warning-text))] hover:bg-[hsl(var(--warning)/0.12)] transition-colors"
                         >
                           {t('common:retry')}
                         </button>
@@ -2388,7 +2388,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
                           <button
                             type="button"
                             onClick={() => setShowQuotaUpgradeModal(true)}
-                            className="inline-flex h-8 items-center rounded-md border border-[hsl(var(--warning)/0.35)] bg-[hsl(var(--warning)/0.08)] px-3 text-xs font-medium text-[hsl(var(--warning))] hover:bg-[hsl(var(--warning)/0.16)] transition-colors"
+                            className="inline-flex h-8 items-center rounded-md border border-[hsl(var(--warning)/0.35)] bg-[hsl(var(--warning)/0.08)] px-3 text-xs font-medium text-[hsl(var(--warning-text))] hover:bg-[hsl(var(--warning)/0.16)] transition-colors"
                           >
                             {t('dashboard:billing.ctaUpgradePro')}
                           </button>

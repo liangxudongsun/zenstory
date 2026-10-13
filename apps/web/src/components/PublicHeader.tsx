@@ -5,7 +5,7 @@ import { LogOut, Menu, X, BookOpen, ChevronDown, BookText, CreditCard } from "lu
 import { Logo } from "./Logo";
 import { useAuth } from "../contexts/AuthContext";
 import { LanguageSwitcher } from "./LanguageSwitcher";
-import { useIsMobile } from "../hooks/useMediaQuery";
+import { useIsDesktop } from "../hooks/useMediaQuery";
 import { buildUpgradeUrl } from "../config/upgradeExperience";
 import { getUserDisplayName } from "../lib/userDisplayName";
 import { getWorkbenchHomeUrl } from "../lib/site-domain";
@@ -33,7 +33,7 @@ export function PublicHeader({
   const [searchParams] = useSearchParams();
   const { user, logout } = useAuth();
   const { t } = useTranslation(['common', 'home', 'dashboard']);
-  const isMobile = useIsMobile();
+  const isCompactHeader = !useIsDesktop();
   const isAuthVariant = variant === "auth";
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showProductMenu, setShowProductMenu] = useState(false);
@@ -258,7 +258,7 @@ export function PublicHeader({
           <div className="flex-1" />
 
           {/* Desktop: Right side */}
-          <div className="hidden md:flex items-center gap-1 shrink-0">
+          <div className="hidden lg:flex items-center gap-1 shrink-0">
             {/* Language Switcher - always visible */}
             <LanguageSwitcher />
 
@@ -336,7 +336,7 @@ export function PublicHeader({
           </div>
 
           {/* Mobile: Right side */}
-          <div className="flex md:hidden items-center gap-1 shrink-0">
+          <div className="flex lg:hidden items-center gap-1 shrink-0">
             {/* Language Switcher */}
             <LanguageSwitcher />
 
@@ -408,10 +408,10 @@ export function PublicHeader({
       </header>
 
       {/* Mobile Dropdown Menu */}
-      {isMobile && showMobileMenu && (variant === "dashboard" || variant === "home") && (
+      {isCompactHeader && showMobileMenu && (variant === "dashboard" || variant === "home") && (
         <div
           id={mobileMenuId}
-          className="md:hidden fixed top-12 left-0 right-0 max-h-[calc(100dvh-3rem)] overflow-y-auto bg-[hsl(var(--bg-secondary))] border-b border-[hsl(var(--separator-color))] shadow-lg z-40"
+          className="lg:hidden fixed top-12 left-0 right-0 max-h-[calc(100dvh-3rem)] overflow-y-auto bg-[hsl(var(--bg-secondary))] border-b border-[hsl(var(--separator-color))] shadow-lg z-40"
         >
           <div className="flex flex-col p-2 gap-1" role="menu" aria-label={t("common:nav.mobileMenu", "移动端导航菜单")}>
             {variant === "home" && (

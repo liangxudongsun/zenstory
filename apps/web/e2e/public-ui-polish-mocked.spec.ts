@@ -36,7 +36,7 @@ for (const width of [320, 390, 768, 1440]) {
       for (const control of await demo.getByRole('button').all()) {
         expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
       }
-      if (width < 768) {
+      if (width < 1024) {
         await page.getByRole('button', { name: language === 'zh' ? '打开菜单' : 'Open menu', exact: true }).click();
         const menu = page.getByRole('menu');
         const bounds = (await menu.boundingBox())!;

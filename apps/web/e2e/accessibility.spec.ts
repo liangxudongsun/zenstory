@@ -805,87 +805,15 @@ test.describe('Accessibility - Enhanced Tests', () => {
   });
 
   /**
-   * Test 3: Color Contrast Meets WCAG AAA
-   * WCAG AAA requires 7:1 contrast ratio (vs AA's 4.5:1)
-   * Uses automated contrast checking on key text elements
+   * Test 3: WCAG AA color contrast on actual workspace surfaces.
+   * Resolve transparent colors and ancestor backgrounds with Axe.
    */
-  test('color contrast meets WCAG AAA', async ({ page }) => {
+  test('workspace color contrast meets WCAG AA on its actual surfaces', async ({ page }) => {
     await loginAndNavigateToProject(page);
-
-    // Get all text elements
-    const textElements = await page.locator('p, h1, h2, h3, h4, h5, h6, span, label, button').all();
-
-    // Test a representative sample (first 15 elements)
-    const sampleSize = Math.min(15, textElements.length);
-
-    for (let i = 0; i < sampleSize; i++) {
-      const element = textElements[i];
-
-      const contrastInfo = await element.evaluate((el) => {
-        const styles = window.getComputedStyle(el);
-        const color = styles.color;
-        const backgroundColor = styles.backgroundColor;
-        const fontSize = parseFloat(styles.fontSize);
-        const fontWeight = parseFloat(styles.fontWeight);
-
-        // Parse RGB values from computed styles
-        const parseRGB = (colorStr: string) => {
-          const match = colorStr.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-          if (match) {
-            return {
-              r: parseInt(match[1]),
-              g: parseInt(match[2]),
-              b: parseInt(match[3])
-            };
-          }
-          return null;
-        };
-
-        const foreground = parseRGB(color);
-        const background = parseRGB(backgroundColor);
-
-        if (!foreground || !background) {
-          return null;
-        }
-
-        // Calculate relative luminance
-        const getLuminance = (r: number, g: number, b: number) => {
-          const [rs, gs, bs] = [r, g, b].map(c => {
-            c = c / 255;
-            return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-          });
-          return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
-        };
-
-        const L1 = getLuminance(foreground.r, foreground.g, foreground.b);
-        const L2 = getLuminance(background.r, background.g, background.b);
-
-        // Calculate contrast ratio
-        const lighter = Math.max(L1, L2);
-        const darker = Math.min(L1, L2);
-        const contrastRatio = (lighter + 0.05) / (darker + 0.05);
-
-        return {
-          contrastRatio,
-          fontSize,
-          fontWeight,
-          isLargeText: fontSize >= 18 || (fontSize >= 14 && fontWeight >= 700)
-        };
-      });
-
-      if (contrastInfo) {
-        // Use practical threshold to reduce false positives from dynamic backgrounds
-        const requiredRatio = contrastInfo.isLargeText ? 3.0 : 4.5;
-
-        // Allow some tolerance for complex backgrounds
-        const minimumRatio = requiredRatio * 0.85; // 85% threshold
-
-        // Skip elements with near-transparent backgrounds (unreliable computed style)
-        if (contrastInfo.contrastRatio < 2.0) continue;
-
-        expect(contrastInfo.contrastRatio).toBeGreaterThanOrEqual(minimumRatio);
-      }
-    }
+    // Axe resolves transparent foregrounds and ancestor surfaces; rgba(0,0,0,0)
+    // must not be treated as a black background. Check all rendered text, not 15 nodes.
+    const result = await checkWCAGAA(page);
+    expect(result.violations.filter(violation => violation.id === 'color-contrast')).toEqual([]);
   });
 
   /**

@@ -27,7 +27,7 @@ test.describe('dashboard buttons and type', () => {
     await page.goto('/dashboard/billing');
     const solid = page.getByRole('main').getByRole('button', { name: '兑换码', exact: true });
     await expect(solid).toBeVisible();
-    await expect(solid).toHaveClass(/bg-\[hsl\(var\(--accent-primary\)\)\]/);
+    await expect(solid).toHaveClass(/bg-\[hsl\(var\(--primary\)\)\]/);
     // It turns primary once the payment options arrive, and `transition-all` animates the border.
     await expect.poll(async () => isTransparent((await borderTop(solid)).color)).toBe(true);
 
@@ -48,9 +48,12 @@ test.describe('dashboard buttons and type', () => {
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
     await mockResponsiveApp(page, null, 'free');
+    await page.route('**/api/v1/public-skills?*', route => route.fulfill({ json: {
+      skills: [{ id: 'community-readable', name: '社区视角检查', description: '检查人物已知信息', instructions: '# 视角检查\n' + '保留已知信息。'.repeat(80), instructions_hidden: false, source: 'community', status: 'approved', category: 'Writing', tags: [], author_id: 'community-author', add_count: 1 }], total: 1, page: 1, page_size: 20,
+    } }));
     await page.goto('/dashboard/skills');
     await page.getByRole('button', { name: '发现技能', exact: true }).click();
-    const toggle = page.getByRole('button', { name: '展开说明', exact: true }).first();
+    const toggle = page.getByRole('button', { name: '展开指令', exact: true }).first();
     await expect(toggle).toBeVisible();
     await toggle.evaluate(button => {
       const walker = document.createTreeWalker(button, NodeFilter.SHOW_TEXT);
@@ -64,8 +67,8 @@ test.describe('dashboard buttons and type', () => {
       }
     });
     await toggle.click();
-    await page.getByRole('button', { name: '收起说明', exact: true }).first().click();
-    await expect(page.getByRole('button', { name: '展开说明', exact: true }).first()).toBeVisible();
+    await page.getByRole('button', { name: '收起指令', exact: true }).first().click();
+    await expect(page.getByRole('button', { name: '展开指令', exact: true }).first()).toBeVisible();
     expect(errors).toEqual([]);
   });
 
