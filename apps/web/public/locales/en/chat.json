@@ -332,7 +332,7 @@
   },
   "activity": {
     "elapsed": "AI is working · {{seconds}}s",
-    "longWaitHint": "Long passages usually take a minute or two."
+    "longWaitHint": "Long passages can take a few minutes."
   },
   "leaveWhileGenerating": {
     "title": "The AI is still writing",

@@ -1787,6 +1787,38 @@ describe('ChatPanel new-author flow', () => {
     expect(screen.queryByRole('button', { name: 'chat:panel.jumpToLatest' })).not.toBeInTheDocument()
   })
 
+  it('keeps following the bottom while loaded history finishes rendering, until the author touches the list', async () => {
+    // Lazily rendered Markdown grows the list after the first scroll-to-bottom; reloads used to stop
+    // one round short of the latest reply (2026-10-12 production audit).
+    const resizeCallbacks: Array<() => void> = []
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: () => void) { resizeCallbacks.push(callback) }
+      observe() {}
+      disconnect() {}
+    })
+    try {
+      vi.mocked(getRecentMessages).mockResolvedValueOnce([
+        { id: 'u-1', session_id: 'session-1', role: 'user', content: '写第一章', created_at: '2026-10-08T10:00:00Z' },
+        { id: 'a-1', session_id: 'session-1', role: 'assistant', content: '第一章写好了', created_at: '2026-10-08T10:01:00Z' },
+      ] as never)
+      render(<ChatPanel />)
+      await waitFor(() => expect(lastMessageListProps()?.messages).toHaveLength(2))
+      expect(resizeCallbacks.length).toBeGreaterThan(0)
+
+      mockScrollToBottom.mockClear()
+      act(() => resizeCallbacks.forEach((callback) => callback()))
+      expect(mockScrollToBottom).toHaveBeenCalledWith(false)
+
+      // The author starts scrolling: later growth no longer drags the list down.
+      fireEvent.wheel(screen.getByTestId('message-list'))
+      mockScrollToBottom.mockClear()
+      act(() => resizeCallbacks.forEach((callback) => callback()))
+      expect(mockScrollToBottom).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('explains a used-up day above the input and opens the wall on send instead of a silent grey button', async () => {
     mockQuota.value = { ai_conversations: { used: 10, limit: 10, reset_at: '2026-10-09T16:00:00Z' } }
     render(<ChatPanel />)

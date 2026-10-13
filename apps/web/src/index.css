@@ -146,6 +146,7 @@
 
     --text-primary: 210 15% 15%; /* #262626 */
     --text-secondary: 210 15% 40%; /* #5c7280 - Secondary text (WCAG AA: 5.21:1) */
+    --foreground-subtle: 210 15% 30%; /* #414d58 - 深色的 #cccccc 在浅底上看不清（版本历史标签、次要按钮）；在 8% 叠底上仍过 WCAG AA */
 
     --border-color: 210 15% 0% / 0.08; /* Subtle dark overlay border */
     --separator-color: 210 15% 0% / 0.05; /* Panel separators */

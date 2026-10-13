@@ -71,7 +71,7 @@ router = APIRouter(prefix="/api/v1", tags=["files"])
 # ==================== Material Upload Constants ====================
 MATERIAL_MAX_CHARS = 200_000  # Maximum 20万字
 MATERIAL_MAX_BYTES = 2_000_000  # 2MB hard byte cap
-ALLOWED_EXTENSIONS = {".txt"}  # Only .txt allowed
+ALLOWED_EXTENSIONS = {".txt", ".md"}  # 纯文本；.md 与导入正文一样按纯文本读，不解析 Markdown
 MATERIAL_AUTO_SPLIT_TRIGGER_CHARS = 20_000  # Auto-split long uploads above this size
 MATERIAL_AUTO_SPLIT_MAX_CHARS = 20_000  # Keep each generated snippet manageable
 
@@ -1458,10 +1458,10 @@ def upload_material(
     session: Session = Depends(get_session)
 ):
     """
-    Upload a .txt file as a material (snippet) in the project.
+    Upload a .txt / .md file as a material (snippet) in the project.
 
     Constraints:
-    - Only .txt files allowed
+    - Only .txt and .md files allowed (both read as plain text)
     - Maximum 200,000 characters (约 20 万字)
     - File will be created as snippet(s) under the material folder
     - Long uploads (>2万字) are auto-split (chapter-aware when possible)
