@@ -340,7 +340,7 @@ export default function HomePage() {
               </div>
               
               {/* Scene indicator - text buttons */}
-              <div className="flex flex-wrap gap-1 md:gap-2 justify-center mt-4 md:mt-5">
+              <div className="flex flex-wrap gap-2 justify-center mt-4 md:mt-5">
                 {SCENES.map((scene, index) => (
                   <button
                     key={scene.id}
@@ -359,7 +359,7 @@ export default function HomePage() {
               </div>
 
               {!prefersReducedMotion && (
-                <div className="flex justify-center">
+                <div className="mt-3 flex justify-center">
                   <button
                     type="button"
                     onClick={() => setIsDemoPaused((paused) => !paused)}

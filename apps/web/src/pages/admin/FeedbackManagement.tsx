@@ -189,9 +189,9 @@ export default function FeedbackManagement() {
 
       <form
         onSubmit={handleSearchSubmit}
-        className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_repeat(3,minmax(0,180px))_auto]"
+        className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(180px,1fr)_repeat(3,minmax(0,180px))_auto]"
       >
-        <div className="relative">
+        <div className="relative min-w-0 sm:col-span-2 xl:col-span-1">
           <Search
             size={16}
             className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[hsl(var(--text-secondary))]"
@@ -205,6 +205,7 @@ export default function FeedbackManagement() {
         </div>
 
         <AdminSelect
+          fullWidth
           value={statusFilter}
           onChange={(event) => {
             setStatusFilter(event.target.value as AdminFeedbackStatus | "");
@@ -221,6 +222,7 @@ export default function FeedbackManagement() {
         </AdminSelect>
 
         <AdminSelect
+          fullWidth
           value={sourceFilter}
           onChange={(event) => {
             setSourceFilter(event.target.value as "dashboard" | "editor" | "");
@@ -234,6 +236,7 @@ export default function FeedbackManagement() {
         </AdminSelect>
 
         <AdminSelect
+          fullWidth
           value={screenshotFilter}
           onChange={(event) => {
             setScreenshotFilter(event.target.value as ScreenshotFilter);
@@ -272,7 +275,7 @@ export default function FeedbackManagement() {
                 className="rounded-xl border border-[hsl(var(--separator-color))] bg-[hsl(var(--bg-secondary))] p-4 shadow-sm"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium text-[hsl(var(--text-primary))]">
                       <AdminUserLink userId={feedback.user_id}>{feedback.username}</AdminUserLink> · {feedback.email}
                     </div>
@@ -281,11 +284,13 @@ export default function FeedbackManagement() {
                     </div>
                   </div>
                   <AdminSelect
+                    aria-label={t("feedback.columns.status")}
+                    wrapperClassName="w-36 shrink-0"
                     value={feedback.status}
                     onChange={(event) =>
                       handleStatusChange(feedback, event.target.value as AdminFeedbackStatus)
                     }
-                    className="h-9 text-xs"
+                    className="min-h-11 text-sm"
                   >
                     {statusOrder.map((status) => (
                       <option key={status} value={status}>

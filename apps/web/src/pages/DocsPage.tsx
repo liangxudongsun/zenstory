@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Menu, FileText } from 'lucide-react';
@@ -8,6 +8,7 @@ import { PublicHeader } from '../components/PublicHeader';
 import { DocsSidebar } from '../components/docs/DocsSidebar';
 import { docsNavigation, flattenDocs, type DocNavItem } from '../data/docsNavigation';
 import { logger } from "../lib/logger";
+import { useIsDesktop } from '../hooks/useMediaQuery';
 
 const DOCS_ROOT = '../../docs';
 const DOCS_BASE_PATH = '/docs';
@@ -247,12 +248,12 @@ export function MarkdownComponents(currentPathname: string) {
       );
     },
     pre: ({ children }: { children?: React.ReactNode }) => (
-      <pre className="bg-[hsl(var(--bg-secondary))] text-[hsl(var(--text-primary))] p-4 md:p-6 rounded-xl overflow-x-auto my-6 md:my-8 font-mono text-sm border border-[hsl(var(--border-color))]">
+      <pre tabIndex={0} className="bg-[hsl(var(--bg-secondary))] text-[hsl(var(--text-primary))] p-4 md:p-6 rounded-xl overflow-x-auto my-6 md:my-8 font-mono text-sm border border-[hsl(var(--border-color))] focus-visible:outline-2 focus-visible:outline-[hsl(var(--accent-primary))] focus-visible:outline-offset-2">
         {children}
       </pre>
     ),
     table: ({ children }: { children?: React.ReactNode }) => (
-      <div className="overflow-x-auto my-6 md:my-8">
+      <div tabIndex={0} className="overflow-x-auto my-6 md:my-8 rounded-xl focus-visible:outline-2 focus-visible:outline-[hsl(var(--accent-primary))] focus-visible:outline-offset-2">
         <table className="min-w-full border border-[hsl(var(--border-color))] rounded-xl overflow-hidden">
           {children}
         </table>
@@ -285,9 +286,16 @@ export function DocsPage() {
   const navigate = useNavigate();
   const { t, i18n } = useTranslation('docs');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const sidebarTriggerRef = useRef<HTMLButtonElement>(null);
+  const isDesktop = useIsDesktop();
+  const mobileSidebarOpen = sidebarOpen && !isDesktop;
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<'notFound' | 'loadError' | null>(null);
+
+  useEffect(() => {
+    if (isDesktop) setSidebarOpen(false);
+  }, [isDesktop]);
 
   // 获取完整的文档路径
   const fullDocPath = extractDocPath(location.pathname);
@@ -349,21 +357,25 @@ export function DocsPage() {
   const markdownComponents = MarkdownComponents(location.pathname);
 
   return (
-    <div className="min-h-screen bg-[hsl(var(--bg-primary))] flex flex-col">
+    <div inert={mobileSidebarOpen} className="min-h-screen bg-[hsl(var(--bg-primary))] flex flex-col">
       <PublicHeader variant="home" maxWidth="max-w-6xl" />
 
       <div className="flex-1 w-full">
         <div className="mx-auto flex h-full w-full max-w-6xl">
           {/* Sidebar */}
-          <DocsSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+          <DocsSidebar isOpen={mobileSidebarOpen} onClose={() => setSidebarOpen(false)} returnFocusRef={sidebarTriggerRef} />
 
           {/* Main content */}
           <main className="flex-1 min-w-0">
             {/* Mobile menu button */}
             <div className="lg:hidden sticky top-12 z-30 bg-[hsl(var(--bg-secondary))] border-b border-[hsl(var(--border-color))] px-4 py-2">
               <button
+                ref={sidebarTriggerRef}
+                type="button"
+                aria-expanded={mobileSidebarOpen}
+                aria-controls="docs-mobile-navigation"
                 onClick={() => setSidebarOpen(true)}
-                className="flex items-center gap-2 text-sm text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))] transition-colors"
+                className="flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm text-[hsl(var(--text-secondary))] hover:bg-[hsl(var(--bg-hover))] hover:text-[hsl(var(--text-primary))] transition-colors"
               >
                 <Menu className="w-5 h-5" />
                 <span>{t('menu', '目录')}</span>

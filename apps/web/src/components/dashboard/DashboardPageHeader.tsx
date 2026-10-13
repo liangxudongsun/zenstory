@@ -68,19 +68,19 @@ export function DashboardPageHeader({
         isMobile ? "mb-4" : isTablet ? "mb-6" : "mb-8"
       } ${className || ""}`}
     >
-      <div className={`flex ${isMobile ? "flex-col items-start gap-3" : "items-center justify-between"}`}>
-        <div className="flex items-center gap-3 min-w-0">
-          <div>
+      <div className={`flex ${isMobile ? "flex-col items-start gap-3" : "items-center justify-between gap-4"}`}>
+        <div className="flex max-w-full flex-1 items-center gap-3 min-w-0">
+          <div className="min-w-0 w-full">
             <div className="flex items-center gap-2">
               <h1
-                className={`font-semibold tracking-tight text-[hsl(var(--text-primary))] ${
+                className={`min-w-0 break-words font-semibold tracking-tight text-[hsl(var(--text-primary))] ${
                   isMobile ? "text-2xl" : "text-[28px]"
                 }`}
               >
                 {title}
               </h1>
               {badge && (
-                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-[hsl(var(--accent-primary)/0.1)] text-[hsl(var(--accent-primary))]">
+                <span className="shrink-0 text-xs font-medium px-2 py-0.5 rounded-full bg-[hsl(var(--accent-primary)/0.1)] text-[hsl(var(--accent-primary))]">
                   {badge.count}
                 </span>
               )}

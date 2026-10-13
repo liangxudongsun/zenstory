@@ -163,8 +163,8 @@ export default function ForgotPassword() {
                 aria-live="assertive"
                 className="bg-[hsl(var(--error)/0.1)] border border-[hsl(var(--error)/0.3)] rounded-xl p-4 mb-6 flex items-start gap-3"
               >
-                <AlertCircle className="w-5 h-5 text-[hsl(var(--error))] flex-shrink-0 mt-0.5" />
-                <p className="text-[hsl(var(--error))] text-sm break-words">{error}</p>
+                <AlertCircle className="w-5 h-5 text-[hsl(var(--error-text))] flex-shrink-0 mt-0.5" />
+                <p className="text-[hsl(var(--error-text))] text-sm break-words">{error}</p>
               </div>
             )}
 
@@ -214,7 +214,7 @@ export default function ForgotPassword() {
                   <button
                     type="button"
                     onClick={changeEmail}
-                    className="ml-2 text-[hsl(var(--accent-primary))] hover:text-[hsl(var(--accent-light))] font-medium transition-colors"
+                    className="ml-2 inline-flex min-h-11 items-center rounded-lg px-2 text-[hsl(var(--accent-primary))] hover:text-[hsl(var(--accent-light))] font-medium transition-colors"
                     disabled={loading}
                   >
                     {t("auth:forgotPassword.changeEmail", "换一个邮箱")}
@@ -338,7 +338,7 @@ export default function ForgotPassword() {
             <div className="mt-6 text-center">
               <Link
                 to="/login"
-                className="text-sm text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))] transition-colors"
+                className="inline-flex min-h-11 items-center rounded-lg px-3 text-sm text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))] transition-colors"
               >
                 {t("auth:login.backToLogin", "返回登录")}
               </Link>

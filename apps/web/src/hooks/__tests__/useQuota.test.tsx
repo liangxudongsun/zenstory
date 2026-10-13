@@ -53,6 +53,24 @@ describe('useQuota', () => {
     mockGetTier.mockReturnValue('free')
   })
 
+  it.each([2, 3, 10])('uses the lowered daily free allowance with %i existing messages', async (used) => {
+    mockGetQuota.mockResolvedValue({
+      ai_conversations: { used, limit: 3 },
+      projects: { used: 1, limit: 3 },
+    } as never)
+    const { result } = renderHook(() => useQuota(), { wrapper: createWrapper() })
+    await waitFor(() => expect(result.current.quotas).not.toBeNull())
+
+    expect(result.current.getQuotaStatus('ai_conversations')).toMatchObject({
+      used,
+      limit: 3,
+      remaining: Math.max(0, 3 - used),
+      isExceeded: used >= 3,
+      isUnlimited: false,
+    })
+    expect(result.current.canUseFeature('ai_conversations')).toBe(used < 3)
+  })
+
   describe('initial state', () => {
     it('initializes with loading state when fetching', () => {
       mockGetQuota.mockImplementation(() => new Promise(() => {}))

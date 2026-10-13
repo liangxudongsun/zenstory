@@ -314,8 +314,8 @@ export default function VerifyEmail({ email, planIntent }: VerifyEmailProps) {
 
             {error && (
               <div className="bg-[hsl(var(--error)/0.1)] border border-[hsl(var(--error)/0.3)] rounded-xl p-4 mb-6 flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-[hsl(var(--error))] flex-shrink-0 mt-0.5" />
-                <p className="text-[hsl(var(--error))] text-sm break-words">{error}</p>
+                <AlertCircle className="w-5 h-5 text-[hsl(var(--error-text))] flex-shrink-0 mt-0.5" />
+                <p className="text-[hsl(var(--error-text))] text-sm break-words">{error}</p>
               </div>
             )}
 
@@ -328,6 +328,8 @@ export default function VerifyEmail({ email, planIntent }: VerifyEmailProps) {
                       ref={(el) => { if (el) inputRefs.current[index] = el }}
                       type="text"
                       inputMode="numeric"
+                      aria-label={t('auth:verifyEmail.digitLabel', { index: index + 1, count: code.length })}
+                      autoComplete={index === 0 ? 'one-time-code' : 'off'}
                       maxLength={1}
                       value={digit}
                       onChange={(e) => handleInputChange(index, e.target.value)}
@@ -344,7 +346,7 @@ export default function VerifyEmail({ email, planIntent }: VerifyEmailProps) {
                     {codeTtl > 0 ? (
                       t('auth:verifyEmail.codeExpiring', { time: formatTime(codeTtl) })
                     ) : (
-                      <span className="text-[hsl(var(--error))]">{t('auth:verifyEmail.codeExpired')}</span>
+                      <span className="text-[hsl(var(--error-text))]">{t('auth:verifyEmail.codeExpired')}</span>
                     )}
                   </p>
                 </div>
@@ -366,7 +368,7 @@ export default function VerifyEmail({ email, planIntent }: VerifyEmailProps) {
                   <button
                     type="button"
                     onClick={() => navigate(loginLink)}
-                    className="text-sm text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))] transition-colors"
+                    className="min-h-11 rounded-lg px-3 text-sm text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))] transition-colors"
                   >
                     {t('auth:verifyEmail.backToLogin')}
                   </button>

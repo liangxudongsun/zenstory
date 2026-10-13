@@ -328,7 +328,7 @@ export const AdminUserDetail: React.FC = () => {
           )}
         </AdminPageState>
 
-        <form onSubmit={submitAdjust} className="admin-surface grid grid-cols-1 gap-3 p-4 sm:grid-cols-[160px_1fr_auto] sm:items-end">
+        <form onSubmit={submitAdjust} className="admin-surface grid grid-cols-1 gap-3 p-4 lg:grid-cols-[160px_minmax(0,1fr)_auto] lg:items-end">
           <label className="block text-sm text-[hsl(var(--text-primary))]">
             {t("points.adjustAmount")}
             <input

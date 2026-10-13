@@ -10,7 +10,7 @@ DEFAULT_FREE_PLAN_PRICE_MONTHLY_CENTS = 0
 DEFAULT_FREE_PLAN_PRICE_YEARLY_CENTS = 0
 
 DEFAULT_FREE_PLAN_FEATURES: dict[str, Any] = {
-    "ai_conversations_per_day": 10,
+    "ai_conversations_per_day": 3,
     "context_window_tokens": 4096,
     "file_versions_per_file": 10,
     "max_projects": 3,
@@ -65,7 +65,11 @@ def clone_default_free_features() -> dict[str, Any]:
 
 
 def plan_feature_default(plan_name: str | None, key: str, fallback: Any = 0) -> Any:
-    """Default for one feature key of a plan; unknown plans use the free tier."""
+    """Default for a plan key, retaining custom plans' previous daily fallback."""
+    if plan_name and plan_name not in PLAN_FEATURE_DEFAULTS and key == "ai_conversations_per_day":
+        # Existing custom plans without this key inherited ten daily messages.
+        # The free-policy change must not silently lower another plan's limit.
+        return 10
     preset = PLAN_FEATURE_DEFAULTS.get(plan_name or "", DEFAULT_FREE_PLAN_FEATURES)
     if key in preset:
         return deepcopy(preset[key])

@@ -6,9 +6,10 @@ import { useDocsSearch, type DocsSearchResult } from '../../hooks/useDocsSearch'
 
 interface DocsSearchInputProps {
   onResultClick?: () => void;
+  active?: boolean;
 }
 
-export function DocsSearchInput({ onResultClick }: DocsSearchInputProps) {
+export function DocsSearchInput({ onResultClick, active = true }: DocsSearchInputProps) {
   const { t, i18n } = useTranslation('docs');
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
@@ -20,6 +21,7 @@ export function DocsSearchInput({ onResultClick }: DocsSearchInputProps) {
 
   // Handle Cmd+K / Ctrl+K shortcut
   useEffect(() => {
+    if (!active) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
@@ -33,7 +35,7 @@ export function DocsSearchInput({ onResultClick }: DocsSearchInputProps) {
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [clearSearch]);
+  }, [active, clearSearch]);
 
   // Click outside to close results
   useEffect(() => {
@@ -70,6 +72,7 @@ export function DocsSearchInput({ onResultClick }: DocsSearchInputProps) {
         <input
           ref={inputRef}
           type="text"
+          aria-label={t('searchPlaceholder', "搜索文档")}
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -77,7 +80,7 @@ export function DocsSearchInput({ onResultClick }: DocsSearchInputProps) {
           }}
           onFocus={() => setShowResults(true)}
           placeholder={t('searchPlaceholder', "搜索文档")}
-          className="w-full min-h-[44px] sm:h-9 pl-9 pr-8 text-sm bg-[hsl(var(--bg-tertiary))]
+          className="w-full min-h-[44px] pl-9 pr-12 text-base lg:text-sm bg-[hsl(var(--bg-tertiary))]
                      border border-[hsl(var(--border-color))] rounded-lg
                      text-[hsl(var(--text-primary))] placeholder:text-[hsl(var(--text-tertiary))]
                      focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary)/0.5)]
@@ -85,11 +88,13 @@ export function DocsSearchInput({ onResultClick }: DocsSearchInputProps) {
         />
         {query && (
           <button
+            type="button"
+            aria-label={t('clearSearch', '清空搜索')}
             onClick={() => {
               setQuery('');
               clearSearch();
             }}
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-1
+            className="absolute right-0 top-1/2 -translate-y-1/2 inline-flex h-11 w-11 items-center justify-center
                        text-[hsl(var(--text-tertiary))] hover:text-[hsl(var(--text-primary))]
                        rounded hover:bg-[hsl(var(--bg-secondary))] transition-colors"
           >
@@ -102,7 +107,7 @@ export function DocsSearchInput({ onResultClick }: DocsSearchInputProps) {
       {showResults && query && (
         <div className="absolute top-full left-0 right-0 mt-1
                         bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--border-color))]
-                        rounded-lg shadow-lg max-h-80 overflow-y-auto z-50">
+                        rounded-lg shadow-lg max-h-[min(20rem,50dvh)] overflow-y-auto z-50">
           {isSearching ? (
             <div className="px-4 py-3 text-sm text-[hsl(var(--text-tertiary))]">
               {t('loading', "正在加载…")}
@@ -113,7 +118,7 @@ export function DocsSearchInput({ onResultClick }: DocsSearchInputProps) {
                 <li key={result.path}>
                   <button
                     onClick={() => handleResultClick(result)}
-                    className="w-full px-3 py-2 text-left hover:bg-[hsl(var(--bg-tertiary))]
+                    className="w-full min-h-11 px-3 py-2 text-left hover:bg-[hsl(var(--bg-tertiary))]
                                transition-colors focus:outline-none focus:bg-[hsl(var(--bg-tertiary))]"
                   >
                     <div className="text-sm text-[hsl(var(--text-primary))]">

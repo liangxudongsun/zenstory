@@ -578,7 +578,7 @@ function MaterialDetailContent({ novelId }: { novelId?: string }) {
             : t("materials:detail.loadError", { defaultValue: "素材详情加载失败，请重试。" })}
         </p>
         {!isNotFound && (
-          <button className="btn-secondary h-10 px-4" onClick={() => void refetchMaterial()}>
+          <button className="btn-secondary min-h-11 px-4" onClick={() => void refetchMaterial()}>
             {t("common:retry", { defaultValue: "重试" })}
           </button>
         )}
@@ -595,12 +595,14 @@ function MaterialDetailContent({ novelId }: { novelId?: string }) {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-[hsl(var(--bg-primary))]">
+    <div className="ui-sans-headings h-screen flex flex-col bg-[hsl(var(--bg-primary))]">
       {/* Header */}
       <div className="shrink-0 border-b border-[hsl(var(--border-color))] bg-[hsl(var(--bg-secondary))]">
-        <div className={`flex ${isMobile ? 'flex-col items-stretch gap-2 px-3 py-2' : 'items-center justify-between px-4 py-3'}`}>
-          <div className="flex items-center gap-3">
+        <div className={`flex gap-3 ${isMobile ? 'flex-col items-stretch px-3 py-2' : 'items-center justify-between px-4 py-3'}`}>
+          <div className="flex min-w-0 flex-1 items-center gap-3">
             <button
+              type="button"
+              aria-label={t("common:back", { defaultValue: "返回" })}
               onClick={() => {
                 if (isMobile && showMobileContent) {
                   handleMobileBack();
@@ -608,12 +610,12 @@ function MaterialDetailContent({ novelId }: { novelId?: string }) {
                   navigate("/dashboard/materials");
                 }
               }}
-              className="p-2 rounded-lg hover:bg-[hsl(var(--bg-tertiary))] transition-colors"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-[hsl(var(--bg-tertiary))] transition-colors"
             >
               <ChevronLeft className="w-5 h-5 text-[hsl(var(--text-secondary))]" />
             </button>
-            <div>
-              <h1 className={`font-semibold text-[hsl(var(--text-primary))] ${isMobile ? 'text-base' : 'text-lg'}`}>
+            <div className="min-w-0">
+              <h1 className={`break-words font-semibold text-[hsl(var(--text-primary))] ${isMobile ? 'text-base' : 'text-lg'}`}>
                 {isMobile && showMobileContent && selectedItem ? selectedItem.title : material.title}
               </h1>
               {!(isMobile && showMobileContent) && (
@@ -626,7 +628,7 @@ function MaterialDetailContent({ novelId }: { novelId?: string }) {
 
           {/* Search - 在移动端内容视图隐藏 */}
           {!(isMobile && showMobileContent) && (
-            <div className={`relative ${isMobile ? 'w-full' : 'max-w-xs'}`}>
+            <div className={`relative ${isMobile ? 'w-full' : 'w-56 shrink-0'}`}>
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[hsl(var(--text-tertiary))]" />
               <input
                 type="text"
@@ -639,7 +641,8 @@ function MaterialDetailContent({ novelId }: { novelId?: string }) {
                   }
                 }}
                 placeholder={t("materials:detail.searchPlaceholder")}
-                className={`w-full pl-9 pr-3 py-2 rounded-lg border border-[hsl(var(--border-color))] bg-[hsl(var(--bg-primary))] text-sm focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary)/0.3)]`}
+                aria-label={t("materials:detail.searchPlaceholder")}
+                className="min-h-11 w-full pl-9 pr-3 py-2 rounded-lg border border-[hsl(var(--border-color))] bg-[hsl(var(--bg-primary))] text-sm focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary)/0.3)]"
               />
             </div>
           )}

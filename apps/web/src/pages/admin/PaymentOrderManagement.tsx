@@ -9,6 +9,7 @@ import { adminApi, type AdminPaymentOrder, type PaymentOrderSyncResponse } from 
 import { ApiError } from "../../lib/apiClient";
 import { parseUTCDate } from "../../lib/dateUtils";
 import { getLocaleCode } from "../../lib/i18n-helpers";
+import { useIsDesktop } from "../../hooks/useMediaQuery";
 
 const PAGE_SIZE = 20;
 
@@ -26,6 +27,7 @@ function syncErrorReason(cause: unknown): string {
 export default function PaymentOrderManagement() {
   const { t } = useTranslation(["admin", "common"]);
   const queryClient = useQueryClient();
+  const isDesktop = useIsDesktop();
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState<"" | "pending" | "paid">("");
   const [fulfillment, setFulfillment] = useState<FulfillmentFilter>("");
@@ -117,17 +119,17 @@ export default function PaymentOrderManagement() {
           </button>
         </div>
       </div>
-      <form className="flex flex-col gap-3 sm:flex-row" onSubmit={(event) => {
+      <form className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-[auto_auto_minmax(180px,1fr)]" onSubmit={(event) => {
         event.preventDefault(); setSearch(searchInput.trim()); setPage(1);
       }}>
-        <AdminSelect aria-label={t("paymentOrders.paymentStatus")} value={status} onChange={(event) => {
+        <AdminSelect fullWidth aria-label={t("paymentOrders.paymentStatus")} value={status} onChange={(event) => {
           setStatus(event.target.value as typeof status); setPage(1);
         }}>
           <option value="">{t("paymentOrders.allStatus")}</option>
           <option value="pending">{t("paymentOrders.status.pending")}</option>
           <option value="paid">{t("paymentOrders.status.paid")}</option>
         </AdminSelect>
-        <AdminSelect aria-label={t("paymentOrders.fulfillmentStatus")} value={fulfillment} onChange={(event) => {
+        <AdminSelect fullWidth aria-label={t("paymentOrders.fulfillmentStatus")} value={fulfillment} onChange={(event) => {
           setFulfillment(event.target.value as FulfillmentFilter); setPage(1);
         }}>
           <option value="">{t("paymentOrders.allFulfillment")}</option>
@@ -135,14 +137,16 @@ export default function PaymentOrderManagement() {
           <option value="succeeded">{t("paymentOrders.fulfillment.succeeded")}</option>
           <option value="failed">{t("paymentOrders.fulfillment.failed")}</option>
         </AdminSelect>
-        <input className="min-w-0 flex-1 rounded-lg border border-[hsl(var(--separator-color))] bg-[hsl(var(--bg-secondary))] px-3 py-2 text-sm text-[hsl(var(--text-primary))]"
-          aria-label={t("paymentOrders.search")} placeholder={t("paymentOrders.searchPlaceholder")}
-          value={searchInput} onChange={(event) => setSearchInput(event.target.value)} />
-        <button type="submit" className="btn-secondary">{t("paymentOrders.search")}</button>
+        <div className="flex min-w-0 gap-3 sm:col-span-2 xl:col-span-1">
+          <input className="min-w-0 flex-1 rounded-lg border border-[hsl(var(--separator-color))] bg-[hsl(var(--bg-secondary))] px-3 py-2 text-sm text-[hsl(var(--text-primary))]"
+            aria-label={t("paymentOrders.search")} placeholder={t("paymentOrders.searchPlaceholder")}
+            value={searchInput} onChange={(event) => setSearchInput(event.target.value)} />
+          <button type="submit" className="btn-secondary shrink-0">{t("paymentOrders.search")}</button>
+        </div>
       </form>
       <AdminPageState isLoading={isLoading} isFetching={isFetching} isError={isError} isEmpty={orders.length === 0}
         errorText={t("paymentOrders.loadError")} onRetry={() => void refetch()}>
-        <div className="admin-table-shell overflow-x-auto">
+        {isDesktop ? <div className="admin-table-shell overflow-x-auto">
           <table className="w-full min-w-[960px] text-[hsl(var(--text-primary))]">
             <thead><tr className="border-b border-[hsl(var(--separator-color))]">
               {["orderNumber", "user", "plan", "amount", "paymentMethod", "paymentStatus", "fulfillmentStatus", "createdAt", "details"].map((key) => (
@@ -163,7 +167,29 @@ export default function PaymentOrderManagement() {
               </tr>
             ))}</tbody>
           </table>
-        </div>
+        </div> : <div className="space-y-3">
+          {orders.map((order) => (
+            <article key={order.id} className="admin-surface space-y-3 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0 flex-1 break-words">
+                  <AdminUserLink userId={order.user_id}>{order.username || order.user_id}</AdminUserLink>
+                  <p className="mt-1 text-xs text-[hsl(var(--text-secondary))]">{order.email}</p>
+                </div>
+                <span className="shrink-0 text-sm font-semibold tabular-nums">{formatAmount(order.amount_cents)}</span>
+              </div>
+              <p className="break-words text-sm">{order.plan_display_name} · {cycleLabel(order)}</p>
+              <dl className="grid grid-cols-2 gap-3 text-xs">
+                <div><dt className="text-[hsl(var(--text-secondary))]">{t("paymentOrders.paymentStatus")}</dt><dd className="mt-1">{paymentStatus(order)}</dd></div>
+                <div><dt className="text-[hsl(var(--text-secondary))]">{t("paymentOrders.fulfillmentStatus")}</dt><dd className={`mt-1 ${isPaidNotFulfilled(order) ? "text-[hsl(var(--error-text))]" : ""}`}>{fulfillmentStatus(order)}</dd></div>
+                <div className="col-span-2"><dt className="text-[hsl(var(--text-secondary))]">{t("paymentOrders.orderNumber")}</dt><dd className="mt-1 break-all font-mono">{order.out_trade_no}</dd></div>
+              </dl>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[hsl(var(--separator-color))] pt-3">
+                <span className="text-xs text-[hsl(var(--text-secondary))]">{formatDate(order.created_at)}</span>
+                <button type="button" className="btn-secondary min-h-11" onClick={() => openDetails(order)}>{t("paymentOrders.details")}</button>
+              </div>
+            </article>
+          ))}
+        </div>}
       </AdminPageState>
       {!isError && (data?.total ?? 0) > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-[hsl(var(--text-secondary))]">

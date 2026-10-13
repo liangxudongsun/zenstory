@@ -4,16 +4,20 @@
  * @module components/docs/DocsSidebar
  */
 
-import React from 'react';
+import React, { useRef, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ChevronRight, X } from 'lucide-react';
 import { docsNavigation, type DocNavItem } from '../../data/docsNavigation';
 import { DocsSearchInput } from './DocsSearchInput';
+import { useDialogInteractions } from '../ui/dialogFocus';
+import { useIsDesktop } from '../../hooks/useMediaQuery';
 
 interface DocsSidebarProps {
   isOpen?: boolean;
   onClose?: () => void;
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }
 
 /**
@@ -45,7 +49,8 @@ function NavItem({
       <Link
         to={targetPath}
         onClick={onNavigate}
-        className={`flex items-center gap-1.5 py-1.5 px-3 rounded-lg text-sm transition-colors ${
+        aria-current={!hasChildren && isActive ? 'page' : undefined}
+        className={`flex min-h-11 lg:min-h-9 items-center gap-1.5 py-1.5 px-3 rounded-lg text-sm transition-colors ${
           depth > 0 ? 'pl-6' : ''
         } ${
           isActive
@@ -81,12 +86,20 @@ function NavItem({
 /**
  * Documentation sidebar with navigation links.
  */
-export const DocsSidebar: React.FC<DocsSidebarProps> = ({ isOpen = true, onClose }) => {
+export const DocsSidebar: React.FC<DocsSidebarProps> = ({ isOpen = true, onClose, returnFocusRef }) => {
   const location = useLocation();
   const { i18n, t } = useTranslation('docs');
   const currentPath = location.pathname;
-  const showMobileDrawer = Boolean(isOpen);
+  const isDesktop = useIsDesktop();
+  const showMobileDrawer = Boolean(isOpen) && !isDesktop;
+  const drawerRef = useRef<HTMLElement>(null);
   const closeMobile = () => onClose?.();
+  useDialogInteractions({
+    open: showMobileDrawer,
+    dialogRef: drawerRef,
+    onEscape: closeMobile,
+    returnFocusRef,
+  });
 
   return (
     <>
@@ -95,9 +108,9 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({ isOpen = true, onClose
           <div className="text-sm font-semibold text-[hsl(var(--text-primary))]">
             {t('documentation', '文档中心')}
           </div>
-          <DocsSearchInput />
+          <DocsSearchInput active={isDesktop} />
         </div>
-        <nav className="p-4 space-y-1 overflow-y-auto flex-1">
+        <nav aria-label={t('documentation', '文档中心')} className="p-4 space-y-1 overflow-y-auto flex-1">
           {docsNavigation.map((item) => (
             <NavItem
               key={item.path}
@@ -109,32 +122,39 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({ isOpen = true, onClose
         </nav>
       </aside>
 
-      {showMobileDrawer && (
-        <div className="lg:hidden fixed inset-x-0 top-12 bottom-0 z-40">
-          <button
-            type="button"
+      {showMobileDrawer && createPortal(
+        <div className="lg:hidden fixed inset-0 z-50">
+          <div
             className="absolute inset-0 bg-black/40"
             onClick={closeMobile}
-            aria-label={t('menu', '目录')}
+            aria-hidden="true"
           />
-          <aside className="absolute left-0 top-0 h-full w-72 border-r border-[hsl(var(--border-color))] bg-[hsl(var(--bg-secondary))] shadow-xl">
-            <div className="h-12 px-3 flex items-center justify-between border-b border-[hsl(var(--border-color))]">
+          <aside
+            ref={drawerRef}
+            id="docs-mobile-navigation"
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('documentation', '文档中心')}
+            tabIndex={-1}
+            className="absolute left-0 top-0 flex h-full w-80 max-w-[calc(100%-2rem)] flex-col border-r border-[hsl(var(--border-color))] bg-[hsl(var(--bg-secondary))] shadow-xl"
+          >
+            <div className="min-h-14 shrink-0 px-3 flex items-center justify-between border-b border-[hsl(var(--border-color))]">
               <span className="text-sm font-semibold text-[hsl(var(--text-primary))]">
                 {t('documentation', '文档中心')}
               </span>
               <button
                 type="button"
                 onClick={closeMobile}
-                className="p-1.5 rounded-md text-[hsl(var(--text-secondary))] hover:bg-[hsl(var(--bg-hover))] hover:text-[hsl(var(--text-primary))]"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-[hsl(var(--text-secondary))] hover:bg-[hsl(var(--bg-hover))] hover:text-[hsl(var(--text-primary))]"
                 aria-label={t('closeMenu', '关闭目录')}
               >
                 <X size={18} />
               </button>
             </div>
-            <div className="px-3 pt-3 pb-2 border-b border-[hsl(var(--border-color))]">
+            <div className="shrink-0 px-3 pt-3 pb-2 border-b border-[hsl(var(--border-color))]">
               <DocsSearchInput onResultClick={closeMobile} />
             </div>
-            <nav className="p-4 space-y-1 overflow-y-auto max-h-[calc(100vh-7.5rem)]">
+            <nav aria-label={t('documentation', '文档中心')} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 space-y-1">
               {docsNavigation.map((item) => (
                 <NavItem
                   key={item.path}
@@ -146,7 +166,7 @@ export const DocsSidebar: React.FC<DocsSidebarProps> = ({ isOpen = true, onClose
               ))}
             </nav>
           </aside>
-        </div>
+        </div>, document.body
       )}
     </>
   );

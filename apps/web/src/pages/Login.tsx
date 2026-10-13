@@ -217,7 +217,7 @@ export const Login: React.FC = () => {
               aria-live="assertive"
               className="bg-[hsl(var(--error)/0.1)] border border-[hsl(var(--error)/0.3)] rounded-xl p-4 mb-6"
             >
-              <p className="text-[hsl(var(--error))] text-sm">{error}</p>
+              <p className="text-[hsl(var(--error-text))] text-sm">{error}</p>
             </div>
           )}
           {hasPaidPlanIntent && (
@@ -312,7 +312,7 @@ export const Login: React.FC = () => {
                 {authConfig.forgotPasswordEnabled && (
                   <Link
                     to="/forgot-password"
-                    className="text-sm text-[hsl(var(--accent-primary))] hover:text-[hsl(var(--accent-light))] transition-colors font-medium"
+                    className="inline-flex min-h-11 items-center rounded-lg px-2 -mr-2 text-sm text-[hsl(var(--accent-primary))] hover:text-[hsl(var(--accent-light))] transition-colors font-medium"
                   >
                     {t('auth:login.forgotPassword')}
                   </Link>
@@ -373,7 +373,7 @@ export const Login: React.FC = () => {
                 </Link>
               </p>
             )}
-            <p className="mt-3 text-xs text-[hsl(var(--text-secondary))] opacity-80">
+            <p className="mt-3 text-xs text-[hsl(var(--text-secondary))]">
               <Link to="/terms-of-service" target="_blank" rel="noopener noreferrer" className="hover:opacity-100 transition-opacity">
                 {t('privacy:footer.terms')}
               </Link>
@@ -387,7 +387,7 @@ export const Login: React.FC = () => {
 
         {/* Footer */}
         <div className="mt-8 text-center">
-          <p className="text-[hsl(var(--text-secondary))] text-xs opacity-60">
+          <p className="text-[hsl(var(--text-secondary))] text-xs">
             {t('home:footer.copyright', { year: new Date().getFullYear() })}
           </p>
         </div>

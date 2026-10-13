@@ -14,6 +14,7 @@ import commonChinese from '../../../../public/locales/zh/common.json'
 import CodeManagement from '../CodeManagement'
 import SubscriptionManagement from '../SubscriptionManagement'
 import PaymentOrderManagement from '../PaymentOrderManagement'
+vi.mock('../../../hooks/useMediaQuery', () => ({ useIsDesktop: () => true }))
 import SubscriptionPlanManagement from '../SubscriptionPlanManagement'
 import QuotaManagement from '../QuotaManagement'
 import { adminApi } from '../../../lib/adminApi'

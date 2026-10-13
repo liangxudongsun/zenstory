@@ -946,23 +946,24 @@ function MaterialCard({
             {materialJobErrorText(material.error_message)}
           </p>
         )}
-
-        {(material.status === "failed" || material.status === "completed_with_errors") && onRetry && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onRetry();
-            }}
-            disabled={isRetrying}
-            className="mt-3 h-8 px-3 inline-flex items-center gap-1.5 rounded-lg text-xs font-medium border border-[hsl(var(--border-color))] text-[hsl(var(--text-secondary))] hover:bg-[hsl(var(--bg-tertiary))] hover:text-[hsl(var(--text-primary))] disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isRetrying ? "animate-spin" : ""}`} />
-            {isRetrying
-              ? t("materials:status.processing", { defaultValue: "处理中" })
-              : t("common:retry", { defaultValue: "重试" })}
-          </button>
-        )}
       </div>
+
+      {(material.status === "failed" || material.status === "completed_with_errors") && onRetry && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRetry();
+          }}
+          disabled={isRetrying}
+          className="mt-3 min-h-11 px-3 inline-flex items-center gap-1.5 rounded-lg text-xs font-medium border border-[hsl(var(--border-color))] text-[hsl(var(--text-secondary))] hover:bg-[hsl(var(--bg-tertiary))] hover:text-[hsl(var(--text-primary))] disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${isRetrying ? "animate-spin" : ""}`} />
+          {isRetrying
+            ? t("materials:status.processing", { defaultValue: "处理中" })
+            : t("common:retry", { defaultValue: "重试" })}
+        </button>
+      )}
 
       {/* Delete Button */}
       <IconButton

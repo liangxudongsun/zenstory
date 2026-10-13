@@ -25,7 +25,7 @@ const mockFreeSubscription = {
   current_period_end: null,
   days_remaining: null,
   features: {
-    ai_conversations_per_day: 10,
+    ai_conversations_per_day: 3,
     context_window_tokens: 4000,
     file_versions_per_file: 10,
     max_projects: 3,

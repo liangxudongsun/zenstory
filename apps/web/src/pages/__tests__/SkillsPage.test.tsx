@@ -81,6 +81,8 @@ vi.mock('react-i18next', () => ({
         'common:cancel': 'Cancel',
         'common:save': 'Save',
         'common:delete': 'Delete',
+        'common:retry': 'Retry',
+        'errors.loadFailed': 'Failed to load skills. Please try again.',
       }
       return translations[key] || key
     },
@@ -804,6 +806,48 @@ describe('SkillsPage', () => {
   // 6. Error Handling Tests
   // ========================================
   describe('Error Handling', () => {
+    it('shows a retryable error instead of an empty discover list after initial failure', async () => {
+      vi.mocked(publicSkillsApi.list).mockRejectedValueOnce(new Error('offline'))
+      render(<SkillsPage />)
+      const alert = await screen.findByRole('alert')
+      expect(alert).toHaveTextContent('Failed to load skills. Please try again.')
+      expect(screen.queryByText('noDiscoverableSkills')).not.toBeInTheDocument()
+      await userEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
+      await screen.findByText('Dialogue Expert')
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(publicSkillsApi.list).toHaveBeenCalledTimes(2)
+    })
+
+    it('lets the author retry a failed My Skills request without claiming there are no skills', async () => {
+      vi.mocked(skillsApi.mySkills).mockRejectedValueOnce(new Error('offline'))
+      render(<SkillsPage />)
+      await userEvent.click(screen.getByRole('button', { name: 'My Skills', exact: true }))
+      const alert = await screen.findByRole('alert')
+      expect(screen.queryByText('No skills yet')).not.toBeInTheDocument()
+      await userEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
+      await screen.findByText('Writing Assistant')
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(skillsApi.mySkills).toHaveBeenCalledTimes(2)
+    })
+
+    it('preserves the search and existing skills when a discover refresh fails', async () => {
+      vi.mocked(publicSkillsApi.list).mockResolvedValueOnce({ skills: mockPublicSkills, total: 3, page: 1, page_size: 20 })
+      render(<SkillsPage />)
+      await screen.findByText('Dialogue Expert')
+      expect(screen.getByRole('button', { name: 'loadMore' })).toBeInTheDocument()
+      vi.mocked(publicSkillsApi.list).mockRejectedValueOnce(new Error('offline'))
+      const search = screen.getByTestId('public-skill-search')
+      fireEvent.change(search, { target: { value: 'dialogue' } })
+      const alert = await screen.findByRole('alert', {}, { timeout: 2000 })
+      expect(search).toHaveValue('dialogue')
+      expect(screen.getByText('Dialogue Expert')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'loadMore' })).not.toBeInTheDocument()
+      await userEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
+      await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+      expect(publicSkillsApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ search: 'dialogue', page: 1 }))
+      expect(search).toHaveValue('dialogue')
+    })
+
     it('should handle API errors gracefully', async () => {
       vi.mocked(publicSkillsApi.list).mockRejectedValue(new Error('Network error'))
 

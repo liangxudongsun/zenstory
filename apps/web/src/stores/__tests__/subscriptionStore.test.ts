@@ -50,7 +50,7 @@ describe('subscriptionStore', () => {
     vi.mocked(subscriptionApi.getQuota).mockResolvedValue({
       ai_conversations: {
         used: 2,
-        limit: 10,
+        limit: 3,
       },
     } as never)
 
@@ -59,7 +59,7 @@ describe('subscriptionStore', () => {
     expect(subscriptionApi.getStatus).toHaveBeenCalled()
     expect(subscriptionApi.getQuota).toHaveBeenCalled()
     expect(useSubscriptionStore.getState().getTier()).toBe('free')
-    expect(useSubscriptionStore.getState().getAiConversationsRemaining()).toBe(8)
+    expect(useSubscriptionStore.getState().getAiConversationsRemaining()).toBe(1)
     expect(useSubscriptionStore.getState().isPro()).toBe(false)
   })
 
@@ -82,5 +82,15 @@ describe('subscriptionStore', () => {
     expect(useSubscriptionStore.getState().isPro()).toBe(true)
     expect(useSubscriptionStore.getState().getTier()).toBe('pro')
     expect(useSubscriptionStore.getState().getAiConversationsRemaining()).toBe(null)
+  })
+
+  it('keeps earlier usage when the free limit is lowered and never reports a negative remainder', () => {
+    useSubscriptionStore.setState({
+      ...useSubscriptionStore.getState(),
+      quota: { ai_conversations: { used: 10, limit: 3 } } as never,
+    })
+
+    expect(useSubscriptionStore.getState().getAiConversationsRemaining()).toBe(0)
+    expect(useSubscriptionStore.getState().quota?.ai_conversations.used).toBe(10)
   })
 })

@@ -152,6 +152,7 @@
     "unpublished": "已下架"
   },
   "errors": {
+    "loadFailed": "技能加载失败，请重试",
     "saveFailed": "保存技能失败，请稍后重试",
     "addFailed": "添加技能失败，请稍后重试",
     "deleteFailed": "删除技能失败，请稍后重试",

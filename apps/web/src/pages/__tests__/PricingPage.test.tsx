@@ -111,7 +111,7 @@ function createDefaultTiers() {
       summary_key: "starter",
       target_user_key: "explorer",
       entitlements: {
-        ai_conversations_per_day: 10,
+        ai_conversations_per_day: 3,
         writing_credits_monthly: 0,
         agent_runs_monthly: 0,
         active_projects_limit: 3,
@@ -345,7 +345,7 @@ describe("PricingPage", () => {
     expect(screen.queryByText("TXT")).not.toBeInTheDocument();
     expect(screen.getByText("不含")).toBeInTheDocument();
     expect(screen.queryByText(/^0 次\/月$/)).not.toBeInTheDocument();
-    expect(screen.getByText("10 条/天")).toBeInTheDocument();
+    expect(screen.getByText("3 条/天")).toBeInTheDocument();
     expect(screen.getByText("免费版")).toBeInTheDocument();
   });
 

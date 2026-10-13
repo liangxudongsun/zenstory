@@ -509,6 +509,20 @@ describe("MaterialsPage", () => {
     await waitFor(() => expect(mockRetry).toHaveBeenCalledWith("partial-novel"));
   });
 
+  it("keeps keyboard retry separate from opening the material", async () => {
+    mockList.mockResolvedValueOnce([{
+      id: "retry-novel", title: "Retry Novel", status: "failed",
+      chapters_count: 0, error_message: "ERR_DECOMPOSITION_FAILED",
+    }]);
+    render(<MaterialsPage />, { wrapper: createWrapper() });
+    const retry = await screen.findByRole("button", { name: "重试" });
+    expect(retry.parentElement?.closest('[role="button"]')).toBeNull();
+    fireEvent.keyDown(retry, { key: " " });
+    expect(mockNavigate).not.toHaveBeenCalled();
+    fireEvent.click(retry);
+    await waitFor(() => expect(mockRetry).toHaveBeenCalledWith("retry-novel"));
+  });
+
   it("shows exhausted state for paid users without upgrade modal", async () => {
     mockList.mockResolvedValueOnce([
       {

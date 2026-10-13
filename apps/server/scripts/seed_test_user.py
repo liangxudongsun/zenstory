@@ -19,6 +19,7 @@ from database import sync_engine  # noqa: E402
 from models import SystemPromptConfig, User  # noqa: E402
 from models.referral import InviteCode  # noqa: E402
 from models.subscription import SubscriptionPlan, UsageQuota, UserSubscription  # noqa: E402
+from services.subscription.defaults import DEFAULT_FREE_PLAN_FEATURES  # noqa: E402
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 LEGACY_CREATED_AT = datetime(2025, 1, 1)
@@ -249,7 +250,7 @@ def main():
             name="free",
             display_name="Free",
             features={
-                "ai_conversations_per_day": 10,
+                "ai_conversations_per_day": DEFAULT_FREE_PLAN_FEATURES["ai_conversations_per_day"],
                 "max_projects": 3,
                 # Access is an explicit entitlement; material quotas never imply it.
                 # The regular E2E user exercises the materials library.

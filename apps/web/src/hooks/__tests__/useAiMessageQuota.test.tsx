@@ -12,7 +12,7 @@ vi.mock('../../lib/subscriptionApi', () => ({
 
 import { isAiMessageQuotaExhausted, useAiMessageQuota } from '../useAiMessageQuota'
 
-const quota = (used: number, limit = 10) => ({
+const quota = (used: number, limit = 3) => ({
   ai_conversations: { used, limit, reset_at: '2026-10-09T16:00:00Z' },
 })
 
@@ -26,9 +26,9 @@ describe('useAiMessageQuota', () => {
     const client = new QueryClient({
       defaultOptions: { queries: { staleTime: 5 * 60 * 1000, refetchOnMount: false, retry: false } },
     })
-    // Left a round at 10/10; the server refunded it after the chat's own refresh ran.
-    client.setQueryData(['subscription-quota'], quota(10))
-    mockGetQuota.mockResolvedValue(quota(9))
+    // Left a round at 3/3; the server refunded it after the chat's own refresh ran.
+    client.setQueryData(['subscription-quota'], quota(3))
+    mockGetQuota.mockResolvedValue(quota(2))
     const wrapper = ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
     )
@@ -38,12 +38,13 @@ describe('useAiMessageQuota', () => {
 
     await waitFor(() => expect(result.current.exhausted).toBe(false))
     expect(mockGetQuota).toHaveBeenCalledTimes(1)
-    expect(result.current.metric?.used).toBe(9)
+    expect(result.current.metric?.used).toBe(2)
   })
 
   it.each([
-    ['used up', quota(10), true],
-    ['some left', quota(9), false],
+    ['used up', quota(3), true],
+    ['some left', quota(2), false],
+    ['existing use before the lower allowance', quota(10), true],
     ['Pro (no daily count)', quota(999, -1), false],
     ['a plan without AI messages (limit 0)', quota(0, 0), false],
     ['unknown', undefined, false],

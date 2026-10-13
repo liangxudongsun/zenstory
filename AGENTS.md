@@ -25,7 +25,7 @@ See `docs/ops/release-ci-cd.md` for gates, drain windows, source receipts, and v
 
 ## Product invariants
 
-- Free accounts have **10 AI messages per Beijing calendar day** in code and persisted plan data. The internal **¥15 daily cost backstop** is an operational safeguard: never display its amount, percentage or a second quota. Exhaustion presents the standard pause/reset-time/upgrade prompt. Preserve Pro rules.
+- Free accounts have **3 AI messages per Beijing calendar day** in code and persisted plan data. Keep existing same-day usage when changing the limit; reservations, refunds and Beijing-midnight resets remain account-scoped. The internal **¥15 daily cost backstop** is an operational safeguard: never display its amount, percentage or a second quota. Exhaustion presents the standard pause/reset-time/upgrade prompt. Preserve Pro rules.
 - `VECTOR_EMBEDDINGS_ENABLED=false` and `ASYNC_VECTOR_INDEX_ENABLED=false` remain the hosted baseline. Do not restart paid embedding/indexing work without explicit scope.
 - Protect the latest unsaved editor draft before reload. Scope recovery by user/project/file; keep its server version token. A conflicting server version requires an explicit recovery choice, never an automatic overwrite. Storage failures must not falsely claim a draft is protected.
 - Preserve the site's reading experience and organizational identity. Record actual search/activation/payment evidence in GEO; publishing code, IndexNow acceptance and traffic are not ranking, registration or revenue proof. Do not re-request unchanged Google indexing or generate bulk keyword pages during checks.

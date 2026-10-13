@@ -48,7 +48,7 @@ def free_plan(db_session: Session):
         price_monthly_cents=0,
         price_yearly_cents=0,
         features={
-            "ai_conversations_per_day": 10,
+            "ai_conversations_per_day": 3,
             "max_projects": 3,
             "materials_library_access": False,
             "material_uploads": 0,
@@ -201,7 +201,7 @@ class TestGetPlanLimits:
         result = quota_service.get_plan_limits(free_plan)
 
         assert result is not None
-        assert result["ai_conversations_per_day"] == 10
+        assert result["ai_conversations_per_day"] == 3
         assert result["max_projects"] == 3
 
     def test_get_plan_limits_pro(self, db_session: Session, pro_plan):
@@ -338,7 +338,7 @@ class TestCheckAIConversationQuota:
         # Should create quota and return defaults
         assert allowed is True
         assert used == 0
-        assert limit == 10  # Free plan limit
+        assert limit == 3  # Free plan limit
 
     def test_check_quota_within_limit(
         self, db_session: Session, test_user, free_plan
@@ -349,7 +349,7 @@ class TestCheckAIConversationQuota:
             user_id=test_user.id,
             period_start=now,
             period_end=now + timedelta(days=30),
-            ai_conversations_used=5,
+            ai_conversations_used=2,
             last_reset_at=now,
         )
         db_session.add(quota)
@@ -360,8 +360,8 @@ class TestCheckAIConversationQuota:
         )
 
         assert allowed is True
-        assert used == 5
-        assert limit == 10
+        assert used == 2
+        assert limit == 3
 
     def test_check_quota_at_limit(
         self, db_session: Session, test_user, free_plan
@@ -372,7 +372,7 @@ class TestCheckAIConversationQuota:
             user_id=test_user.id,
             period_start=now,
             period_end=now + timedelta(days=30),
-            ai_conversations_used=10,
+            ai_conversations_used=3,
             last_reset_at=now,
         )
         db_session.add(quota)
@@ -383,8 +383,8 @@ class TestCheckAIConversationQuota:
         )
 
         assert allowed is False
-        assert used == 10
-        assert limit == 10
+        assert used == 3
+        assert limit == 3
 
     def test_check_quota_unlimited(
         self, db_session: Session, test_user, pro_plan
@@ -431,7 +431,7 @@ class TestConsumeAIConversation:
             user_id=test_user.id,
             period_start=now,
             period_end=now + timedelta(days=30),
-            ai_conversations_used=5,
+            ai_conversations_used=2,
             last_reset_at=now,
         )
         db_session.add(quota)
@@ -443,7 +443,7 @@ class TestConsumeAIConversation:
 
         # Verify increment
         db_session.refresh(quota)
-        assert quota.ai_conversations_used == 6
+        assert quota.ai_conversations_used == 3
 
     def test_consume_at_limit(
         self, db_session: Session, test_user, free_plan
@@ -454,7 +454,7 @@ class TestConsumeAIConversation:
             user_id=test_user.id,
             period_start=now,
             period_end=now + timedelta(days=30),
-            ai_conversations_used=10,
+            ai_conversations_used=3,
             last_reset_at=now,
         )
         db_session.add(quota)
@@ -466,7 +466,7 @@ class TestConsumeAIConversation:
 
         # Verify no increment
         db_session.refresh(quota)
-        assert quota.ai_conversations_used == 10
+        assert quota.ai_conversations_used == 3
 
     def test_consume_creates_quota(
         self, db_session: Session, test_user, free_plan

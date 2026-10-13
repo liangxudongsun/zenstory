@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
 const tiers = [
-  { id: 'free', name: 'free', display_name: '免费版', price_monthly_cents: 0, price_yearly_cents: 0, recommended: false, summary_key: 'starter', target_user_key: 'explorer', entitlements: { ai_conversations_per_day: 10, active_projects_limit: 3, material_decompositions_monthly: 0, custom_skills_limit: 3 } },
+  { id: 'free', name: 'free', display_name: '免费版', price_monthly_cents: 0, price_yearly_cents: 0, recommended: false, summary_key: 'starter', target_user_key: 'explorer', entitlements: { ai_conversations_per_day: 3, active_projects_limit: 3, material_decompositions_monthly: 0, custom_skills_limit: 3 } },
   { id: 'pro', name: 'pro', display_name: 'Pro', price_monthly_cents: 4900, price_yearly_cents: 39900, recommended: true, summary_key: 'creator', target_user_key: 'daily_writer', entitlements: { ai_conversations_per_day: -1, active_projects_limit: -1, material_decompositions_monthly: 5, custom_skills_limit: 3 } },
 ];
 

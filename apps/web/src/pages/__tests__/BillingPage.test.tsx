@@ -237,7 +237,7 @@ describe('BillingPage', () => {
     }
     quotaResponse = {
       data: {
-        ai_conversations: { used: 2, limit: 10 },
+        ai_conversations: { used: 2, limit: 3 },
         projects: { used: 1, limit: 3 },
         material_decompositions: { used: 0, limit: -1 },
         skill_creates: { used: 1, limit: 5 },
@@ -288,7 +288,7 @@ describe('BillingPage', () => {
       ...quotaResponse,
       data: {
         ...(quotaResponse.data as Record<string, unknown>),
-        ai_conversations: { used: 10, limit: 10 },
+        ai_conversations: { used: 10, limit: 3 },
         inspiration_copies: { used: 4, limit: 5 },
       },
     }
@@ -365,8 +365,8 @@ describe('BillingPage', () => {
     render(<BillingPage />)
 
     const dailyUsage = screen.getByText('AI conversations').parentElement!.parentElement!
-    expect(within(dailyUsage).getByText('Free users can send up to 10 AI messages per day. It resets the next day at 00:00 Beijing time (UTC+8).')).toBeInTheDocument()
-    expect(within(dailyUsage).getByText('2/10')).toBeInTheDocument()
+    expect(within(dailyUsage).getByText('Free users can send up to 3 AI messages per day. It resets the next day at 00:00 Beijing time (UTC+8).')).toBeInTheDocument()
+    expect(within(dailyUsage).getByText('2/3')).toBeInTheDocument()
   })
 
   it('explains monthly resets for materials, but not the owned skills cap', () => {
@@ -388,7 +388,7 @@ describe('BillingPage', () => {
 
     expect(screen.getByText('Billing')).toBeInTheDocument()
     expect(screen.getByText('AI conversations')).toBeInTheDocument()
-    expect(screen.getByText('2/10')).toBeInTheDocument()
+    expect(screen.getByText('2/3')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Buy Pro Online' }))
     expect(trackUpgradeClick).toHaveBeenCalled()

@@ -91,7 +91,7 @@ export function QuotaBadge({ compact = false }: QuotaBadgeProps = {}) {
   );
 
   return (
-    <div className={`flex items-center text-xs ${compact ? "shrink-0 gap-1" : "min-w-0 gap-2"}`}>
+    <div className={`flex items-center text-xs ${compact ? "shrink-0 gap-1" : "min-w-0 max-w-full flex-wrap gap-2"}`}>
       {compact ? (
         // Not a live region: the counter rarely changes, and role="status"
         // would compete with the page's real status announcements.
@@ -111,7 +111,7 @@ export function QuotaBadge({ compact = false }: QuotaBadgeProps = {}) {
             onClick={handleUpgradeClick}
             title={upgradeLabel}
             aria-label={upgradeLabel}
-            className="inline-flex items-center justify-center rounded p-1 text-[hsl(var(--accent-primary))] hover:bg-[hsl(var(--bg-tertiary))] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-primary)/0.6)]"
+            className="inline-flex min-h-11 min-w-11 md:min-h-0 md:min-w-0 items-center justify-center rounded-lg p-1 text-[hsl(var(--accent-primary))] hover:bg-[hsl(var(--bg-tertiary))] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-primary)/0.6)]"
           >
             <Sparkles size={14} aria-hidden="true" />
           </button>
@@ -119,9 +119,11 @@ export function QuotaBadge({ compact = false }: QuotaBadgeProps = {}) {
           <button
             type="button"
             onClick={handleUpgradeClick}
-            className="whitespace-nowrap text-[hsl(var(--accent-primary))] hover:underline"
+            title={upgradeLabel}
+            aria-label={upgradeLabel}
+            className="inline-flex min-h-11 md:min-h-10 shrink-0 items-center justify-center whitespace-nowrap rounded-lg px-3 text-[hsl(var(--accent-primary))] hover:bg-[hsl(var(--bg-tertiary))] hover:underline"
           >
-            {upgradeLabel}
+            {t('subscription.upgradeNow', '开通 Pro')}
           </button>
         )
       )}
