@@ -374,7 +374,7 @@ There is no self-service reset on the hosted app. Email support@zenstory.ai from
 ## Contributing
 
 - **GitHub Issues**: [report a bug](https://github.com/zenstory-ai/zenstory/issues/new?template=bug_report.md) · [request a feature](https://github.com/zenstory-ai/zenstory/issues/new?template=feature_request.md). In the hosted app you can also use the "…" menu at the top right of the project page → Feedback, which can attach a screenshot.
-- Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing code. The multi-agent workflow, tools and SSE events are described in [`apps/server/agent/CLAUDE.md`](apps/server/agent/CLAUDE.md).
+- Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing code. The multi-agent workflow, tools and SSE events are described in [`apps/server/agent/AGENTS.md`](apps/server/agent/AGENTS.md).
 
 <details>
 <summary>Project layout and tech stack</summary>
