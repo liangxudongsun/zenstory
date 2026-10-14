@@ -10,6 +10,8 @@ import { Editor } from "./components/Editor";
 import { ChatPanel } from "./components/ChatPanel";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PageLoader } from "./components/PageLoader";
+import { AlertCircle } from "./components/icons";
+import { Button } from "./components/ui/Button";
 import { SEOHelmet } from "./components/Helmet";
 import { SEOProvider } from "./providers/SEOProvider";
 import { AuthIdentityQueryBoundary, AuthProvider, useAuth } from "./contexts/AuthContext";
@@ -122,16 +124,13 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (shouldCheckOnboarding && onboardingState.isError) {
     return (
-      <div className="flex min-h-screen items-center justify-center px-4">
-        <div className="space-y-3 text-center" role="alert">
-          <p>{t("onboarding:errors.loadFailed", "加载失败，请检查网络后重试")}</p>
-          <button
-            type="button"
-            className="rounded-md bg-primary px-4 py-2 text-primary-foreground"
-            onClick={() => void onboardingState.refetch()}
-          >
+      <div className="flex min-h-screen items-center justify-center bg-[hsl(var(--bg-primary))] p-4">
+        <div className="w-full max-w-sm rounded-2xl border border-[hsl(var(--border-color))] bg-[hsl(var(--bg-secondary))] p-6 text-center" role="alert">
+          <AlertCircle aria-hidden="true" className="mx-auto mb-3 h-6 w-6 text-[hsl(var(--error-text))]" />
+          <p className="mb-5 text-sm leading-6 text-[hsl(var(--text-secondary))]">{t("onboarding:errors.loadFailed", "加载失败，请检查网络后重试")}</p>
+          <Button size="touch" className="w-full" onClick={() => void onboardingState.refetch()}>
             {t("retry", "重试")}
-          </button>
+          </Button>
         </div>
       </div>
     );

@@ -1,5 +1,5 @@
 import { StrictMode } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -34,6 +34,24 @@ describe('dashboard-only first-work initialization lifecycle', () => {
       expect(mocks.initialize).not.toHaveBeenCalled();
       view.unmount(); mocks.get.mockClear();
     }
+  });
+  it('marks the initial preparation as busy without starting initialization before eligibility is known', () => {
+    mocks.get.mockReturnValue(new Promise(() => {}));
+    mount();
+    expect(screen.getByRole('status')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByRole('status')).toHaveTextContent('firstWork.preparing');
+    expect(mocks.initialize).not.toHaveBeenCalled();
+  });
+  it('announces a read failure and lets an explicit retry restore the persisted entry', async () => {
+    mocks.get.mockRejectedValueOnce(new Error('Synthetic unavailable')).mockResolvedValue(created);
+    mount();
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('firstWork.failed');
+    fireEvent.click(screen.getByRole('button', { name: 'common:retry' }));
+    await screen.findByRole('button', { name: 'firstWork.open' });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(mocks.initialize).not.toHaveBeenCalled();
+    expect(mocks.get).toHaveBeenCalledTimes(2);
   });
   it('does not reload project providers after leaving while initialization is in flight', async () => {
     let finish!: (value: FirstWorkState) => void;
