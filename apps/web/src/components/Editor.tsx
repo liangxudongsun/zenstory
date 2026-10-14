@@ -29,7 +29,7 @@ import { MaterialPreview } from "./MaterialPreview";
 import { ImportMaterialDialog } from "./ImportMaterialDialog";
 import type { File, FileTreeNode } from "../types";
 import { FOLDER_TYPE_MAP } from "../lib/folderTypeMap";
-import { FileText, Users, BookOpen, Sparkles, Folder, Zap, Keyboard, ChevronDown, Clapperboard } from "lucide-react";
+import { FileText, Users, BookOpen, Sparkles, Folder, Zap, Keyboard, ChevronDown, Clapperboard, Download } from "lucide-react";
 import { LoadingSpinner } from "./LoadingSpinner";
 import { UpgradePromptModal } from "./subscription/UpgradePromptModal";
 import { buildUpgradeUrl, getUpgradePromptDefinition } from "../config/upgradeExperience";
@@ -798,16 +798,19 @@ const EditorComponent: React.FC<EditorProps> = () => {
   const renderWithUpgradeModal = (content: React.ReactNode) => (
     <>
       <div className="flex h-full min-h-0 flex-col">
-      <div className="max-h-[45%] shrink-0 overflow-y-auto">
+      <div className="max-h-[45%] min-w-0 shrink-0 overflow-y-auto">
       {removedDrafts.filter(({ snapshot, persisted }) => snapshot.userId === currentUserId && (snapshot.projectId === currentProjectId || !persisted)).flatMap(({ snapshot, persisted }) => [
         { snapshot, persisted },
         ...(snapshot.recoveryDraft ? [{ snapshot: { ...snapshot, ...snapshot.recoveryDraft, recoveryDraft: undefined }, persisted }] : []),
       ]).map(({ snapshot, persisted }, index) => (
-        <details key={`${snapshot.projectId}:${snapshot.fileId}:${index}`} open className="shrink-0 border-b border-[hsl(var(--border-color))] bg-[hsl(var(--bg-secondary))] p-4">
-          <summary className="cursor-pointer text-sm font-medium">{t("editor:deletedFile.recovery", { title: snapshot.title })}</summary>
-          <p role={persisted ? "status" : "alert"} className="my-2 text-sm text-[hsl(var(--text-secondary))]">{t(persisted ? "editor:deletedFile.saved" : "editor:deletedFile.storageFailed")}</p>
-          <textarea aria-label={t("editor:deletedFile.draft")} readOnly value={snapshot.content} className="h-40 w-full resize-y rounded-lg border border-[hsl(var(--border-color))] bg-[hsl(var(--bg-primary))] p-3 text-sm" />
-          <button type="button" className="btn-secondary mt-2 min-h-11" onClick={() => {
+        <details key={`${snapshot.projectId}:${snapshot.fileId}:${index}`} open className="group min-w-0 shrink-0 border-b border-[hsl(var(--border-color))] bg-[hsl(var(--bg-secondary))] px-6 py-3">
+          <summary className="flex min-h-11 min-w-0 cursor-pointer list-none items-start gap-2 py-2 text-sm font-medium text-[hsl(var(--text-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-primary))] [&::-webkit-details-marker]:hidden">
+            <ChevronDown size={16} aria-hidden="true" className="mt-0.5 shrink-0 -rotate-90 text-[hsl(var(--text-secondary))] group-open:rotate-0" />
+            <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{t("editor:deletedFile.recovery", { title: snapshot.title })}</span>
+          </summary>
+          <div className="mt-1 space-y-3">
+          <p role={persisted ? "status" : "alert"} className={`text-sm leading-relaxed ${persisted ? "text-[hsl(var(--text-secondary))]" : "text-[hsl(var(--warning-text))]"}`}>{t(persisted ? "editor:deletedFile.saved" : "editor:deletedFile.storageFailed")}</p>
+          <button type="button" className="btn-secondary inline-flex min-h-11 items-center gap-2" onClick={() => {
             const url = URL.createObjectURL(new Blob([`${snapshot.title}\n\n${snapshot.content}`], { type: "text/plain;charset=utf-8" }));
             const anchor = document.createElement("a");
             anchor.href = url;
@@ -816,7 +819,9 @@ const EditorComponent: React.FC<EditorProps> = () => {
             anchor.click();
             anchor.remove();
             setTimeout(() => URL.revokeObjectURL(url), 0);
-          }}>{t("editor:deletedFile.download")}</button>
+          }}><Download size={16} aria-hidden="true" />{t("editor:deletedFile.download")}</button>
+          <textarea aria-label={t("editor:deletedFile.draft")} readOnly value={snapshot.content} className="block h-24 w-full min-w-0 resize-y rounded-xl border border-[hsl(var(--border-color))] bg-[hsl(var(--bg-primary))] p-3 text-sm leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-primary))] sm:h-28" />
+          </div>
         </details>
       ))}
       </div>
