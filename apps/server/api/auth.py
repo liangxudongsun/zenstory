@@ -55,6 +55,7 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 _REFRESH_TOKEN_CLEANUP_LAST_RUN_AT: datetime | None = None
+_REFRESH_ROTATION_CONFLICT_SECONDS = 10
 
 
 # Request/Response schemas
@@ -903,6 +904,7 @@ def refresh_token(
                 RefreshTokenRecord.user_id == user.id,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         ).first()
 
         if not refresh_record:
@@ -939,6 +941,21 @@ def refresh_token(
             )
 
         if refresh_record.revoked_at is not None:
+            elapsed = (now - normalize_datetime_to_utc(refresh_record.revoked_at)).total_seconds()
+            if (
+                refresh_record.revoke_reason == "rotated"
+                and refresh_record.replaced_by_jti
+                and 0 <= elapsed <= _REFRESH_ROTATION_CONFLICT_SECONDS
+                and session.exec(select(RefreshTokenRecord.id).where(
+                    RefreshTokenRecord.user_id == user.id,
+                    RefreshTokenRecord.family_id == refresh_record.family_id,
+                    RefreshTokenRecord.revoked_at.is_(None),
+                    RefreshTokenRecord.expires_at > now,
+                )).first() is not None
+            ):
+                # The winner owns the only credentials. Do not mint a sibling,
+                # extend the original window, or revoke its active descendant.
+                raise APIException(error_code=ErrorCode.RESOURCE_CONFLICT, status_code=409)
             revoked_count = _revoke_refresh_family(
                 session,
                 family_id=refresh_record.family_id,

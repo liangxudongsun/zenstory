@@ -974,7 +974,7 @@ async def test_refresh_token_with_valid_token(client: AsyncClient, db_session):
 
 
 @pytest.mark.integration
-async def test_refresh_token_reuse_is_rejected(client: AsyncClient, db_session):
+async def test_refresh_token_reuse_is_rejected(client: AsyncClient, db_session, monkeypatch):
     """Refresh token rotation should reject reuse of old refresh token."""
     from models import User
     from services.core.auth_service import hash_password
@@ -1005,11 +1005,19 @@ async def test_refresh_token_reuse_is_rejected(client: AsyncClient, db_session):
     )
     assert first_refresh.status_code == 200
 
+    from datetime import timedelta
+
+    from config.datetime_utils import utcnow
+
+    now = utcnow()
+    monkeypatch.setattr(auth_api, "utcnow", lambda: now + timedelta(seconds=11))
     replay_refresh = await client.post(
         "/api/auth/refresh",
         json={"refresh_token": original_refresh_token},
     )
     assert replay_refresh.status_code == 401
+    child = await client.post("/api/auth/refresh", json={"refresh_token": first_refresh.json()["refresh_token"]})
+    assert child.status_code == 401, "late replay must still revoke the complete family"
 
 
 @pytest.mark.integration

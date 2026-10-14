@@ -67,6 +67,7 @@ class RevocationProbe:
         self.update_started = threading.Event()
         self.user_gate_started = threading.Event()
         self.pause_rotation = False
+        self.preload_refresh = False
 
     def seed(self, name, *, password=False):
         suffix = uuid4().hex
@@ -205,6 +206,12 @@ def revocation_probe(revocation_engine, monkeypatch, record_property):
             "expire_on_commit": session.expire_on_commit,
             "initial_identity_count": len(session.identity_map),
         }
+        if probe.preload_refresh and label == "B":
+            # Retain a stale ORM identity before waiting on the account gate.
+            session.info["preloaded_refresh"] = session.exec(select(RefreshTokenRecord).where(
+                RefreshTokenRecord.user_id == probe.actors["owner"]["user"],
+                RefreshTokenRecord.token_jti == probe.actors["owner"]["jti"],
+            )).one()
         try:
             yield session
         finally:
@@ -339,3 +346,35 @@ def test_empty_token_logout_releases_user_gate(revocation_probe, record_property
     with Session(probe.engine) as writer:
         assert writer.exec(select(User.id).where(User.id == actor["user"]).with_for_update(nowait=True)).one() == actor["user"]
     _record(record_property, {"case": "empty-token-logout", "sessions_closed": True, "subsequent_nowait_lock": True})
+
+
+@pytest.mark.parametrize("preload", [False, True], ids=["fresh-session", "stale-identity-map"])
+def test_concurrent_refresh_preserves_the_winning_rotation(revocation_probe, record_property, preload):
+    probe = revocation_probe
+    probe.preload_refresh = preload
+    actor = probe.seed("owner")
+    probe.pause_rotation = True
+    with ThreadPoolExecutor(max_workers=2) as writers:
+        first = writers.submit(probe.request, "A", "/api/auth/refresh", actor)
+        try:
+            assert probe.locked.wait(5), "A did not acquire the real User row lock"
+            second = writers.submit(probe.request, "B", "/api/auth/refresh", actor)
+            assert probe.user_gate_started.wait(5)
+            blocked = probe.observe_blocked_user_gate()
+            assert not first.done() and not second.done()
+        finally:
+            probe.release.set()
+        winner, concurrent = first.result(10), second.result(10)
+    assert winner.status_code == 200
+    assert concurrent.status_code == 409
+    assert "access_token" not in concurrent.json() and "refresh_token" not in concurrent.json()
+    rows = probe.snapshot(actor)
+    assert len(rows) == 2
+    assert [row["revoke_reason"] for row in rows].count("rotated") == 1
+    assert len([row for row in rows if not row["revoked_at"]]) == 1
+    assert not any(row["revoke_reason"] == "replay_detected" for row in rows)
+    child = probe.request("C", "/api/auth/refresh", actor, refresh=winner.json()["refresh_token"])
+    _record(record_property, {"case": "concurrent-refresh", "preloaded_identity": preload, "wait": blocked,
+        "winner_status": winner.status_code, "concurrent_status": concurrent.status_code,
+        "rows_after_concurrent": rows, "winning_child_status": child.status_code})
+    assert child.status_code == 200, "the concurrent stale request revoked the winner"
