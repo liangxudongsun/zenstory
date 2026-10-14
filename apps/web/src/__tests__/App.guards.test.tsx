@@ -229,6 +229,9 @@ import App from "../App";
 
 const renderAppAt = (path: string) => {
   state.initialPath = path;
+  // The MemoryRouter adapter must describe the same browser entry as SSO's
+  // external-navigation boundary; actual BrowserRouter keeps these in sync.
+  window.history.replaceState({}, "", path);
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
