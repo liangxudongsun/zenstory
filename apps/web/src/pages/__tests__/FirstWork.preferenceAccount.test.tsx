@@ -45,6 +45,7 @@ function SessionControls() {
       await auth.login(id, 'offline-password'); navigate('/onboarding/persona');
     }}>Log in {id}</button>)}
     <button onClick={() => { auth.logout(); navigate('/login'); }}>Log out</button>
+    <button onClick={async () => { await auth.refreshToken(); }}>Refresh identity</button>
   </>;
 }
 
@@ -71,6 +72,11 @@ beforeEach(async () => {
       return json({ access_token: `offline-${id}`, refresh_token: `offline-refresh-${id}`, user: account(id) });
     }
     if (path === '/api/auth/logout') return json({});
+    if (path === '/api/auth/refresh') {
+      const body = JSON.parse(String(init?.body));
+      const id = String(body.refresh_token).replace('offline-refresh-', '');
+      return json({ access_token: `offline-${id}`, refresh_token: `offline-refresh-${id}`, user: account(id) });
+    }
     if (path === '/api/v1/persona/onboarding') {
       if (method === 'GET') return json({ required: true, profile: null, recommendations: [] });
       const body = JSON.parse(String(init?.body));
@@ -156,5 +162,23 @@ describe('first-work type belongs to the current account', () => {
 
     await logInAndFinishProfile('B', 'serial');
     expect(initialized.at(-1)).toEqual({ owner: 'B', type: 'screenplay' });
+  });
+
+  it('does not let A same-identity refresh claim an anonymous entry intended for B', async () => {
+    setPreferredProjectType('screenplay');
+    await logInAndFinishProfile('A', 'screenwriter');
+    // A stale anonymous tab can write a fresh entry while A is already signed in.
+    const aTabStorage = sessionStorage;
+    vi.stubGlobal('sessionStorage', new window.Storage());
+    setPreferredProjectType('short');
+    vi.stubGlobal('sessionStorage', aTabStorage);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refresh identity' })); });
+
+    expect(getPreferredProjectType()).toBe('short');
+    expect(getPreferredProjectType('A')).toBe('screenplay');
+    fireEvent.click(screen.getByRole('button', { name: 'Log out' }));
+    await screen.findByText('offline login');
+    await logInAndFinishProfile('B', 'serial');
+    expect(initialized.at(-1)).toEqual({ owner: 'B', type: 'short' });
   });
 });

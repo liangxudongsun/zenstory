@@ -3,8 +3,8 @@ import { claimPreferredProjectType, clearPreferredProjectType, getPreferredProje
   PREFERRED_PROJECT_TYPE_STORAGE_KEY as KEY, PREFERRED_PROJECT_TYPE_TTL_MS as TTL,
   setPreferredProjectType } from '../preferredProjectType';
 
-beforeEach(() => localStorage.clear());
-afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); });
+beforeEach(() => { localStorage.clear(); sessionStorage.clear(); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); localStorage.clear(); sessionStorage.clear(); });
 
 describe('owned project type memory and anonymous entry', () => {
   it('claims an explicit entry once, ahead of existing account memory', () => {
@@ -23,6 +23,21 @@ describe('owned project type memory and anonymous entry', () => {
     claimPreferredProjectType('B');
     expect(getPreferredProjectType('B')).toBeNull();
     expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it('restores only the current tab entry, while explicit sign-in can complete a new-tab handoff', () => {
+    setPreferredProjectType('screenplay');
+    claimPreferredProjectType('A', { currentTabOnly: true });
+    expect(getPreferredProjectType('A')).toBe('screenplay');
+
+    setPreferredProjectType('short');
+    vi.stubGlobal('sessionStorage', new window.Storage());
+    claimPreferredProjectType('A', { currentTabOnly: true });
+    expect(getPreferredProjectType('A')).toBe('screenplay');
+    expect(getPreferredProjectType()).toBe('short');
+    claimPreferredProjectType('B');
+    expect(getPreferredProjectType('B')).toBe('short');
+    expect(getPreferredProjectType()).toBeNull();
   });
 
   it('expires only the affected account record', () => {

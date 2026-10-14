@@ -5,6 +5,7 @@ import { ReactNode } from 'react'
 import { AuthIdentityQueryBoundary, AuthProvider, useAuth, User } from '../AuthContext'
 import * as api from '@/lib/api'
 import { trackEvent } from '@/lib/analytics'
+import { getPreferredProjectType, setPreferredProjectType } from '@/lib/preferredProjectType'
 
 // Mock authApi
 vi.mock('@/lib/api', () => ({
@@ -772,6 +773,7 @@ describe('AuthContext', () => {
         expect(result.current.loading).toBe(false)
       })
 
+      setPreferredProjectType('screenplay')
       await act(async () => {
         await result.current.handleOAuthCallback('oauth-access-token', 'oauth-refresh-token')
       })
@@ -779,6 +781,8 @@ describe('AuthContext', () => {
       expect(result.current.user).toEqual(mockUser)
       expect(localStorage.getItem('access_token')).toBe('oauth-access-token')
       expect(localStorage.getItem('refresh_token')).toBe('oauth-refresh-token')
+      expect(getPreferredProjectType(mockUser.id)).toBe('screenplay')
+      expect(getPreferredProjectType()).toBeNull()
     })
 
     it('uses HTTPS API base while completing OAuth callback on HTTPS pages', async () => {
@@ -858,6 +862,7 @@ describe('AuthContext', () => {
         expect(result.current.loading).toBe(false)
       })
 
+      setPreferredProjectType('short')
       await act(async () => {
         await result.current.verifyEmail('test@example.com', '123456')
       })
@@ -865,6 +870,8 @@ describe('AuthContext', () => {
       expect(api.authApi.verifyEmail).toHaveBeenCalledWith('test@example.com', '123456')
       expect(result.current.user).toEqual(mockResponse.user)
       expect(localStorage.getItem('access_token')).toBe(mockResponse.access_token)
+      expect(getPreferredProjectType(mockResponse.user.id)).toBe('short')
+      expect(getPreferredProjectType()).toBeNull()
     })
   })
 

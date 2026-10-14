@@ -153,8 +153,7 @@ const attemptTokenRefresh = async (
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUserState] = useState<User | null>(null);
   const setUser = React.useCallback((next: User | null) => {
-    // Bind a one-time public entry before the new identity's subtree mounts.
-    if (next) claimPreferredProjectType(next.id);
+    if (next) claimPreferredProjectType(next.id, { currentTabOnly: true });
     setUserState(next);
   }, []);
   const [loading, setLoading] = useState(true);
@@ -325,6 +324,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.setItem(CACHE_KEYS.REFRESH_TOKEN, data.refresh_token);
     saveUserCache(data.user);
 
+    claimPreferredProjectType(data.user.id);
     setUser(data.user);
     trackEvent('login_success', {
       login_method: 'password',
@@ -376,6 +376,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.setItem(CACHE_KEYS.REFRESH_TOKEN, data.refresh_token);
     saveUserCache(data.user);
 
+    claimPreferredProjectType(data.user.id);
     setUser(data.user);
     trackEvent('verify_email_success', {
       email_verified: data.user.email_verified,
@@ -453,6 +454,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.setItem(CACHE_KEYS.REFRESH_TOKEN, refreshToken);
     saveUserCache(user);
 
+    claimPreferredProjectType(user.id);
     setUser(user);
     const isNewUser = options.isNewUser === true;
     if (isNewUser) {

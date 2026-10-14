@@ -16,6 +16,7 @@ interface StoredPreferredProjectType {
   type: ProjectType;
   ts: number;
   source?: "entry";
+  entryId?: string;
 }
 
 const storageKey = (userId?: string | null) => userId
@@ -29,7 +30,16 @@ export function isPreferableProjectType(value: unknown): value is ProjectType {
 export function setPreferredProjectType(type: ProjectType, userId?: string | null): void {
   if (!isPreferableProjectType(type)) return;
   try {
-    const record: StoredPreferredProjectType = { type, ts: Date.now(), ...(!userId ? { source: "entry" as const } : {}) };
+    const record: StoredPreferredProjectType = { type, ts: Date.now() };
+    if (!userId) {
+      record.source = "entry";
+      record.entryId = crypto.randomUUID();
+      try {
+        sessionStorage.setItem(PREFERRED_PROJECT_TYPE_STORAGE_KEY, record.entryId);
+      } catch {
+        // Explicit sign-in can still claim the shared entry if tab storage fails.
+      }
+    }
     localStorage.setItem(storageKey(userId), JSON.stringify(record));
   } catch {
     // Preference is a convenience; losing it is harmless.
@@ -69,9 +79,18 @@ export function getPreferredProjectType(userId?: string | null, now: number = Da
   return readPreference(userId, now)?.type ?? null;
 }
 
-export function claimPreferredProjectType(userId: string): void {
+export function claimPreferredProjectType(userId: string, options: { currentTabOnly?: boolean } = {}): void {
   if (!userId) return;
   const entry = readPreference();
+  if (options.currentTabOnly) {
+    // Session restoration is not a new sign-in: another anonymous tab may be
+    // preparing a different account. Only claim this tab's own pending entry.
+    try {
+      if (!entry?.entryId || sessionStorage.getItem(PREFERRED_PROJECT_TYPE_STORAGE_KEY) !== entry.entryId) return;
+    } catch {
+      return;
+    }
+  }
   // Older records mixed prior accounts with anonymous entry. Their owner is
   // unknowable; only a newly explicit public-entry choice can be transferred.
   if (entry?.source === "entry") setPreferredProjectType(entry.type, userId);
@@ -83,5 +102,12 @@ export function clearPreferredProjectType(userId?: string | null): void {
     localStorage.removeItem(storageKey(userId));
   } catch {
     // Nothing to clean up when storage is unavailable.
+  }
+  if (!userId) {
+    try {
+      sessionStorage.removeItem(PREFERRED_PROJECT_TYPE_STORAGE_KEY);
+    } catch {
+      // The consumed shared record is sufficient; stale tab markers cannot match it.
+    }
   }
 }
