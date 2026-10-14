@@ -990,7 +990,7 @@ describe('first work entry', () => {
 
   it('reports initialization failure and retries only when requested, preserving the idea path', async () => {
     mockFirstWork.get.mockResolvedValue(firstWorkState('pending'))
-    mockFirstWork.initialize.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ ...firstWorkState('created'), project_id: 'first-project', file_id: 'first-file', available: true })
+    mockFirstWork.initialize.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ ...firstWorkState('created'), project_id: 'first-project', file_id: 'first-file', available: true, static_guidance: true })
     renderDashboardHome()
     const retry = await screen.findByRole('button', { name: '重试' })
     expect(mockFirstWork.initialize).toHaveBeenCalledTimes(1)

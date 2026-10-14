@@ -55,7 +55,7 @@ export function FirstWorkEntry({ userId, preferredType, onCreated }: {
       <p className="text-sm leading-6 text-[hsl(var(--text-secondary))]">{t('firstWork.preparing')}</p>
     </div>;
   }
-  if (!work?.available || !work.project_id || !work.file_id) return null;
+  if (!work?.available || !work.static_guidance || work.first_manual_write_at || work.first_ai_requested_at || !work.project_id || !work.file_id) return null;
   return <div data-testid="first-work-entry" className="mb-5 flex flex-col gap-5 rounded-2xl border border-[hsl(var(--border-color))] bg-[hsl(var(--bg-secondary))] p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
     <div className="flex min-w-0 items-start gap-3">
       <Book aria-hidden="true" className="mt-0.5 h-6 w-6 shrink-0 text-[hsl(var(--accent-primary))]" />

@@ -46,18 +46,21 @@ async function firstWorkFixture(page: Page, language: 'zh' | 'en', options: { de
 }
 const aiCalls = (calls: { path: string }[]) => calls.filter(call => /\/agent\/(suggest|stream)/.test(call.path));
 
-for (const width of [390, 768, 1280]) {
+for (const theme of ['light', 'dark'] as const) {
+for (const width of [390, 768, 1440]) {
   for (const language of ['zh', 'en'] as const) {
-    test(`static first work ${language} ${width}: direct manuscript, focus only, exhausted quota manual save`, async ({ page }) => {
+    test(`static first work ${language} ${width} ${theme}: direct manuscript, focus only, exhausted quota manual save`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       const fixture = await firstWorkFixture(page, language);
+      await page.addInitScript(theme => localStorage.setItem('zenstory-theme', theme), theme);
       const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
       await page.goto('/dashboard');
+      await expect(page.locator('html')).toHaveClass(new RegExp(theme));
       const entry = page.getByTestId('first-work-entry');
       await expect(entry).toBeVisible();
       const open = entry.getByRole('button', { name: language === 'zh' ? '开始写作' : 'Start writing' });
       expect(fixture.calls.filter(call => call.path.endsWith('/first-work/open'))).toHaveLength(0);
-      await page.screenshot({ path: `/tmp/zenstory-auth-181/dashboard-${language}-${width}.png` });
+      await page.screenshot({ path: test.info().outputPath('dashboard.png') });
       await open.click();
       await expect(page).toHaveURL(/\/project\/responsive-project-0\?file=draft-0/);
       const guidance = page.getByTestId('first-work-guidance');
@@ -65,15 +68,15 @@ for (const width of [390, 768, 1280]) {
       const heading = await page.getByTestId('chat-panel-header-title').locator('span').first().boundingBox();
       const actions = await page.getByTestId('chat-panel-header-actions').boundingBox();
       expect(heading!.x + heading!.width).toBeLessThanOrEqual(actions!.x);
-      const paste = guidance.getByRole('button', { name: language === 'zh' ? '粘贴已有稿件' : 'Paste an existing draft' });
-      const ai = guidance.getByRole('button', { name: language === 'zh' ? '让 AI 帮我写开头' : 'Ask AI to help with the opening' });
+      const paste = guidance.getByRole('button', { name: language === 'zh' ? '自己写' : 'Write on my own' });
+      const ai = guidance.getByRole('button', { name: language === 'zh' ? '与 AI 创作' : 'Write with AI' });
       for (const button of [paste, ai]) {
         const box = (await button.boundingBox())!;
         expect(box.width).toBeGreaterThan(44); expect(box.height).toBeGreaterThanOrEqual(44);
         expect(box.x).toBeGreaterThanOrEqual(0); expect(box.x + box.width).toBeLessThanOrEqual(width);
         expect(await button.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
       }
-      await page.screenshot({ path: `/tmp/zenstory-auth-181/manuscript-${language}-${width}.png` });
+      await page.screenshot({ path: test.info().outputPath('manuscript.png') });
       await paste.click();
       const body = page.locator('[data-editor-scroll-container] textarea');
       await expect(body).toBeFocused(); await expect(body).toHaveValue('');
@@ -93,10 +96,16 @@ for (const width of [390, 768, 1280]) {
       expect(aiCalls(fixture.calls)).toHaveLength(0);
       await page.reload();
       await expect(body).toHaveValue('The author’s first paragraph, without AI.');
+      await page.goto('/dashboard');
+      await expect(page.getByTestId('dashboard-inspiration-input')).toBeVisible();
+      await expect(entry).toHaveCount(0);
+      await expect(page.getByRole('heading', { name: language === 'zh' ? '我的首部作品' : 'My First Work', exact: true })).toBeVisible();
+      await page.screenshot({ path: test.info().outputPath('dashboard-after-writing.png') });
       expect(fixture.calls.filter(call => call.path === '/api/v1/workspace/first-work' && call.method === 'POST')).toHaveLength(1);
       expect(aiCalls(fixture.calls)).toHaveLength(0); expect(errors).toEqual([]);
     });
   }
+}
 }
 
 test('first-work initialization failure retries explicitly; a deleted first work is never recreated', async ({ page }) => {
