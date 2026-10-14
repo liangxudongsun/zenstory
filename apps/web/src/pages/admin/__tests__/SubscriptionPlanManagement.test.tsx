@@ -122,6 +122,16 @@ describe("SubscriptionPlanManagement", () => {
     expect(mutateMock).not.toHaveBeenCalled();
   });
 
+  it.each(["null", "[]", "42"])("rejects a JSON value that is not a feature object: %s", (json) => {
+    useQueryMock.mockReturnValue({data: [plan]});
+    render(<SubscriptionPlanManagement />);
+    fireEvent.click(screen.getByRole("button", {name: "plans.edit"}));
+    fireEvent.change(screen.getByLabelText("plans.featuresDetail.jsonLabel"), {target: {value: json}});
+    fireEvent.click(screen.getByRole("button", {name: "plans.save"}));
+    expect(screen.getByText("plans.invalidJson")).toBeInTheDocument();
+    expect(mutateMock).not.toHaveBeenCalled();
+  });
+
   it("submits updated plan payload", () => {
     useQueryMock.mockReturnValue({
       data: [plan],
