@@ -361,6 +361,7 @@
     "cancel": "Cancel"
   },
   "quotaCard": {
+    "paidTitle": "Today’s AI message allowance is used up",
     "title": "You've used today's {{limit}} free AI messages",
     "resetOnDay": "They come back on {{day}} at 00:00 Beijing time (UTC+8). What you type stays in the box until then.",
     "resetTomorrow": "They come back tomorrow at 00:00 Beijing time (UTC+8). What you type stays in the box until then.",

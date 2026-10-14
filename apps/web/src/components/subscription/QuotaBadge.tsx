@@ -1,3 +1,6 @@
+import { aiQuotaPeriodKey } from "../../hooks/useAiMessageQuota";
+import { useMobileLayout } from "../../contexts/MobileLayoutContext";
+import { usePaidPlanWhenOpen } from "../../hooks/usePaidPlanWhenOpen";
 import { useUpgradeExposure } from "../../hooks/useUpgradeExposure";
 import { useQuery } from '@tanstack/react-query';
 import { Sparkles } from "lucide-react";
@@ -38,11 +41,14 @@ export function QuotaBadge({ compact = false }: QuotaBadgeProps = {}) {
     : resolveUpgradeTriggerStage({ used, limit });
   const stagedSource = buildStagedUpgradeSource(settingsUpgradePrompt.source, stage);
 
+  const { isMobile, activePanel } = useMobileLayout();
+  const { isPaid, resolved } = usePaidPlanWhenOpen(Boolean(quota) && stage !== "normal" && !isUnlimited);
+  const canUpgrade = resolved && !isPaid;
   const exposureRef = useUpgradeExposure({
-    enabled: Boolean(quota) && stage !== "normal" && !isUnlimited,
+    enabled: Boolean(quota) && stage !== "normal" && !isUnlimited && canUpgrade && (!compact || !isMobile || activePanel === "chat"),
     source: stagedSource, surface: "badge",
     placement: compact ? "chat-header" : "page-header",
-    period: quota?.ai_conversations.reset_at ?? "",
+    period: aiQuotaPeriodKey(quota?.ai_conversations.reset_at),
   });
 
   if (!quota) return null;
@@ -54,7 +60,7 @@ export function QuotaBadge({ compact = false }: QuotaBadgeProps = {}) {
     return 'success';
   };
 
-  const shouldShowUpgradeAction = stage !== "normal" && !isUnlimited;
+  const shouldShowUpgradeAction = stage !== "normal" && !isUnlimited && canUpgrade;
   const usageLabel = isUnlimited
     ? t('subscription.aiUsageUnlimited', 'AI 消息不限条数')
     : t('subscription.aiUsageCount', '今日 AI 消息 {{used}}/{{limit}} 条', { used, limit });

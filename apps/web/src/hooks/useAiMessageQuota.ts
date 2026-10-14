@@ -16,6 +16,12 @@ export function nextAiQuotaResetMs(now: number): number {
   return Math.floor((now + BEIJING_OFFSET_MS) / DAY_MS) * DAY_MS + DAY_MS - BEIJING_OFFSET_MS;
 }
 
+/** One canonical cycle key even when the quota response arrives after a refusal. */
+export function aiQuotaPeriodKey(resetAt: string | null | undefined, now = Date.now()): string {
+  const reset = resetAt ? parseUTCDate(resetAt).getTime() : Number.NaN;
+  return String(Number.isFinite(reset) ? reset : nextAiQuotaResetMs(now));
+}
+
 /**
  * The Beijing calendar day the daily AI messages come back on ("10月10日" / "October 10").
  * The server's `reset_at` is the next Beijing midnight; null when it is missing or unreadable.

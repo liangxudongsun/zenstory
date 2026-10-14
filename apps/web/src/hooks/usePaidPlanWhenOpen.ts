@@ -24,10 +24,10 @@ const PLAN_LOOKUP_TIMEOUT_MS = 4000;
 
 export function usePaidPlanWhenOpen(open: boolean): { isPaid: boolean; resolved: boolean } {
   const client = useOptionalQueryClient();
-  const [tier, setTier] = useState<string | undefined>(
-    () => client?.getQueryData<SubscriptionStatusResponse>(subscriptionQueryKeys.status())?.tier,
+  const account = subscriptionQueryKeys.status()[1];
+  const [answer, setAnswer] = useState<{ account: string | undefined; tier?: string; failed: boolean }>(
+    () => ({ account, tier: client?.getQueryData<SubscriptionStatusResponse>(subscriptionQueryKeys.status())?.tier, failed: false }),
   );
-  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     if (!open || !client) return;
@@ -39,31 +39,32 @@ export function usePaidPlanWhenOpen(open: boolean): { isPaid: boolean; resolved:
         staleTime: 60_000,
       })
       .then((status) => {
-        if (!cancelled) setTier(status?.tier);
+        if (!cancelled) setAnswer({ account, tier: status?.tier, failed: false });
       })
       .catch(() => {
-        if (!cancelled) setFailed(true);
+        if (!cancelled) setAnswer(previous => ({ account, tier: previous.account === account ? previous.tier : undefined, failed: true }));
       });
     // A slow or stuck request must not keep the prompt blank: fall back to the free copy.
     const giveUp = setTimeout(() => {
-      if (!cancelled) setFailed(true);
+      if (!cancelled) setAnswer(previous => ({ account, tier: previous.account === account ? previous.tier : undefined, failed: true }));
     }, PLAN_LOOKUP_TIMEOUT_MS);
     return () => {
       cancelled = true;
       clearTimeout(giveUp);
       // Closed: the next open waits for its own answer (neutral copy first) instead of
       // falling straight to the free copy because an earlier lookup gave up.
-      setFailed(false);
+      setAnswer(previous => previous.account === account ? { ...previous, failed: false } : previous);
     };
-  }, [open, client]);
+  }, [open, client, account]);
 
   // The cache may have been filled after this prompt mounted (the page loads the plan
   // on its own): use it right away instead of waiting a frame for the refresh.
   const knownTier =
-    tier ?? client?.getQueryData<SubscriptionStatusResponse>(subscriptionQueryKeys.status())?.tier;
+    client?.getQueryData<SubscriptionStatusResponse>(subscriptionQueryKeys.status())?.tier
+    ?? (answer.account === account ? answer.tier : undefined);
 
   return {
     isPaid: Boolean(knownTier && knownTier !== "free"),
-    resolved: !client || knownTier !== undefined || failed,
+    resolved: !client || knownTier !== undefined || (answer.account === account && answer.failed),
   };
 }

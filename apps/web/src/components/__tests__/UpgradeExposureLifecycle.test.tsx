@@ -7,9 +7,9 @@ import { ChatQuotaCard } from '../subscription/ChatQuotaCard'
 import { UpgradePromptModal } from '../subscription/UpgradePromptModal'
 import type { QuotaResponse } from '../../types/subscription'
 
-const events = vi.hoisted(() => ({ expose: vi.fn(), click: vi.fn() }))
+const events = vi.hoisted(() => ({ expose: vi.fn(), click: vi.fn(), paid: false }))
 vi.mock('../../lib/upgradeAnalytics', () => ({ trackUpgradeExpose: events.expose, trackUpgradeClick: events.click }))
-vi.mock('../../hooks/usePaidPlanWhenOpen', () => ({ usePaidPlanWhenOpen: () => ({ isPaid: false, resolved: true }) }))
+vi.mock('../../hooks/usePaidPlanWhenOpen', () => ({ usePaidPlanWhenOpen: () => ({ isPaid: events.paid, resolved: true }) }))
 vi.mock('react-i18next', () => ({ useTranslation: () => ({
   i18n: { language: 'en' },
   t: (key: string, fallback?: string | Record<string, unknown>, options?: Record<string, unknown>) => {
@@ -30,7 +30,7 @@ const client = () => {
 const flush = async () => { await act(async () => { await Promise.resolve() }) }
 const body = (q: QueryClient, children: React.ReactNode) => <QueryClientProvider client={q}><StrictMode>{children}</StrictMode></QueryClientProvider>
 
-beforeEach(() => { vi.stubGlobal('IntersectionObserver', undefined); Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' }); localStorage.setItem('user', JSON.stringify({ id: 'a' })); events.expose.mockClear() })
+beforeEach(() => { vi.stubGlobal('IntersectionObserver', undefined); Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' }); localStorage.setItem('user', JSON.stringify({ id: 'a' })); events.expose.mockClear(); events.paid = false })
 afterEach(async () => { cleanup(); await flush(); localStorage.removeItem('user'); vi.unstubAllGlobals() })
 
 describe('upgrade visibility accounting', () => {
@@ -90,6 +90,24 @@ describe('upgrade visibility accounting', () => {
     await flush()
     await act(async () => { notify([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver) })
     expect(events.expose).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps finite paid quota visible without advertising or counting a Pro upgrade', () => {
+    events.paid = true
+    render(body(client(), <><QuotaBadge /><ChatQuotaCard limit={3} resetAt={resetAt} /></>))
+    expect(screen.getByTestId('chat-quota-card')).toBeVisible()
+    expect(screen.queryByTestId('chat-quota-card-upgrade')).not.toBeInTheDocument()
+    expect(screen.queryByText('开通 Pro')).not.toBeInTheDocument()
+    expect(events.expose).not.toHaveBeenCalled()
+  })
+
+  it('keeps a card continuously visible when its current reset arrives after the refusal', () => {
+    const offset = 8 * 60 * 60 * 1000
+    const nextReset = Math.floor((Date.now() + offset) / 86400000) * 86400000 + 86400000 - offset
+    const q = client()
+    const view = render(body(q, <ChatQuotaCard resetAt={null} />))
+    view.rerender(body(q, <ChatQuotaCard resetAt={new Date(nextReset).toISOString()} />))
+    expect(events.expose).toHaveBeenCalledTimes(1)
   })
 
   it('counts modal reopen separately but not StrictMode or continuous remount', async () => {

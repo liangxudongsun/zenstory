@@ -13,7 +13,13 @@ for (const width of [390, 1280]) {
       window.addEventListener('zenstory:upgrade-funnel', event => captures.push((event as CustomEvent).detail));
     });
     await page.goto('/project/responsive-project-0');
-    if (width < 768) await page.locator('#chat-tab').click();
+    if (width < 768) {
+      await expect(page.locator('#editor-tab')).toHaveAttribute('aria-selected', 'true');
+      await expect(page.getByTestId('chat-quota-card')).toHaveCount(1);
+      await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+      expect(await page.evaluate(() => (window as unknown as {__upgradeCaptures: Array<{action: string; surface: string}>}).__upgradeCaptures.filter(event => event.action === 'expose' && event.surface === 'card').length)).toBe(0);
+      await page.locator('#chat-tab').click();
+    }
     await expect(page.getByTestId('chat-quota-card')).toBeVisible();
     const views = (surface: string) => page.evaluate(value => (window as unknown as {__upgradeCaptures: Array<{action: string; surface: string}>}).__upgradeCaptures.filter(event => event.action === 'expose' && event.surface === value).length, surface);
     await expect.poll(() => views('card')).toBe(1);
