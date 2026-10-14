@@ -24,7 +24,7 @@ export function setUnprotectedDeletedDraft(projectId: string, active: boolean): 
   else unprotectedProjects.delete(projectId);
   protectionListeners.forEach(listener => listener());
 }
-export const hasUnprotectedDeletedDraft = (projectId: string | null): boolean => !!projectId && unprotectedProjects.has(projectId);
+export const hasAnyUnprotectedDeletedDraft = (): boolean => unprotectedProjects.size > 0;
 export function subscribeDeletedDraftProtection(listener: () => void): () => void {
   protectionListeners.add(listener);
   return () => { protectionListeners.delete(listener); };

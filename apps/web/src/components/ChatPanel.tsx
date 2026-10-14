@@ -23,7 +23,7 @@
  * @see useAgentStream - SSE streaming hook for AI responses
  * @module components/ChatPanel
  */
-import { hasUnprotectedDeletedDraft, notifyFileRemoved, subscribeDeletedDraftProtection } from "../lib/fileRemovalEvents";
+import { hasAnyUnprotectedDeletedDraft, notifyFileRemoved, subscribeDeletedDraftProtection } from "../lib/fileRemovalEvents";
 import React, { useState, useRef, useEffect, useCallback, useMemo, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -1250,7 +1250,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
   // Stopping already ends the round on its own; no need to ask before leaving then.
   const unprotectedDeletedDraft = useSyncExternalStore(
     subscribeDeletedDraftProtection,
-    () => hasUnprotectedDeletedDraft(currentProjectId),
+    hasAnyUnprotectedDeletedDraft,
     () => false,
   );
   const leaveGuard = useLeaveWhileGenerating((isStreaming && !isStopping) || unprotectedDeletedDraft);
@@ -2202,12 +2202,27 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     return () => window.removeEventListener("resize", clampToMax);
   }, [getMaxInputPanelHeight]);
 
+  const leaveConfirmation = (
+    <LeaveWhileGeneratingDialog
+      open={leaveGuard.leavePending}
+      unprotectedDraft={unprotectedDeletedDraft}
+      roundEnded={unprotectedDeletedDraft ? !isStreaming : leaveGuard.roundEnded}
+      producedOutput={roundProgressRef.current.producedOutput}
+      showDailyCount={showDailyCount}
+      onStay={leaveGuard.cancelLeave}
+      onLeave={handleConfirmLeave}
+    />
+  );
+
   if (!currentProjectId) {
     return (
+      <>
       <div className="h-full flex flex-col items-center justify-center text-[hsl(var(--text-secondary))] p-4 text-center">
         <Sparkles size={48} className="mb-4 opacity-50" />
         <p className="text-sm">{t('chat:panel.selectProject')}</p>
       </div>
+      {leaveConfirmation}
+      </>
     );
   }
 
@@ -2642,15 +2657,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
       />
 
       {/* Leaving the workbench mid-round drops the stream and ends the round. */}
-      <LeaveWhileGeneratingDialog
-        open={leaveGuard.leavePending}
-        unprotectedDraft={unprotectedDeletedDraft}
-        roundEnded={unprotectedDeletedDraft ? !isStreaming : leaveGuard.roundEnded}
-        producedOutput={roundProgressRef.current.producedOutput}
-        showDailyCount={showDailyCount}
-        onStay={leaveGuard.cancelLeave}
-        onLeave={handleConfirmLeave}
-      />
+      {leaveConfirmation}
 
       {/* 新对话 mid-round stops this round first. */}
       <LeaveWhileGeneratingDialog

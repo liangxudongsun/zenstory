@@ -430,6 +430,15 @@ describe('FileTreePane deletion validation', () => {
     await waitFor(() => expect(mocks.select).toHaveBeenCalledWith(null));
   });
 
+  it('keeps the selected survivor through a successful tree refresh', async () => {
+    const view = render(<FileSearchProvider><FileTreePane /></FileSearchProvider>);
+    await screen.findByText('Folder');
+    mocks.fileTreeVersion = 1;
+    view.rerender(<FileSearchProvider><FileTreePane /></FileSearchProvider>);
+    await waitFor(() => expect(mocks.getTree).toHaveBeenCalledTimes(2));
+    expect(mocks.select).not.toHaveBeenCalled();
+  });
+
   it('does not clear a newer selection based on a tree request started for the previous selection', async () => {
     const view = render(<FileSearchProvider><FileTreePane /></FileSearchProvider>);
     await screen.findByText('Folder');

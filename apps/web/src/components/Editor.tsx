@@ -10,7 +10,7 @@
  *
  * @module components/Editor
  */
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useProject } from "../contexts/ProjectContext";
 import { useAuth } from "../contexts/AuthContext";
@@ -568,17 +568,25 @@ const EditorComponent: React.FC<EditorProps> = () => {
   }, []);
 
   useEffect(() => {
-    setRemovedDrafts(currentUserId && currentProjectId
-      ? readDeletedEditorDraftSnapshots(localStorage, { userId: currentUserId, projectId: currentProjectId })
-        .map(snapshot => ({ snapshot, persisted: true }))
-      : []);
+    setRemovedDrafts(previous => {
+      // Context can change before a router decision. A failed storage write
+      // leaves this mounted editor as the only owner; keep that user's copies
+      // until an explicit leave rather than replacing them with the next scope.
+      const memory = previous.filter(({ snapshot, persisted }) => !persisted && snapshot.userId === currentUserId);
+      const stored = currentUserId && currentProjectId
+        ? readDeletedEditorDraftSnapshots(localStorage, { userId: currentUserId, projectId: currentProjectId })
+          .map(snapshot => ({ snapshot, persisted: true }))
+        : [];
+      return [...memory, ...stored.filter(({ snapshot }) => !memory.some(item => item.snapshot.projectId === snapshot.projectId && item.snapshot.fileId === snapshot.fileId))];
+    });
   }, [currentUserId, currentProjectId]);
 
-  const hasUnprotectedDraft = removedDrafts.some(({ snapshot, persisted }) => !persisted && snapshot.userId === currentUserId && snapshot.projectId === currentProjectId);
+  const unprotectedProjectIds = useMemo(() => [...new Set(removedDrafts
+    .filter(({ snapshot, persisted }) => !persisted && snapshot.userId === currentUserId)
+    .map(({ snapshot }) => snapshot.projectId))], [removedDrafts, currentUserId]);
   useEffect(() => {
-    if (!currentProjectId) return;
-    setUnprotectedDeletedDraft(currentProjectId, hasUnprotectedDraft);
-    if (!hasUnprotectedDraft) return;
+    if (unprotectedProjectIds.length === 0) return;
+    unprotectedProjectIds.forEach(projectId => setUnprotectedDeletedDraft(projectId, true));
     const protect = (event: Event) => {
       event.preventDefault();
       if (event.type === "beforeunload") (event as BeforeUnloadEvent).returnValue = "";
@@ -586,11 +594,11 @@ const EditorComponent: React.FC<EditorProps> = () => {
     window.addEventListener("beforeunload", protect);
     window.addEventListener(BEFORE_CHUNK_RELOAD_EVENT, protect);
     return () => {
-      setUnprotectedDeletedDraft(currentProjectId, false);
+      unprotectedProjectIds.forEach(projectId => setUnprotectedDeletedDraft(projectId, false));
       window.removeEventListener("beforeunload", protect);
       window.removeEventListener(BEFORE_CHUNK_RELOAD_EVENT, protect);
     };
-  }, [currentProjectId, hasUnprotectedDraft]);
+  }, [unprotectedProjectIds]);
 
   removedFileHandlerRef.current = (fileId) => {
     if (!currentProjectId || selectedIdRef.current !== fileId) return;
@@ -620,13 +628,13 @@ const EditorComponent: React.FC<EditorProps> = () => {
           ...retained, recoveryDraft, reason: "file-deleted",
         });
         const persisted = writeEditorDraftSnapshot(localStorage, snapshot);
-        setRemovedDrafts(previous => [...previous.filter(item => item.snapshot.fileId !== fileId), { snapshot, persisted }]);
+        setRemovedDrafts(previous => [...previous.filter(item => item.snapshot.fileId !== fileId || item.snapshot.projectId !== currentProjectId || item.snapshot.userId !== currentUserId), { snapshot, persisted }]);
       }
     }
     if (opened?.id !== fileId && existing) {
       const snapshot: EditorDraftSnapshot = { ...existing, reason: "file-deleted" };
       const persisted = writeEditorDraftSnapshot(localStorage, snapshot);
-      setRemovedDrafts(previous => [...previous.filter(item => item.snapshot.fileId !== fileId), { snapshot, persisted }]);
+      setRemovedDrafts(previous => [...previous.filter(item => item.snapshot.fileId !== fileId || item.snapshot.projectId !== currentProjectId || item.snapshot.userId !== currentUserId), { snapshot, persisted }]);
     }
     // Invalidate a read already in flight before clearing navigation. Its old
     // success/404 must not replace a newly selected file or restart this one.
@@ -790,11 +798,11 @@ const EditorComponent: React.FC<EditorProps> = () => {
     <>
       <div className="flex h-full min-h-0 flex-col">
       <div className="max-h-[45%] shrink-0 overflow-y-auto">
-      {removedDrafts.filter(({ snapshot }) => snapshot.userId === currentUserId && snapshot.projectId === currentProjectId).flatMap(({ snapshot, persisted }) => [
+      {removedDrafts.filter(({ snapshot, persisted }) => snapshot.userId === currentUserId && (snapshot.projectId === currentProjectId || !persisted)).flatMap(({ snapshot, persisted }) => [
         { snapshot, persisted },
         ...(snapshot.recoveryDraft ? [{ snapshot: { ...snapshot, ...snapshot.recoveryDraft, recoveryDraft: undefined }, persisted }] : []),
       ]).map(({ snapshot, persisted }, index) => (
-        <details key={`${snapshot.fileId}:${index}`} open className="shrink-0 border-b border-[hsl(var(--border-color))] bg-[hsl(var(--bg-secondary))] p-4">
+        <details key={`${snapshot.projectId}:${snapshot.fileId}:${index}`} open className="shrink-0 border-b border-[hsl(var(--border-color))] bg-[hsl(var(--bg-secondary))] p-4">
           <summary className="cursor-pointer text-sm font-medium">{t("editor:deletedFile.recovery", { title: snapshot.title })}</summary>
           <p role={persisted ? "status" : "alert"} className="my-2 text-sm text-[hsl(var(--text-secondary))]">{t(persisted ? "editor:deletedFile.saved" : "editor:deletedFile.storageFailed")}</p>
           <textarea aria-label={t("editor:deletedFile.draft")} readOnly value={snapshot.content} className="h-40 w-full resize-y rounded-lg border border-[hsl(var(--border-color))] bg-[hsl(var(--bg-primary))] p-3 text-sm" />

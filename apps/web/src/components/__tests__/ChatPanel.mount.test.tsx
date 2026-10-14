@@ -18,6 +18,7 @@ const mockQuota = vi.hoisted(() => ({
 }))
 
 const mockProjectState = vi.hoisted(() => ({
+  currentProjectId: 'project-1' as string | null,
   currentProject: { id: 'project-1', name: '外卖小哥看见倒计时' } as { id: string; name: string } | null,
   refreshProjects: vi.fn(async () => {}),
   refreshProject: vi.fn(async (_projectId: string) => {}),
@@ -80,7 +81,7 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('../../contexts/ProjectContext', () => ({
   useProject: () => ({
-    currentProjectId: 'project-1',
+    currentProjectId: mockProjectState.currentProjectId,
     currentProject: mockProjectState.currentProject,
     refreshProjects: mockProjectState.refreshProjects,
     refreshProject: mockProjectState.refreshProject,
@@ -329,9 +330,11 @@ describe('ChatPanel mount smoke', () => {
   })
 
 
-  it('asks before in-app navigation when a deleted draft has no persistent copy', async () => {
+  it.each(['project-1', null])('asks before navigation with a memory-only draft even when current project is %s', async activeProject => {
+    const previousProject = mockProjectState.currentProjectId
+    mockProjectState.currentProjectId = activeProject
     const originalPath = window.location.pathname
-    setUnprotectedDeletedDraft('project-1', true)
+    setUnprotectedDeletedDraft('previous-project-with-memory-draft', true)
     const view = render(<BrowserRouter><Link to="/protected-draft-leave">leave-project</Link><ChatPanel /></BrowserRouter>)
     try {
       fireEvent.click(screen.getByText('leave-project'))
@@ -341,8 +344,9 @@ describe('ChatPanel mount smoke', () => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
       expect(window.location.pathname).toBe(originalPath)
     } finally {
-      act(() => setUnprotectedDeletedDraft('project-1', false))
+      act(() => setUnprotectedDeletedDraft('previous-project-with-memory-draft', false))
       view.unmount()
+      mockProjectState.currentProjectId = previousProject
     }
   })
 

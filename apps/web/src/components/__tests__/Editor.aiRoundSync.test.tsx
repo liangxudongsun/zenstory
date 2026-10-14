@@ -69,6 +69,7 @@ const harness: {
 /** Wires the real stream callbacks to the real ProjectContext, like ChatPanel does. */
 function Harness({ initialSelection = true }: { initialSelection?: boolean }) {
   const selectedInitially = React.useRef(false);
+  const initializedProject = React.useRef(false);
   const project = useProject();
   // The project state outlives the editor, as in the app (leaving the project page).
   const [showEditor, setShowEditor] = React.useState(true);
@@ -80,6 +81,8 @@ function Harness({ initialSelection = true }: { initialSelection?: boolean }) {
   const streamingRef = React.useRef(project.streamingFileId);
   const { setCurrentProjectId, setSelectedItem, currentProjectId, selectedItem } = project;
   React.useEffect(() => {
+    if (initializedProject.current) return;
+    initializedProject.current = true;
     if (!currentProjectId) setCurrentProjectId('project-1');
   }, [currentProjectId, setCurrentProjectId]);
   React.useEffect(() => {
@@ -680,6 +683,23 @@ describe('deleted open file terminal state', () => {
     expect(screen.queryByText('editor:serverSyncFailed.message')).not.toBeInTheDocument();
   });
 
+  it('retains separate recovery entries when two open files are deleted in sequence', async () => {
+    await mountOpenFile();
+    fireEvent.change(textarea(), { target: { value: 'First removed local body' } });
+    act(() => callbacks().onToolResult('delete_file', 'success', { id: CH1.id }));
+    await settle();
+    server.files.set(CH2_ID, { ...CH1, id: CH2_ID, title: 'Second chapter', content: 'Second saved body' });
+    act(() => harness.project?.setSelectedItem({ id: CH2_ID, type: 'draft', title: 'Second chapter' }));
+    await settle();
+    fireEvent.change(textarea(), { target: { value: 'Second removed local body' } });
+    act(() => callbacks().onToolResult('delete_file', 'success', { id: CH2_ID }));
+    await settle();
+    expect(screen.getAllByLabelText('editor:deletedFile.draft').map(node => (node as HTMLTextAreaElement).value)).toEqual(['First removed local body', 'Second removed local body']);
+    expect(readEditorDraftSnapshot(localStorage, { userId: 'user-1', projectId: 'project-1', fileId: CH1.id })?.content).toBe('First removed local body');
+    expect(readEditorDraftSnapshot(localStorage, { userId: 'user-1', projectId: 'project-1', fileId: CH2_ID })?.content).toBe('Second removed local body');
+    expect(server.update).not.toHaveBeenCalled();
+  });
+
   it('keeps a deleted dirty draft readable after remount without saving into the deleted file', async () => {
     const view = await mountOpenFile();
     const draft = '作者刚输入、还没有保存的正文';
@@ -696,6 +716,36 @@ describe('deleted open file terminal state', () => {
     await settle();
     expect(screen.getByLabelText('editor:deletedFile.draft')).toHaveValue(draft);
     expect(server.update).not.toHaveBeenCalled();
+  });
+
+  it.each(['project-2', null])('keeps a memory-only deleted draft through premature context %s and back', async prematureProject => {
+    await mountOpenFile();
+    fireEvent.change(textarea(), { target: { value: 'Only in memory in project A' } });
+    const originalWrite = vi.mocked(localStorage.setItem).getMockImplementation()!;
+    const write = vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (key.startsWith('zenstory:editor-draft-recovery:')) throw new DOMException('full', 'QuotaExceededError');
+      originalWrite(key, value);
+    });
+    try {
+      act(() => callbacks().onToolResult('delete_file', 'success', { id: CH1.id })); await settle();
+      expect(screen.getByLabelText('editor:deletedFile.draft')).toHaveValue('Only in memory in project A');
+      act(() => harness.project?.setCurrentProjectId(prematureProject)); await settle();
+      expect(screen.getByLabelText('editor:deletedFile.draft')).toHaveValue('Only in memory in project A');
+      const unload = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(unload);
+      expect(unload.defaultPrevented).toBe(true);
+      const reload = new Event(BEFORE_CHUNK_RELOAD_EVENT, { cancelable: true }); window.dispatchEvent(reload);
+      expect(reload.defaultPrevented).toBe(true);
+      act(() => harness.project?.setCurrentProjectId('project-1')); await settle();
+      expect(screen.getByLabelText('editor:deletedFile.draft')).toHaveValue('Only in memory in project A');
+      expect(screen.getByText('editor:deletedFile.storageFailed')).toBeInTheDocument();
+      expect(localStorage.getItem('zenstory:editor-draft-recovery:v1:user-1:project-1:ch-1')).toBeNull();
+      const createUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:memory-draft');
+      const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+      try {
+        fireEvent.click(screen.getByRole('button', { name: 'editor:deletedFile.download' }));
+        expect(await (createUrl.mock.calls[0][0] as Blob).text()).toBe(CH1.title + '\n\nOnly in memory in project A');
+      } finally { createUrl.mockRestore(); click.mockRestore(); }
+    } finally { write.mockRestore(); }
   });
 
   it('retains the visible draft and reports storage failure without claiming it was saved', async () => {
@@ -778,7 +828,7 @@ describe('deleted open file terminal state', () => {
   it('retains both an unanswered recovery conflict and newer edits after deletion and remount', async () => {
     writeEditorDraftSnapshot(localStorage, createEditorDraftSnapshot({
       userId: 'user-1', projectId: 'project-1', fileId: CH1.id,
-      title: 'Unanswered recovery', content: 'Previous conflict draft', baseUpdatedAt: 'conflict-token', reason: 'page-exit',
+      title: CH1.title, content: 'Previous conflict draft', baseUpdatedAt: 'conflict-token', reason: 'page-exit',
     }));
     await mountOpenFile();
     expect(screen.getByText('editor:draftRecovery.conflict')).toBeTruthy();

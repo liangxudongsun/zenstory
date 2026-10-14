@@ -324,6 +324,17 @@ describe('MobileFileTree', () => {
 
     expect(await screen.findByText('第九章')).toBeInTheDocument();
   });
+  it('keeps a selected survivor on a successful mobile tree refresh', async () => {
+    mockSelected.value = { id: 'mobile-survivor', type: 'draft', title: 'Survivor' };
+    mockGetTree.mockResolvedValue({ tree: [{ id: 'mobile-survivor', title: 'Survivor', file_type: 'draft', children: [] }] });
+    const view = render(<MobileFileTree />);
+    await screen.findByText('Survivor');
+    mockSelected.version = 1;
+    view.rerender(<MobileFileTree className="refreshed" />);
+    await waitFor(() => expect(mockGetTree).toHaveBeenCalledTimes(2));
+    expect(mockSetSelectedItem).not.toHaveBeenCalled();
+  });
+
   it('clears a selected descendant when a fresh mobile tree loses its folder', async () => {
     mockSelected.value = { id: 'draft-1', type: 'draft', title: 'Draft' };
     mockGetTree.mockResolvedValue({ tree: [{ id: 'folder', title: 'Folder', file_type: 'folder', children: [{ id: 'draft-1', title: 'Draft', file_type: 'draft', children: [] }] }] });
