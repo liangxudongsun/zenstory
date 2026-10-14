@@ -68,7 +68,7 @@
     },
     "versionHistory": {
       "title": "版本对比与回退",
-      "description": "AI 的每次改动和你的保存都会记成版本，可以对比差异、一键退回。"
+      "description": "查看历史版本，对比改动或恢复旧稿。"
     },
     "cloudSync": {
       "title": "换设备接着写",
