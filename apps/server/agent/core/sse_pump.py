@@ -5,8 +5,8 @@
 EventSource 都会忽略以冒号开头的行），避免 router 排队、工具参数生成等长时间
 无输出时被代理当作闲置连接切断。
 
-时限到期时取消后台 task（生成器按「取消」路径收尾：后台落库部分历史、补存
-进行中的文件正文、释放会话持有），然后抛出 ``StreamDeadlineExceeded``，由
+时限到期时先发可选的真实终态，再取消并等后台 task（生成器按「取消」路径收尾：
+后台落库部分历史、补存进行中的文件正文、释放会话持有），最后抛出 ``StreamDeadlineExceeded``，由
 API 层发送终止帧并决定计费。作者主动停止（``request_stop``）走同一条收尾，
 抛出 ``StreamStoppedByUser``。
 
@@ -56,9 +56,12 @@ class SSEStreamPump:
         heartbeat_interval_s: float,
         deadline_s: float | None = None,
         on_item: Callable[[Any], None] | None = None,
+        on_deadline: Callable[[], str | None] | None = None,
     ) -> None:
         self._source = source
         self._on_item = on_item
+        self._on_deadline = on_deadline
+        self._cancel_requested = False
         self._stop_event = asyncio.Event()
         self._heartbeat_interval_s = max(0.01, float(heartbeat_interval_s))
         self._deadline_s = deadline_s if deadline_s and deadline_s > 0 else None
@@ -98,8 +101,18 @@ class SSEStreamPump:
 
     def cancel(self) -> None:
         """同步取消后台 task（可在 GeneratorExit / CancelledError 路径中调用）。"""
-        if self._task is not None and not self._task.done():
+        if self._task is not None and not self._task.done() and not self._cancel_requested:
+            self._cancel_requested = True
             self._task.cancel()
+
+    @property
+    def producer_stopped(self) -> bool:
+        return self._task is None or self._task.done()
+
+    async def wait_stopped(self) -> None:
+        """Wait for cancellation cleanup without cancelling it a second time."""
+        if self._task is not None and not self._task.done():
+            await asyncio.wait({self._task})
 
     async def __aiter__(self) -> AsyncIterator[str]:
         loop = asyncio.get_running_loop()
@@ -111,13 +124,15 @@ class SSEStreamPump:
                 if deadline_at is not None:
                     remaining = deadline_at - loop.time()
                     if remaining <= 0:
-                        await self._stop_for_deadline()
+                        async for frame in self._stop_for_deadline():
+                            yield frame
                     wait_s = min(wait_s, remaining)
                 try:
                     item = await self._next_item(wait_s)
                 except TimeoutError:
                     if deadline_at is not None and loop.time() >= deadline_at:
-                        await self._stop_for_deadline()
+                        async for frame in self._stop_for_deadline():
+                            yield frame
                     yield HEARTBEAT_FRAME
                     continue
                 if item is _STOP:
@@ -157,14 +172,18 @@ class SSEStreamPump:
         raise TimeoutError
 
     async def _cancel_producer(self) -> None:
-        task = self._task
-        if task is not None and not task.done():
-            task.cancel()
-            # 等生成器跑完同步的取消收尾（调度后台落库/释放持有），再上报。
-            # asyncio.wait 不会把 task 的 CancelledError 抛给这里，而消费端自己
-            # 被取消时仍会照常传播。
-            await asyncio.wait({task})
+        self.cancel()
+        await self.wait_stopped()
 
-    async def _stop_for_deadline(self) -> None:
-        await self._cancel_producer()
+    async def _stop_for_deadline(self) -> AsyncIterator[str]:
+        # Announce the observed deadline before waiting for cleanup. Cancellation
+        # may retain the session lease or finish a pending write past the edge.
+        self.cancel()
+        if self._on_deadline is not None:
+            frame = self._on_deadline()
+            if frame is not None:
+                if self._on_item is not None:
+                    self._on_item(frame)
+                yield frame
+        await self.wait_stopped()
         raise StreamDeadlineExceeded(f"stream exceeded {self._deadline_s}s")
