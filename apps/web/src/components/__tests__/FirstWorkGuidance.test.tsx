@@ -65,7 +65,7 @@ beforeEach(() => {
 });
 
 describe('first-work static guidance', () => {
-  for (const [language, paste, ai] of [['zh', '粘贴已有稿件', '让 AI 帮我写开头'], ['en', 'Paste an existing draft', 'Ask AI to help with the opening']]) {
+  for (const [language, paste, ai] of [['zh', '自己写', '与 AI 创作'], ['en', 'Write on my own', 'Write with AI']]) {
     it(`${language}: focuses the chosen input without altering or sending drafts; manual writing works at exhausted quota`, async () => {
       await mount(language);
       fireEvent.click(await screen.findByRole('button', { name: paste }));

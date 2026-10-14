@@ -35,6 +35,24 @@ describe('dashboard-only first-work initialization lifecycle', () => {
       view.unmount(); mocks.get.mockClear();
     }
   });
+  it('keeps an opened but unwritten entry and removes it after persisted writing progress', async () => {
+    const opened = { ...created, opened_at: '2026-10-14T12:00:00Z' };
+    mocks.get.mockResolvedValue(opened);
+    const view = mount();
+    await screen.findByRole('button', { name: 'firstWork.open' });
+    view.unmount();
+    for (const progress of [
+      { first_manual_write_at: '2026-10-14T12:01:00Z' },
+      { first_ai_requested_at: '2026-10-14T12:01:00Z', static_guidance: false },
+    ]) {
+      mocks.get.mockResolvedValue({ ...opened, ...progress });
+      const completed = mount();
+      await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument());
+      expect(screen.queryByTestId('first-work-entry')).not.toBeInTheDocument();
+      completed.unmount();
+    }
+    expect(mocks.initialize).not.toHaveBeenCalled();
+  });
   it('marks the initial preparation as busy without starting initialization before eligibility is known', () => {
     mocks.get.mockReturnValue(new Promise(() => {}));
     mount();
