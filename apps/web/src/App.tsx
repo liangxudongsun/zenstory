@@ -633,11 +633,11 @@ function App() {
                     <Route
                       path="/dashboard"
                       element={
-                        <ProtectedProviders>
-                          <ProtectedRoute>
+                        <ProtectedRoute>
+                          <ProtectedProviders>
                             <Dashboard />
-                          </ProtectedRoute>
-                        </ProtectedProviders>
+                          </ProtectedProviders>
+                        </ProtectedRoute>
                       }
                     >
                       <Route index element={<DashboardHome />} />
@@ -652,31 +652,31 @@ function App() {
                     <Route
                       path="/project/:projectId"
                       element={
-                        <ProtectedProviders>
-                          <ProtectedRoute>
+                        <ProtectedRoute>
+                          <ProtectedProviders>
                             <ProjectEditor />
-                          </ProtectedRoute>
-                        </ProtectedProviders>
+                          </ProtectedProviders>
+                        </ProtectedRoute>
                       }
                     />
                     <Route
                       path="/project/:projectId/dashboard"
                       element={
-                        <ProtectedProviders>
-                          <ProtectedRoute>
+                        <ProtectedRoute>
+                          <ProtectedProviders>
                             <ProjectDashboardPage />
-                          </ProtectedRoute>
-                        </ProtectedProviders>
+                          </ProtectedProviders>
+                        </ProtectedRoute>
                       }
                     />
                     <Route
                       path="/materials/:novelId"
                       element={
-                        <ProtectedProviders>
-                          <ProtectedRoute>
+                        <ProtectedRoute>
+                          <ProtectedProviders>
                             <MaterialDetailPage />
-                          </ProtectedRoute>
-                        </ProtectedProviders>
+                          </ProtectedProviders>
+                        </ProtectedRoute>
                       }
                     />
 
