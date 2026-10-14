@@ -173,18 +173,26 @@ describe('MessageInput', () => {
 
   it('blocks sending and explains when the message exceeds the backend limit', () => {
     const onSend = vi.fn()
-    render(<MessageInput {...defaultProps} onSend={onSend} />)
+    const onDraftChange = vi.fn()
+    render(<MessageInput {...defaultProps} onSend={onSend} onDraftChange={onDraftChange} />)
 
     const textarea = screen.getByPlaceholderText('chat:input.placeholder')
-    fireEvent.change(textarea, { target: { value: '字'.repeat(MAX_AGENT_MESSAGE_CHARS + 1) } })
+    const longDraft = '字'.repeat(MAX_AGENT_MESSAGE_CHARS + 1)
+    fireEvent.change(textarea, { target: { value: longDraft } })
 
     expect(screen.getByTestId('chat-input-too-long')).toHaveTextContent('chat:input.tooLong')
+    expect(textarea).toHaveAttribute('aria-invalid', 'true')
+    expect(textarea).toHaveAccessibleDescription('chat:input.tooLong')
     expect(screen.getByTestId('send-button')).toBeDisabled()
     fireEvent.keyDown(textarea, { key: 'Enter' })
     expect(onSend).not.toHaveBeenCalled()
+    expect(textarea).toHaveValue(longDraft)
+    expect(onDraftChange).toHaveBeenLastCalledWith(longDraft)
 
     fireEvent.change(textarea, { target: { value: '字'.repeat(MAX_AGENT_MESSAGE_CHARS) } })
     expect(screen.queryByTestId('chat-input-too-long')).not.toBeInTheDocument()
+    expect(textarea).not.toHaveAttribute('aria-invalid')
+    expect(textarea).not.toHaveAttribute('aria-describedby')
     expect(screen.getByTestId('send-button')).not.toBeDisabled()
   })
 
