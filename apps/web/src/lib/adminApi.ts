@@ -1499,6 +1499,15 @@ export async function getUpgradeFunnelStats(days = 7): Promise<UpgradeFunnelStat
       click: asNumber(rawTotals.click, DEFAULT_UPGRADE_FUNNEL.totals.click),
       conversion: asNumber(rawTotals.conversion, DEFAULT_UPGRADE_FUNNEL.totals.conversion),
     },
+    surfaces: pickArray<unknown>(payload, ["surfaces"]).map(item => {
+      const raw = resolvePayloadRecord(item);
+      return {
+        source: asText(raw.source, ""), surface: asText(raw.surface, ""),
+        exposes: asNumber(raw.exposes, 0), exposed_users: asNumber(raw.exposed_users, 0),
+        clicks: asNumber(raw.clicks, 0), clicking_users: asNumber(raw.clicking_users, 0),
+        page_arrivals: asNumber(raw.page_arrivals, 0),
+      };
+    }),
     sources: rawSources.map((item) => {
       const raw = resolvePayloadRecord(item);
       return {

@@ -119,6 +119,16 @@ describe('AdminDashboard', () => {
     });
   });
 
+  it('separates surface views, distinct users, clicks and page arrivals from payment', async () => {
+    mockGetUpgradeFunnelStats.mockResolvedValue({ window_days: 7, totals: {expose: 12, click: 6, conversion: 2}, sources: [], surfaces: [{source: 'chat_quota_blocked', surface: 'card', exposes: 12, exposed_users: 4, clicks: 6, clicking_users: 3, page_arrivals: 2}] });
+    render(<AdminDashboard />, { wrapper: createWrapper() });
+    const table = await screen.findByRole('table', {name: '升级入口展示分类'});
+    expect(table).toHaveTextContent('12 / 4');
+    expect(table).toHaveTextContent('6 / 3');
+    expect(table).toHaveTextContent('chat_quota_blocked');
+    expect(screen.getByText(/页面到达不代表付款/)).toBeInTheDocument();
+  });
+
   it('puts cohort growth before account totals and does not display independent event ratios', async () => {
     mockGetActivationFunnel.mockResolvedValue({ steps: [{event_name: 'ai', label: 'AI telemetry', users: 31, conversion_from_previous: 3.1}], activation_rate: 3.1 });
     mockGetUpgradeFunnelStats.mockResolvedValue({totals: {expose: 10, click: 20, conversion: 30}, sources: []});

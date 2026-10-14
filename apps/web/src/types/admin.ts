@@ -193,12 +193,23 @@ export interface UpgradeFunnelSource {
   conversion_rate_from_expose: number;
 }
 
+export interface UpgradeFunnelSurface {
+  source: string;
+  surface: string;
+  exposes: number;
+  exposed_users: number;
+  clicks: number;
+  clicking_users: number;
+  page_arrivals: number;
+}
+
 export interface UpgradeFunnelStats {
   window_days: number;
   period_start: string;
   period_end: string;
   totals: UpgradeFunnelTotals;
   sources: UpgradeFunnelSource[];
+  surfaces?: UpgradeFunnelSurface[];
 }
 
 // ==================== Plan Update ====================

@@ -41,8 +41,8 @@ function renderLimitPrompt(
 }
 
 describe('UpgradePromptModal', () => {
-  beforeEach(() => vi.clearAllMocks())
-  afterEach(() => cleanup())
+  beforeEach(() => { vi.clearAllMocks(); vi.stubGlobal("IntersectionObserver", undefined); })
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); })
 
   it('tells a Pro author the limit is reached instead of offering Pro, and keeps it out of the funnel', async () => {
     renderLimitPrompt('pro')
@@ -56,7 +56,7 @@ describe('UpgradePromptModal', () => {
     renderLimitPrompt('free')
 
     expect(await screen.findByText('开通 Pro')).toBeInTheDocument()
-    expect(trackUpgradeExpose).toHaveBeenCalledWith('file_version_quota_blocked', 'modal')
+    expect(trackUpgradeExpose).toHaveBeenCalledWith('file_version_quota_blocked', 'modal', { placement: 'limit-dialog' })
   })
 
   it('tells a Pro author what still helps with this limit when the caller knows it', async () => {

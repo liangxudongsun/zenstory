@@ -364,6 +364,7 @@
     "cancel": "取消"
   },
   "quotaCard": {
+    "paidTitle": "今天的 AI 消息额度已用完",
     "title": "今天的 {{limit}} 条免费 AI 消息用完了",
     "resetOnDay": "北京时间 {{day}} 00:00 恢复。写好的内容会留在输入框里，到时再发。",
     "resetTomorrow": "北京时间明天 00:00 恢复。写好的内容会留在输入框里，到时再发。",

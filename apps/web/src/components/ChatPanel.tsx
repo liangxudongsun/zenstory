@@ -1,3 +1,4 @@
+import { claimAutoUpgradePrompt } from "../lib/upgradeTriggerStrategy";
 /**
  * @fileoverview ChatPanel component - AI chat interface for the zenstory writing workbench.
  *
@@ -80,7 +81,7 @@ import { ProjectStatusDialog } from "./ProjectStatusDialog";
 import { useDraftPersistence } from "../hooks/useDraftPersistence";
 import { UpgradePromptModal } from "./subscription/UpgradePromptModal";
 import { ChatQuotaCard } from "./subscription/ChatQuotaCard";
-import { nextAiQuotaResetMs } from "../hooks/useAiMessageQuota";
+import { nextAiQuotaResetMs, aiQuotaPeriodKey } from "../hooks/useAiMessageQuota";
 import { buildUpgradeUrl, getUpgradePromptDefinition } from "../config/upgradeExperience";
 import { trackEvent } from "../lib/analytics";
 import { useLeaveWhileGenerating } from "../hooks/useLeaveWhileGenerating";
@@ -1384,11 +1385,13 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     ? lastMessage
     : null;
 
+  const quotaAccount = subscriptionQueryKeys.status()[1];
+  const quotaPeriod = aiQuotaPeriodKey(aiMessageQuota?.reset_at);
   useEffect(() => {
-    if (isAiQuotaLimit && chatQuotaUpgradePrompt.surface === "modal") {
+    if (isAiQuotaLimit && chatQuotaUpgradePrompt.surface === "modal" && claimAutoUpgradePrompt(quotaAccount, chatQuotaUpgradePrompt.source, quotaPeriod)) {
       setShowQuotaUpgradeModal(true);
     }
-  }, [chatQuotaUpgradePrompt.surface, isAiQuotaLimit]);
+  }, [chatQuotaUpgradePrompt.surface, chatQuotaUpgradePrompt.source, isAiQuotaLimit, quotaAccount, quotaPeriod]);
 
   /**
    * Loads chat history for a specific project from the server.

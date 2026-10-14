@@ -297,6 +297,32 @@ export default function AdminDashboard() {
 
                 </div>
 
+                {(upgradeFunnel.surfaces?.length ?? 0) > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-sm text-[hsl(var(--text-secondary))]">{t('admin:dashboard.upgradeSurfaceNote', '按实际展示面统计，次数与独立用户分别列出。旧 toast 分类保留，页面到达不代表付款。')}</p>
+                    <div tabIndex={0} className="overflow-x-auto rounded-md border border-[hsl(var(--separator-color)/0.45)]">
+                      <table className="w-full min-w-[640px] text-sm" aria-label={t('admin:dashboard.upgradeSurfaceBreakdown', '升级入口展示分类')}>
+                        <thead><tr>
+                          <th className="px-3 py-2 text-left">{t('admin:dashboard.upgradeSource', '来源')}</th>
+                          <th className="px-3 py-2 text-left">{t('admin:dashboard.upgradeSurface', '展示面')}</th>
+                          <th className="px-3 py-2 text-right">{t('admin:dashboard.upgradeViewsUsers', '曝光次数 / 人数')}</th>
+                          <th className="px-3 py-2 text-right">{t('admin:dashboard.upgradeClicksUsers', '点击次数 / 人数')}</th>
+                          <th className="px-3 py-2 text-right">{t('admin:dashboard.upgradePageArrival', '页面到达')}</th>
+                        </tr></thead>
+                        <tbody>{upgradeFunnel.surfaces?.map(row => (
+                          <tr key={`${row.source}:${row.surface}`} className="border-t border-[hsl(var(--separator-color)/0.35)]">
+                            <td className="px-3 py-2 max-w-64 break-words">{row.source}</td>
+                            <td className="px-3 py-2">{t(`admin:dashboard.upgradeSurfaceLabels.${row.surface}`, row.surface)}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{row.exposes} / {row.exposed_users}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{row.clicks} / {row.clicking_users}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{row.page_arrivals}</td>
+                          </tr>
+                        ))}</tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
                 <div className="space-y-2">
                   {allUpgradeSources.length > 0 && (
                     <div className="text-xs text-[hsl(var(--text-secondary))]">

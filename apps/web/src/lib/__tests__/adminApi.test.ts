@@ -743,6 +743,7 @@ describe('adminApi', () => {
       mockApi.get.mockResolvedValue({
         window_days: '7',
         totals: { expose: '20', click: '8', conversion: '3' },
+        surfaces: [{ source: 'chat_quota_blocked', surface: 'card', exposes: '12', exposed_users: '4', clicks: '6', clicking_users: '3', page_arrivals: '2' }],
         sources: [
           {
             source: 'chat_quota_blocked',
@@ -764,6 +765,7 @@ describe('adminApi', () => {
         period_start: '',
         period_end: '',
         totals: { expose: 20, click: 8, conversion: 3 },
+        surfaces: [{ source: 'chat_quota_blocked', surface: 'card', exposes: 12, exposed_users: 4, clicks: 6, clicking_users: 3, page_arrivals: 2 }],
         sources: [
           {
             source: 'chat_quota_blocked',

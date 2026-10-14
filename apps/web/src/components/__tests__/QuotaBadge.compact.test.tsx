@@ -8,6 +8,7 @@ import { QuotaBadge } from '../subscription/QuotaBadge'
 vi.mock('../../lib/subscriptionApi', () => ({
   subscriptionApi: {
     getQuota: vi.fn(),
+    getStatus: vi.fn(async () => ({ tier: "free" })),
   },
   subscriptionQueryKeys: {
     status: () => ['subscription-status', 'test-user'],

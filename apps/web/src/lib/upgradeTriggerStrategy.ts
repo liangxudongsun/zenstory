@@ -41,11 +41,15 @@ const autoPromptedWithoutStorage = new Set<string>();
  * 重新挂载或切换项目再次打断。真正被额度挡下的操作（保存失败、恢复历史版本）不走
  * 这里，每次都照常反馈。sessionStorage 不可用时退回本页内存。返回 true 表示这次可以提醒。
  */
-export function claimAutoUpgradePrompt(userId: string | null, kind: string): boolean {
-  const key = `${AUTO_PROMPT_KEY_PREFIX}:${kind}:${userId ?? "anonymous"}`;
+export function claimAutoUpgradePrompt(userId: string | null, kind: string, period?: string): boolean {
+  const key = `${AUTO_PROMPT_KEY_PREFIX}:${kind}:${userId ?? "anonymous"}${period ? `:${period}` : ""}`;
   try {
-    if (sessionStorage.getItem(key)) return false;
+    if (sessionStorage.getItem(key)) {
+      autoPromptedWithoutStorage.add(key);
+      return false;
+    }
     sessionStorage.setItem(key, "1");
+    autoPromptedWithoutStorage.add(key);
     return true;
   } catch {
     if (autoPromptedWithoutStorage.has(key)) return false;
