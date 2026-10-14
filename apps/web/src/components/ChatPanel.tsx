@@ -2321,7 +2321,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
               <Loader2 size={32} className="mb-4 animate-spin opacity-50" />
               <p className="text-sm">{t('chat:panel.loadingMessages')}</p>
             </div>
-          ) : messages.length === 0 && !isStreaming && !isThinking && !(error && retryable) ? (
+          ) : messages.length === 0 && !isStreaming && !isThinking && !(error && retryable) && sessionRecoveryError !== currentProjectId ? (
             <div className="h-[200px] flex flex-col items-center justify-center text-[hsl(var(--text-secondary))]">
               <Sparkles size={48} className="mb-4 opacity-30" />
               <p className={`text-center ${isMobile ? 'text-xs mb-1.5 px-2' : 'text-sm mb-2'}`}>{t('chat:panel.welcome')}</p>

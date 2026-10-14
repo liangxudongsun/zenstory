@@ -233,6 +233,8 @@ describe.each([false, true])('actual mounted ChatPanel new session rootStrict=%s
       : path === '/api/v1/chat/session/a/recent' ? Promise.resolve(recover ? json([]) : json({}, 503)) : normal(path, body)
     fireEvent.click(newButton()); await until(() => has('Current chat could not be synced'))
     expect(has('A HISTORY KEEP')).toBe(false)
+    expect(has('panel.welcome')).toBe(false)
+    expect(has('panel.suggestions')).toBe(false)
     fireEvent.change(screen.getByTestId('chat-input'), { target: { value: 'Safe editable recovery draft' } })
     fireEvent.click(screen.getByTestId('send-button'))
     expect(requests.filter(request => request.path === '/api/v1/agent/stream')).toHaveLength(0)
@@ -240,6 +242,8 @@ describe.each([false, true])('actual mounted ChatPanel new session rootStrict=%s
     recover = true
     fireEvent.click(screen.getByRole('button', { name: 'Retry' })); await flush()
     expect(has('Current chat could not be synced')).toBe(false)
+    expect(has('panel.welcome')).toBe(true)
+    expect(has('panel.suggestions')).toBe(true)
     expect(screen.getByTestId('chat-input')).toHaveValue('Safe editable recovery draft')
     expect(screen.getByTestId('send-button')).toBeEnabled()
     expect(requests.filter(request => request.path.endsWith('/a/new'))).toHaveLength(1)

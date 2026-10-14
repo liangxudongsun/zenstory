@@ -45,7 +45,7 @@
     "roundSavedFilesMore": "{{files}} and {{rest}} more",
     "creatingSession": "Creating new chat",
     "newSessionFailed": "Could not create a new chat. Syncing the current chat.",
-    "sessionRecoveryFailed": "Unable to sync the current chat. Retry before sending. Your draft is preserved."
+    "sessionRecoveryFailed": "Couldn't load this chat. Please try again."
   },
   "input": {
     "placeholder": "Tell the AI what to write",
