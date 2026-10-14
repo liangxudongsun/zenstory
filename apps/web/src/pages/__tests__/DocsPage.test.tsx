@@ -90,6 +90,28 @@ describe('DocsPage', () => {
     expect(await screen.findByTestId('lazy-markdown')).toHaveTextContent('Web writing quick start')
   })
 
+  it.each([
+    ['en', 'Using the editor'],
+    ['zh', '编辑器使用'],
+  ])('loads the same editor document from a shared trailing-slash URL in %s', async (language, title) => {
+    mockPathname = '/docs/user-guide/editor/'
+    mockLanguage = language
+
+    render(<DocsPage />)
+
+    expect(await screen.findByTestId('lazy-markdown')).toHaveTextContent(title)
+    expect(screen.queryByText('Document Not Found')).not.toBeInTheDocument()
+    expect(logger.error).not.toHaveBeenCalled()
+  })
+
+  it('resolves category and sibling links from trailing-slash docs URLs', async () => {
+    expect(extractDocPath('/docs/user-guide/editor/')).toBe('user-guide/editor')
+    expect(getDocsDirectory('/docs/user-guide/editor/')).toBe('/docs/user-guide/')
+    expect(normalizeDocsHref('ai-assistant.md#continue', '/docs/user-guide/editor/')).toBe('/docs/user-guide/ai-assistant#continue')
+    expect(normalizeDocsHref('/docs/user-guide/editor/?lang=en#save', '/docs')).toBe('/docs/user-guide/editor?lang=en#save')
+    expect(resolveCategoryToFirstDoc('/docs/user-guide/')).toBe('/docs/user-guide/interface-overview')
+  })
+
   it('redirects category routes to the first child document', async () => {
     mockPathname = '/docs/getting-started'
 
