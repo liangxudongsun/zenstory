@@ -104,6 +104,7 @@ class WritingState(TypedDict, total=False):
     # 用户范围约束（只读 / 不要正文 / 交付范围），由 writing_graph 按路由结果
     # 生成，nodes.run_streaming_agent 追加到每个 agent 的系统提示末尾。
     scope_directive: str | None
+    length_requirements_directive: str | None
     # 用户明确要求本轮不改文件：tools_adapter 对写文件工具的调用一律拒绝执行。
     read_only: bool
     resume_from_output_truncation: bool
