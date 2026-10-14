@@ -79,7 +79,7 @@ def plan_feature_default(plan_name: str | None, key: str, fallback: Any = 0) -> 
 def resolve_plan_feature(
     plan_name: str | None, features: dict[str, Any] | None, key: str, fallback: Any = 0
 ) -> Any:
-    """A plan's stored feature value, or that plan's own default when absent."""
+    """Resolve runtime rights; the free daily policy is fixed by the code release."""
     if plan_name == DEFAULT_FREE_PLAN_NAME and key == "ai_conversations_per_day":
         return DEFAULT_FREE_PLAN_FEATURES[key]
     value = (features or {}).get(key)

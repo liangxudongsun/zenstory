@@ -154,6 +154,28 @@ describe("SubscriptionPlanManagement", () => {
     });
   });
 
+  it("shows the free daily policy as read-only and keeps it out of the JSON editor", () => {
+    useQueryMock.mockReturnValue({data: [{...plan, name: "free", features: {ai_conversations_per_day: 10, max_projects: 3}, effective_features: {ai_conversations_per_day: 3}}]});
+    render(<SubscriptionPlanManagement />);
+    fireEvent.click(screen.getByRole("button", {name: "plans.edit"}));
+
+    expect(screen.getByRole("spinbutton", {name: "plans.featuresDetail.ai_conversations_per_day"})).toHaveAttribute("readonly");
+    expect(screen.getByText("plans.featuresDetail.freeDailyPolicy")).toBeInTheDocument();
+    expect(JSON.parse((screen.getByLabelText("plans.featuresDetail.jsonLabel") as HTMLTextAreaElement).value)).toEqual({max_projects: 3});
+    fireEvent.click(screen.getByRole("button", {name: "plans.save"}));
+    expect(mutateMock).toHaveBeenCalledWith(expect.objectContaining({data: expect.objectContaining({features: {max_projects: 3, ai_conversations_per_day: 3}})}));
+  });
+
+  it("rejects a pasted free daily policy override before making a request", () => {
+    useQueryMock.mockReturnValue({data: [{...plan, name: "free", features: {max_projects: 3}}]});
+    render(<SubscriptionPlanManagement />);
+    fireEvent.click(screen.getByRole("button", {name: "plans.edit"}));
+    fireEvent.change(screen.getByLabelText("plans.featuresDetail.jsonLabel"), {target: {value: '{"ai_conversations_per_day": 10}'}});
+    fireEvent.click(screen.getByRole("button", {name: "plans.save"}));
+    expect(screen.getAllByText("plans.featuresDetail.freeDailyPolicy").length).toBeGreaterThan(0);
+    expect(mutateMock).not.toHaveBeenCalled();
+  });
+
   it("shows the effective entitlements users get, not the raw stored keys", () => {
     inspirationFeature.enabled = false;
     useQueryMock.mockReturnValue({
