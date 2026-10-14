@@ -748,6 +748,40 @@ describe('deleted open file terminal state', () => {
     } finally { write.mockRestore(); }
   });
 
+  it('prefers the newest memory-only deleted draft over its stale stored copy when returning to the project', async () => {
+    await mountOpenFile();
+    const scope = { userId: 'user-1', projectId: 'project-1', fileId: CH1.id };
+    writeEditorDraftSnapshot(localStorage, createEditorDraftSnapshot({
+      ...scope, title: CH1.title, content: 'Stale stored copy', baseUpdatedAt: 'older-token', reason: 'file-deleted',
+    }));
+    fireEvent.change(textarea(), { target: { value: 'Newest copy retained only in memory' } });
+    const originalWrite = vi.mocked(localStorage.setItem).getMockImplementation()!;
+    const write = vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (key.startsWith('zenstory:editor-draft-recovery:')) throw new DOMException('full', 'QuotaExceededError');
+      originalWrite(key, value);
+    });
+    try {
+      act(() => callbacks().onToolResult('delete_file', 'success', { id: CH1.id }));
+      await settle();
+    } finally { write.mockRestore(); }
+    writeEditorDraftSnapshot(localStorage, createEditorDraftSnapshot({
+      userId: 'user-1', projectId: 'project-1', fileId: CH2_ID,
+      title: 'Another deleted file', content: 'A separate durable copy', baseUpdatedAt: 'second-token', reason: 'file-deleted',
+    }));
+    act(() => harness.project?.setCurrentProjectId('project-2')); await settle();
+    expect(screen.getAllByLabelText('editor:deletedFile.draft').map(node => (node as HTMLTextAreaElement).value))
+      .toEqual(['Newest copy retained only in memory']);
+    act(() => harness.project?.setCurrentProjectId('project-1')); await settle();
+    expect(screen.getAllByLabelText('editor:deletedFile.draft').map(node => (node as HTMLTextAreaElement).value))
+      .toEqual(['Newest copy retained only in memory', 'A separate durable copy']);
+    expect(screen.getAllByText('editor:deletedFile.storageFailed')).toHaveLength(1);
+    expect(screen.getAllByText('editor:deletedFile.saved')).toHaveLength(1);
+    expect(readEditorDraftSnapshot(localStorage, scope)?.content).toBe('Stale stored copy');
+    const unload = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
+    expect(server.update).not.toHaveBeenCalled();
+  });
+
   it('retains the visible draft and reports storage failure without claiming it was saved', async () => {
     await mountOpenFile();
     fireEvent.change(textarea(), { target: { value: '内存中的未保存正文' } });
@@ -885,6 +919,40 @@ describe('deleted open file terminal state', () => {
     expect(screen.getByLabelText('editor:deletedFile.draft')).toHaveValue('离开前保留的正文');
     expect(harness.project?.selectedItem).toBeNull();
     expect(server.get).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['success', '404'] as const)('retains a saved recovery when deletion arrives before the initial GET resolves with %s', async outcome => {
+    const scope = { userId: 'user-1', projectId: 'project-1', fileId: CH1.id };
+    const snapshot = createEditorDraftSnapshot({
+      ...scope, title: 'Pending draft', content: 'Saved before leaving the page',
+      baseUpdatedAt: 'original-token', reason: 'page-exit',
+      recoveryDraft: { title: 'Unanswered conflict', content: 'Earlier conflict copy', baseUpdatedAt: 'conflict-token', capturedAt: T_V1 },
+    });
+    writeEditorDraftSnapshot(localStorage, snapshot);
+    let resolveRead!: (file: ServerFile) => void;
+    let rejectRead!: (error: Error) => void;
+    server.get.mockImplementationOnce(() => new Promise((resolve, reject) => { resolveRead = resolve; rejectRead = reject; }));
+    render(<ProjectProvider><Harness /></ProjectProvider>);
+    await settle();
+    expect(server.get).toHaveBeenCalledWith(CH1.id);
+    expect(screen.queryByPlaceholderText('editor:placeholder.contentPlaceholder')).not.toBeInTheDocument();
+    act(() => callbacks().onToolResult('delete_file', 'success', { id: CH1.id }));
+    await settle();
+    expect(harness.project?.selectedItem).toBeNull();
+    expect(readEditorDraftSnapshot(localStorage, scope)).toEqual({ ...snapshot, reason: 'file-deleted' });
+    expect(screen.getAllByLabelText('editor:deletedFile.draft').map(node => (node as HTMLTextAreaElement).value))
+      .toEqual(['Saved before leaving the page', 'Earlier conflict copy']);
+    await act(async () => {
+      if (outcome === 'success') resolveRead({ ...CH1, content: 'Obsolete response' });
+      else rejectRead(new ApiError(404, 'gone', 'ERR_FILE_NOT_FOUND'));
+    });
+    await advance(5000); await settle();
+    expect(harness.project?.selectedItem).toBeNull();
+    expect(screen.queryByPlaceholderText('editor:placeholder.contentPlaceholder')).not.toBeInTheDocument();
+    expect(readEditorDraftSnapshot(localStorage, scope)).toEqual({ ...snapshot, reason: 'file-deleted' });
+    expect(screen.getAllByLabelText('editor:deletedFile.draft')).toHaveLength(2);
+    expect(server.get).toHaveBeenCalledTimes(1);
+    expect(server.update).not.toHaveBeenCalled();
   });
 
   it('retains an undecided comparison without inventing a newer base token when it is deleted', async () => {
