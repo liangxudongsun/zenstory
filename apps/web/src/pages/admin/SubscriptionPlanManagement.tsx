@@ -148,6 +148,7 @@ export const SubscriptionPlanManagement: React.FC = () => {
     featuresJson: "",
   });
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const freeDailyLimit = editingPlan?.effective_features?.ai_conversations_per_day ?? 3;
 
   // Fetch plans
   const { data: plans, isLoading, isFetching, isError, error, refetch } = useQuery({
@@ -188,6 +189,8 @@ export const SubscriptionPlanManagement: React.FC = () => {
   });
 
   const handleEdit = (plan: SubscriptionPlan) => {
+    const editableFeatures = { ...plan.features };
+    if (plan.name === "free") delete editableFeatures.ai_conversations_per_day;
     setEditingPlan(plan);
     setEditFormData({
       display_name: plan.display_name,
@@ -195,7 +198,7 @@ export const SubscriptionPlanManagement: React.FC = () => {
       price_monthly_cents: plan.price_monthly_cents,
       price_yearly_cents: plan.price_yearly_cents,
       is_active: plan.is_active,
-      featuresJson: JSON.stringify(plan.features, null, 2),
+      featuresJson: JSON.stringify(editableFeatures, null, 2),
     });
     setJsonError(null);
     setShowEditModal(true);
@@ -217,9 +220,20 @@ export const SubscriptionPlanManagement: React.FC = () => {
     let features: Record<string, unknown> | undefined;
     try {
       features = JSON.parse(editFormData.featuresJson);
+      if (!features || typeof features !== "object" || Array.isArray(features)) {
+        setJsonError(t("plans.invalidJson"));
+        return;
+      }
     } catch {
       setJsonError(t("plans.invalidJson"));
       return;
+    }
+    if (editingPlan.name === "free") {
+      if (features.ai_conversations_per_day !== undefined && features.ai_conversations_per_day !== freeDailyLimit) {
+        setJsonError(t("plans.featuresDetail.freeDailyPolicy", {count: freeDailyLimit}));
+        return;
+      }
+      features.ai_conversations_per_day = freeDailyLimit;
     }
 
     updateMutation.mutate({
@@ -405,6 +419,20 @@ export const SubscriptionPlanManagement: React.FC = () => {
               <h3 className="text-sm font-medium text-[hsl(var(--text-primary))] uppercase tracking-wide">
                 {t("plans.featuresDetail.title")}
               </h3>
+
+              {editingPlan.name === "free" && (
+                <div>
+                  <label htmlFor="admin-plans-free-daily-limit" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                    {t("plans.featuresDetail.ai_conversations_per_day")}
+                  </label>
+                  <input id="admin-plans-free-daily-limit" type="number" value={freeDailyLimit} readOnly
+                    aria-describedby="admin-plans-free-daily-policy"
+                    className="w-full min-h-11 rounded-lg border border-[hsl(var(--separator-color))] bg-[hsl(var(--bg-secondary))] px-3 py-2.5 text-[hsl(var(--text-secondary))]" />
+                  <p id="admin-plans-free-daily-policy" className="mt-1 text-sm text-[hsl(var(--text-secondary))]">
+                    {t("plans.featuresDetail.freeDailyPolicy", {count: freeDailyLimit})}
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label htmlFor="admin-plans-featuresDetail-jsonLabel" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
