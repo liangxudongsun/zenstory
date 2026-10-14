@@ -221,6 +221,42 @@ for (const strict of [true, false]) {
       expect(returnState?.from?.pathname).toBe('/dashboard/projects')
       expect(returnState?.fromUserId).toBe('A')
     })
+    it('does not mount anonymous protected-provider queries during a fast Dashboard menu relogin', async () => {
+      const mediaQuery = window.matchMedia('(min-width: 1024px)')
+      vi.spyOn(window, 'matchMedia').mockImplementation(query => ({ ...mediaQuery, matches: query.includes('min-width'), media: query }))
+      seed(a, true)
+      const anonymousStatus = hold(), nextLogin = hold()
+      const timeline: string[] = []
+      const onLogout = (event: Event) => timeline.push(`logout:${(event as CustomEvent<{ reason: string }>).detail.reason}`)
+      window.addEventListener('auth:logout', onLogout)
+      handler = async call => {
+        if (call.path === '/api/auth/me') return json(a.user)
+        if (call.path === '/api/auth/login') { timeline.push('login:B:request'); return nextLogin.promise }
+        if (call.path === '/api/v1/subscription/me' && !call.authorization) {
+          timeline.push('subscription:anonymous:request'); return anonymousStatus.promise
+        }
+        return ordinary(call)
+      }
+      try {
+        mount(strict, '/dashboard')
+        fireEvent.click(await screen.findByTestId('dashboard-user-panel-toggle'))
+        fireEvent.click(screen.getByRole('button', { name: 'Logout', exact: true }))
+        await screen.findByTestId('login-form')
+        await login('B')
+        expect(screen.getByTestId('login-submit')).toBeDisabled()
+        await settle(anonymousStatus, { detail: 'Not authenticated' }, 401)
+        await settle(nextLogin, b)
+        observe('dashboard-menu-fast-relogin', strict, { timeline })
+        await waitFor(() => expect(window.location.pathname).toBe('/dashboard'))
+        expect(localStorage.getItem('access_token')).toBe(b.access_token)
+        expect(JSON.parse(localStorage.getItem('user') ?? '{}').id).toBe('B')
+        expect(timeline).toEqual(['logout:user_initiated', 'login:B:request'])
+        expect(callsTo('/api/v1/subscription/me').filter(call => !call.authorization)).toEqual([])
+        expect(callsTo('/api/auth/login')).toHaveLength(1)
+      } finally {
+        window.removeEventListener('auth:logout', onLogout)
+      }
+    })
     it.each(['logout', 'new B', 'page departure'] as const)('obsolete Login list after %s cannot replace current App route', async boundary => {
       const list = hold(); let projects = 0, logins = 0
       handler = async call => {
@@ -316,7 +352,7 @@ for (const strict of [true, false]) {
       expect(vi.mocked(identifyUser).mock.calls.at(-1)?.[0].id).toBe('A')
       expect(callsTo('/api/auth/refresh')).toHaveLength(1)
     })
-    it.each([false, true])('A initialization ownership across actual eager subscription 401 rotation cached=%s', async cached => {
+    it.each([false, true])('A initialization gates subscription 401 rotation until an identity exists cached=%s', async cached => {
       const initial = hold()
       seed(a, cached)
       handler = async call => {
@@ -327,10 +363,15 @@ for (const strict of [true, false]) {
       }
       mount(strict, '/dashboard/projects')
       await waitFor(() => expect(callsTo('/api/auth/me').length).toBeGreaterThanOrEqual(strict ? 2 : 1))
+      if (!cached) {
+        expect(callsTo('/api/v1/subscription/me')).toHaveLength(0)
+        expect(callsTo('/api/auth/refresh')).toHaveLength(0)
+        await settle(initial, a.user)
+      }
       await waitFor(() => expect(callsTo('/api/auth/refresh')).toHaveLength(1))
       await waitFor(() => expect(localStorage.getItem('access_token')).toBe(rotatedA.access_token))
-      observe('eager-subscription-before-init-completion', strict, { cached, meStillPending: true })
-      await settle(initial, a.user)
+      observe('subscription-rotation-after-identity', strict, { cached, meStillPending: cached })
+      if (cached) await settle(initial, a.user)
       await waitFor(() => expect(callsTo('/api/v1/subscription/me').some(call => call.authorization === `Bearer ${rotatedA.access_token}`)).toBe(true))
       observe('eager-subscription-after-init-completion', strict, { cached })
       expect.soft(localStorage.getItem('access_token')).toBe(rotatedA.access_token)
@@ -338,7 +379,7 @@ for (const strict of [true, false]) {
       expect.soft(screen.queryByTestId('login-form')).not.toBeInTheDocument()
       expect.soft(vi.mocked(identifyUser).mock.calls.at(-1)?.[0].id).toBe('A')
     })
-    it.each([false, true])('original init network failure cannot clear A1 tokens/cache cached=%s', async cached => {
+    it.each([false, true])('original init network failure preserves owned tokens and gates provider loading cached=%s', async cached => {
       const initial = hold(); seed(a, cached)
       handler = async call => {
         if (call.path === '/api/auth/me') return initial.promise
@@ -347,15 +388,17 @@ for (const strict of [true, false]) {
         return ordinary(call)
       }
       mount(strict, '/dashboard/projects')
-      await waitFor(() => expect(localStorage.getItem('access_token')).toBe(rotatedA.access_token))
+      await waitFor(() => expect(callsTo('/api/auth/me').length).toBeGreaterThan(0))
+      if (cached) await waitFor(() => expect(localStorage.getItem('access_token')).toBe(rotatedA.access_token))
+      else expect(callsTo('/api/v1/subscription/me')).toHaveLength(0)
       const before = storage()
       expectedNetworkError = new TypeError('Owned offline /me rejection')
       await act(async () => { initial.reject(expectedNetworkError!) })
       expect(storage()).toEqual(before)
       if (cached) expect(window.location.pathname).toBe('/dashboard/projects')
-      expect(callsTo('/api/auth/refresh')).toHaveLength(1)
+      expect(callsTo('/api/auth/refresh')).toHaveLength(cached ? 1 : 0)
     })
-    it.each([401, 403, 503])('uncached original init failure %s does not erase the A1 cache/token', async status => {
+    it.each([401, 403, 503])('uncached original init failure %s keeps providers behind the auth guard', async status => {
       const initial = hold(); seed(a, false)
       handler = async call => {
         if (call.path === '/api/auth/me') return initial.promise
@@ -364,10 +407,19 @@ for (const strict of [true, false]) {
         return ordinary(call)
       }
       mount(strict, '/dashboard/projects')
-      await waitFor(() => expect(localStorage.getItem('access_token')).toBe(rotatedA.access_token))
+      await waitFor(() => expect(callsTo('/api/auth/me').length).toBeGreaterThan(0))
+      expect(callsTo('/api/v1/subscription/me')).toHaveLength(0)
       const before = storage()
-      await settle(initial, { detail: 'Obsolete uncached init failure' }, status)
-      expect(storage()).toEqual(before); expect(callsTo('/api/auth/refresh')).toHaveLength(1)
+      await settle(initial, { detail: 'Uncached init failure' }, status)
+      if (status === 503) {
+        expect(storage()).toEqual(before)
+        expect(callsTo('/api/v1/subscription/me')).toHaveLength(0)
+        expect(callsTo('/api/auth/refresh')).toHaveLength(0)
+      } else {
+        await waitFor(() => expect(localStorage.getItem('access_token')).toBe(rotatedA.access_token))
+        await waitFor(() => expect(callsTo('/api/v1/subscription/me').some(call => call.authorization === `Bearer ${rotatedA.access_token}`)).toBe(true))
+        expect(callsTo('/api/auth/refresh')).toHaveLength(1)
+      }
     })
     it('unrelated B actual Login owns session while cached A background init remains pending', async () => {
       const initial = hold(); seed(a, true)
