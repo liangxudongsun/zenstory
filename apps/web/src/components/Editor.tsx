@@ -600,14 +600,24 @@ const EditorComponent: React.FC<EditorProps> = () => {
       : currentUserId ? readEditorDraftSnapshot(localStorage, { userId: currentUserId, projectId: currentProjectId, fileId }) : null;
     if (opened?.id === fileId && currentUserId) {
       const reviewDraft = getReviewLeaveDraft();
-      const hasLocalText = review?.fileId === fileId || existing || editTitleRef.current !== opened.title || editContentRef.current !== (opened.content || "");
-      if (hasLocalText) {
+      const pendingRecovery = draftRecovery?.snapshot.fileId === fileId && !draftRecovery.applied ? draftRecovery.snapshot : null;
+      const hasCurrentEdits = review?.fileId === fileId || editTitleRef.current !== opened.title || editContentRef.current !== (opened.content || "");
+      if (hasCurrentEdits || pendingRecovery || existing) {
+        // A page-exit copy can be older than this mounted editor. Only an
+        // explicit unanswered recovery deserves priority when no new edits exist.
+        const current = {
+          title: editTitleRef.current,
+          content: reviewDraft?.content ?? editContentRef.current,
+          baseUpdatedAt: reviewDraft ? reviewDraft.baseUpdatedAt : opened.updated_at,
+        };
+        const retained = !hasCurrentEdits && pendingRecovery ? pendingRecovery : current;
+        const recoveryDraft = pendingRecovery && hasCurrentEdits
+          && (pendingRecovery.title !== current.title || pendingRecovery.content !== current.content)
+          ? { title: pendingRecovery.title, content: pendingRecovery.content, baseUpdatedAt: pendingRecovery.baseUpdatedAt, capturedAt: pendingRecovery.capturedAt }
+          : undefined;
         const snapshot = createEditorDraftSnapshot({
           userId: currentUserId, projectId: currentProjectId, fileId,
-          title: existing && !draftRecovery?.applied ? existing.title : editTitleRef.current,
-          content: existing && !draftRecovery?.applied ? existing.content : reviewDraft?.content ?? editContentRef.current,
-          baseUpdatedAt: existing && !draftRecovery?.applied ? existing.baseUpdatedAt : reviewDraft ? reviewDraft.baseUpdatedAt : opened.updated_at,
-          reason: "file-deleted",
+          ...retained, recoveryDraft, reason: "file-deleted",
         });
         const persisted = writeEditorDraftSnapshot(localStorage, snapshot);
         setRemovedDrafts(previous => [...previous.filter(item => item.snapshot.fileId !== fileId), { snapshot, persisted }]);
@@ -780,8 +790,11 @@ const EditorComponent: React.FC<EditorProps> = () => {
     <>
       <div className="flex h-full min-h-0 flex-col">
       <div className="max-h-[45%] shrink-0 overflow-y-auto">
-      {removedDrafts.filter(({ snapshot }) => snapshot.userId === currentUserId && snapshot.projectId === currentProjectId).map(({ snapshot, persisted }) => (
-        <details key={snapshot.fileId} open className="shrink-0 border-b border-[hsl(var(--border-color))] bg-[hsl(var(--bg-secondary))] p-4">
+      {removedDrafts.filter(({ snapshot }) => snapshot.userId === currentUserId && snapshot.projectId === currentProjectId).flatMap(({ snapshot, persisted }) => [
+        { snapshot, persisted },
+        ...(snapshot.recoveryDraft ? [{ snapshot: { ...snapshot, ...snapshot.recoveryDraft, recoveryDraft: undefined }, persisted }] : []),
+      ]).map(({ snapshot, persisted }, index) => (
+        <details key={`${snapshot.fileId}:${index}`} open className="shrink-0 border-b border-[hsl(var(--border-color))] bg-[hsl(var(--bg-secondary))] p-4">
           <summary className="cursor-pointer text-sm font-medium">{t("editor:deletedFile.recovery", { title: snapshot.title })}</summary>
           <p role={persisted ? "status" : "alert"} className="my-2 text-sm text-[hsl(var(--text-secondary))]">{t(persisted ? "editor:deletedFile.saved" : "editor:deletedFile.storageFailed")}</p>
           <textarea aria-label={t("editor:deletedFile.draft")} readOnly value={snapshot.content} className="h-40 w-full resize-y rounded-lg border border-[hsl(var(--border-color))] bg-[hsl(var(--bg-primary))] p-3 text-sm" />

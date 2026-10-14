@@ -634,6 +634,41 @@ describe('deleted open file terminal state', () => {
     expect(screen.queryByText('editor:serverSyncFailed.message')).not.toBeInTheDocument();
   });
 
+  it('refreshes the still-open file when a boolean delete removed a different file', async () => {
+    await mountOpenFile();
+    server.files.set(CH1.id, { ...CH1, content: 'Updated surviving file' });
+    act(() => callbacks().onToolResult('delete_file', 'success', true as unknown as Record<string, unknown>));
+    await settle();
+    await act(async () => { await callbacks().onComplete([], null); });
+    await advance(5000); await settle();
+    expect(harness.project?.selectedItem?.id).toBe(CH1.id);
+    expect(textarea()).toHaveValue('Updated surviving file');
+  });
+
+  it('uses a terminal file read after deletion-tree verification fails', async () => {
+    await mountOpenFile();
+    server.getTree.mockRejectedValueOnce(new Error('tree offline'));
+    server.get.mockRejectedValueOnce(new ApiError(404, 'gone', 'ERR_FILE_NOT_FOUND'));
+    act(() => callbacks().onToolResult('delete_file', 'success', true as unknown as Record<string, unknown>));
+    await settle();
+    await act(async () => { await callbacks().onComplete([], null); });
+    await advance(5000); await settle();
+    expect(harness.project?.selectedItem).toBeNull();
+    expect(server.get).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves dirty text when saving first discovers the file was deleted', async () => {
+    await mountOpenFile();
+    fireEvent.change(textarea(), { target: { value: 'Save encountered deletion' } });
+    server.update.mockRejectedValueOnce(new ApiError(404, 'gone', 'ERR_FILE_NOT_FOUND'));
+    fireEvent.keyDown(textarea(), { key: 's', ctrlKey: true });
+    await settle(); await advance(5000);
+    expect(harness.project?.selectedItem).toBeNull();
+    expect(screen.getByLabelText('editor:deletedFile.draft')).toHaveValue('Save encountered deletion');
+    expect(server.update).toHaveBeenCalledTimes(1);
+    expect(recordStats).not.toHaveBeenCalled();
+  });
+
   it('treats refresh 404 as terminal after one request', async () => {
     await mountOpenFile();
     const getsBefore = server.get.mock.calls.length;
@@ -702,6 +737,61 @@ describe('deleted open file terminal state', () => {
     await settle();
     expect(harness.project?.selectedItem?.id).toBe(CH2_ID);
     expect(textarea()).toHaveValue(second.content);
+  });
+
+  it('downloads the latest editing copy rather than an older page-exit snapshot', async () => {
+    await mountOpenFile();
+    writeEditorDraftSnapshot(localStorage, createEditorDraftSnapshot({
+      userId: 'user-1', projectId: 'project-1', fileId: CH1.id,
+      title: CH1.title, content: 'Earlier page exit copy', baseUpdatedAt: 'older-token', reason: 'page-exit',
+    }));
+    fireEvent.change(textarea(), { target: { value: 'Latest unsaved copy' } });
+    act(() => callbacks().onToolResult('delete_file', 'success', { id: CH1.id }));
+    await settle();
+    const snapshot = readEditorDraftSnapshot(localStorage, { userId: 'user-1', projectId: 'project-1', fileId: CH1.id });
+    expect(snapshot?.content).toBe('Latest unsaved copy');
+    expect(snapshot?.baseUpdatedAt).toBe(CH1.updated_at);
+    const createUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:deleted-draft');
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    fireEvent.click(screen.getByRole('button', { name: 'editor:deletedFile.download' }));
+    expect(await (createUrl.mock.calls[0][0] as Blob).text()).toBe(CH1.title + '\n\nLatest unsaved copy');
+    await advance(1);
+    expect(revoke).toHaveBeenCalledWith('blob:deleted-draft');
+    click.mockRestore(); createUrl.mockRestore(); revoke.mockRestore();
+  });
+
+  it('keeps the original token of an unanswered recovery when no new edits exist', async () => {
+    writeEditorDraftSnapshot(localStorage, createEditorDraftSnapshot({
+      userId: 'user-1', projectId: 'project-1', fileId: CH1.id,
+      title: 'Unanswered recovery', content: 'Previous conflict draft', baseUpdatedAt: 'conflict-token', reason: 'page-exit',
+    }));
+    await mountOpenFile();
+    act(() => callbacks().onToolResult('delete_file', 'success', { id: CH1.id }));
+    await settle();
+    const snapshot = readEditorDraftSnapshot(localStorage, { userId: 'user-1', projectId: 'project-1', fileId: CH1.id });
+    expect(snapshot?.content).toBe('Previous conflict draft');
+    expect(snapshot?.baseUpdatedAt).toBe('conflict-token');
+    expect(screen.getAllByLabelText('editor:deletedFile.draft')).toHaveLength(1);
+  });
+
+  it('retains both an unanswered recovery conflict and newer edits after deletion and remount', async () => {
+    writeEditorDraftSnapshot(localStorage, createEditorDraftSnapshot({
+      userId: 'user-1', projectId: 'project-1', fileId: CH1.id,
+      title: 'Unanswered recovery', content: 'Previous conflict draft', baseUpdatedAt: 'conflict-token', reason: 'page-exit',
+    }));
+    await mountOpenFile();
+    expect(screen.getByText('editor:draftRecovery.conflict')).toBeTruthy();
+    fireEvent.change(textarea(), { target: { value: 'Fresh server-based edit' } });
+    act(() => callbacks().onToolResult('delete_file', 'success', { id: CH1.id }));
+    await settle();
+    expect(screen.getAllByLabelText('editor:deletedFile.draft').map(node => (node as HTMLTextAreaElement).value)).toEqual(['Fresh server-based edit', 'Previous conflict draft']);
+    const snapshot = readEditorDraftSnapshot(localStorage, { userId: 'user-1', projectId: 'project-1', fileId: CH1.id });
+    expect(snapshot?.baseUpdatedAt).toBe(CH1.updated_at);
+    expect(snapshot?.recoveryDraft?.baseUpdatedAt).toBe('conflict-token');
+    act(() => harness.setShowEditor?.(false)); await settle();
+    act(() => harness.setShowEditor?.(true)); await settle();
+    expect(screen.getAllByLabelText('editor:deletedFile.draft').map(node => (node as HTMLTextAreaElement).value)).toEqual(['Fresh server-based edit', 'Previous conflict draft']);
   });
 
   it('keeps the latest dirty recovery copy when an earlier PUT completes after deletion', async () => {

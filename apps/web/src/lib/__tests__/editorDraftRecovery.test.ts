@@ -112,6 +112,14 @@ describe("editorDraftRecovery", () => {
     expect(readEditorDraftSnapshot(unavailableStorage, scope)).toBeNull();
     expect(clearEditorDraftSnapshot(unavailableStorage, scope)).toBe(false);
   });
+  it('rejects a corrupt additional recovery copy and tolerates unavailable project storage', () => {
+    const snapshot = createEditorDraftSnapshot({ ...scope, title: 'Latest', content: 'Latest body', reason: 'file-deleted' });
+    localStorage.setItem(getEditorDraftRecoveryKey(scope), JSON.stringify({ ...snapshot, recoveryDraft: { title: 'Other', content: 42 } }));
+    expect(readEditorDraftSnapshot(localStorage, scope)).toBeNull();
+    const unavailable = { get length() { throw new Error('storage unavailable'); } } as Storage;
+    expect(readDeletedEditorDraftSnapshots(unavailable, scope)).toEqual([]);
+  });
+
   it('lists deleted drafts only for the signed-in user and active project', () => {
     const own = createEditorDraftSnapshot({ ...scope, title: 'Deleted', content: 'Keep', reason: 'file-deleted' });
     [own, { ...own, userId: 'another-user' }, { ...own, projectId: 'another-project' }, { ...own, fileId: 'ordinary', reason: 'page-exit' as const }]
