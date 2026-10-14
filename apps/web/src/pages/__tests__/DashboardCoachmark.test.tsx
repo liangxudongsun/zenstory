@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 let mockIsMobile = false;
@@ -166,12 +166,35 @@ const renderDashboard = () => {
                 </div>
               )}
             />
+            <Route path="projects" element={<div>Project list fixture</div>} />
           </Route>
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>
   )
 }
+
+const controlAnimationFrames = () => {
+  const frames = new Map<number, FrameRequestCallback>();
+  let nextId = 0;
+  const request = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+    const id = ++nextId;
+    frames.set(id, callback);
+    return id;
+  });
+  const cancel = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(id => {
+    frames.delete(id);
+  });
+  onTestFinished(() => { request.mockRestore(); cancel.mockRestore(); });
+  return {
+    pending: () => frames.size,
+    flush: () => act(() => {
+      const scheduled = [...frames.values()];
+      frames.clear();
+      scheduled.forEach(callback => callback(0));
+    }),
+  };
+};
 
 describe('Dashboard coachmark tour', () => {
   beforeEach(() => {
@@ -252,7 +275,9 @@ describe('Dashboard coachmark tour', () => {
   });
 
   it('can replay the guide from the user panel after skipping', async () => {
+    const frames = controlAnimationFrames();
     renderDashboard();
+    frames.flush();
 
     expect(await screen.findByText('先选你要写什么')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '跳过引导' }));
@@ -264,7 +289,37 @@ describe('Dashboard coachmark tour', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open user settings panel' }));
     fireEvent.click(screen.getByRole('button', { name: 'Replay guide' }));
 
+    frames.flush();
+    expect(screen.getByText('先选你要写什么')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '知道了' }));
+    expect(await screen.findByText('从一个想法开始')).toBeInTheDocument();
+  });
+
+  it('keeps the guide when returning before the previous route cleanup frame runs', async () => {
+    const frames = controlAnimationFrames();
+    renderDashboard();
+    frames.flush();
     expect(await screen.findByText('先选你要写什么')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('link', { name: 'Projects', exact: true }));
+    expect(screen.getByText('Project list fixture')).toBeInTheDocument();
+    expect(frames.pending()).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('link', { name: 'Home', exact: true }));
+
+    frames.flush();
+    expect(screen.getByText('先选你要写什么')).toBeInTheDocument();
+  });
+
+  it('cancels a pending inactive cleanup frame when the dashboard unmounts', async () => {
+    const frames = controlAnimationFrames();
+    const { unmount } = renderDashboard();
+    frames.flush();
+    expect(await screen.findByText('先选你要写什么')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '跳过引导' }));
+    expect(frames.pending()).toBeGreaterThan(0);
+
+    unmount();
+    expect(frames.pending()).toBe(0);
   });
 
   it('uses bottom-sheet style card on mobile', async () => {
