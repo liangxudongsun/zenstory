@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -126,7 +126,8 @@ describe('AdminDashboard', () => {
     expect(table).toHaveTextContent('12 / 4');
     expect(table).toHaveTextContent('6 / 3');
     expect(table).toHaveTextContent('chat_quota_blocked');
-    expect(screen.getByText(/页面到达不代表付款/)).toBeInTheDocument();
+    expect(within(table).getByRole('columnheader', { name: '页面到达' })).toBeInTheDocument();
+    expect(within(table).getByRole('cell', { name: '2', exact: true })).toBeInTheDocument();
   });
 
   it('puts cohort growth before account totals and does not display independent event ratios', async () => {

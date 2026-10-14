@@ -300,12 +300,11 @@ export default function AdminDashboard() {
 
                 {(upgradeFunnel.surfaces?.length ?? 0) > 0 && (
                   <div className="space-y-2">
-                    <p className="text-sm text-[hsl(var(--text-secondary))]">{t('admin:dashboard.upgradeSurfaceNote', '按实际展示面统计，次数与独立用户分别列出。旧 toast 分类保留，页面到达不代表付款。')}</p>
                     <div tabIndex={0} className="overflow-x-auto rounded-md border border-[hsl(var(--separator-color)/0.45)]">
                       <table className="w-full min-w-[640px] text-sm" aria-label={t('admin:dashboard.upgradeSurfaceBreakdown', '升级入口展示分类')}>
                         <thead><tr>
                           <th className="px-3 py-2 text-left">{t('admin:dashboard.upgradeSource', '来源')}</th>
-                          <th className="px-3 py-2 text-left">{t('admin:dashboard.upgradeSurface', '展示面')}</th>
+                          <th className="px-3 py-2 text-left">{t('admin:dashboard.upgradeSurface', '展示位置')}</th>
                           <th className="px-3 py-2 text-right">{t('admin:dashboard.upgradeViewsUsers', '曝光次数 / 人数')}</th>
                           <th className="px-3 py-2 text-right">{t('admin:dashboard.upgradeClicksUsers', '点击次数 / 人数')}</th>
                           <th className="px-3 py-2 text-right">{t('admin:dashboard.upgradePageArrival', '页面到达')}</th>
