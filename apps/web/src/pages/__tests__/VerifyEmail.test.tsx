@@ -83,6 +83,39 @@ describe("VerifyEmail", () => {
     expect(mockVerifyEmail).not.toHaveBeenCalled();
   });
 
+  it("focuses the correction field and restores the trigger when returning to verification", () => {
+    renderPage('writer@example.c0m');
+    fireEvent.click(screen.getByRole('button', { name: 'auth:verifyEmail.changeEmail' }));
+    expect(screen.getByLabelText('auth:verifyEmail.newEmail')).toHaveFocus();
+    fireEvent.change(screen.getByLabelText('auth:verifyEmail.registrationPassword'), { target: { value: 'DoNotKeepThisPassword' } });
+    fireEvent.click(screen.getByRole('button', { name: 'auth:verifyEmail.cancelChange' }));
+    expect(screen.getByRole('button', { name: 'auth:verifyEmail.changeEmail' })).toHaveFocus();
+    fireEvent.click(screen.getByRole('button', { name: 'auth:verifyEmail.changeEmail' }));
+    expect(screen.getByLabelText('auth:verifyEmail.registrationPassword')).toHaveValue('');
+    expect(mockCorrectEmail).not.toHaveBeenCalled();
+    expect(mockVerifyEmail).not.toHaveBeenCalled();
+  });
+
+  it("announces a correction failure and associates it with the current fields", async () => {
+    mockCorrectEmail.mockRejectedValueOnce(new Error('The address could not be updated.'));
+    renderPage('writer@example.c0m');
+    fireEvent.click(screen.getByRole('button', { name: 'auth:verifyEmail.changeEmail' }));
+    const address = screen.getByLabelText('auth:verifyEmail.newEmail');
+    const password = screen.getByLabelText('auth:verifyEmail.registrationPassword');
+    fireEvent.change(address, { target: { value: 'corrected@example.com' } });
+    fireEvent.change(password, { target: { value: 'OwnedPassword1!' } });
+    fireEvent.click(screen.getByRole('button', { name: 'auth:verifyEmail.confirmChange' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('The address could not be updated.');
+    expect(address).toHaveAccessibleDescription('The address could not be updated.');
+    expect(password).toHaveAccessibleDescription('The address could not be updated.');
+    expect(address).toBeEnabled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'auth:verifyEmail.cancelChange' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'auth:verifyEmail.changeEmail' })).toHaveFocus();
+  });
+
   it("shows the failed-delivery recovery path without saying a code was sent", () => {
     render(<MemoryRouter initialEntries={[{ pathname: '/verify-email', state: { verificationSent: false } }]}>
       <VerifyEmail email="writer@example.com" />

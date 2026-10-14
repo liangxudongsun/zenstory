@@ -158,6 +158,7 @@
     --foreground-subtle: 225 18% 30%;
 
     --border-color: 220 14% 90%;
+    --border-hover: 220 14% 78%;
     --separator-color: 220 14% 93%; /* Panel separators */
     --border-subtle: 210 15% 0% / 0.03; /* Very subtle borders */
 
