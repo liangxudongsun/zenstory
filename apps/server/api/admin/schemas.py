@@ -399,6 +399,16 @@ class UpgradeFunnelSourceResponse(BaseModel):
     conversion_rate_from_expose: float
 
 
+class UpgradeFunnelSurfaceResponse(BaseModel):
+    source: str
+    surface: str
+    exposes: int
+    exposed_users: int
+    clicks: int
+    clicking_users: int
+    page_arrivals: int
+
+
 class UpgradeFunnelStatsResponse(BaseModel):
     """Upgrade funnel overview for admin dashboard."""
 
@@ -407,6 +417,7 @@ class UpgradeFunnelStatsResponse(BaseModel):
     period_end: str
     totals: UpgradeFunnelTotalsResponse
     sources: list[UpgradeFunnelSourceResponse]
+    surfaces: list[UpgradeFunnelSurfaceResponse] = Field(default_factory=list)
 
 
 class GrowthGrantChannelResponse(BaseModel):

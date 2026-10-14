@@ -1,9 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useUpgradeExposure } from "../../hooks/useUpgradeExposure";
 import { useTranslation } from "react-i18next";
 import { Clock } from "lucide-react";
 import { buildUpgradeUrl, getUpgradePromptDefinition } from "../../config/upgradeExperience";
 import { formatAiQuotaResetDay } from "../../hooks/useAiMessageQuota";
-import { trackUpgradeClick, trackUpgradeExpose } from "../../lib/upgradeAnalytics";
+import { trackUpgradeClick } from "../../lib/upgradeAnalytics";
 
 const chatQuotaPrompt = getUpgradePromptDefinition("chat_quota_blocked");
 
@@ -24,17 +24,14 @@ interface ChatQuotaCardProps {
  */
 export function ChatQuotaCard({ limit, resetAt }: ChatQuotaCardProps) {
   const { t, i18n } = useTranslation(["chat", "dashboard"]);
-  const exposedRef = useRef(false);
+  const exposureRef = useUpgradeExposure({ source: chatQuotaPrompt.source, surface: "card", placement: "chat-input", period: resetAt ?? "" });
   const resetDay = formatAiQuotaResetDay(resetAt, i18n?.language);
 
-  useEffect(() => {
-    if (exposedRef.current) return;
-    exposedRef.current = true;
-    trackUpgradeExpose(chatQuotaPrompt.source, "toast");
-  }, []);
+
 
   return (
     <div
+      ref={exposureRef}
       data-testid="chat-quota-card"
       role="status"
       className="mb-2 rounded-lg border border-[hsl(var(--error)/0.3)] bg-[hsl(var(--error)/0.06)] px-3 py-2.5"
@@ -62,7 +59,7 @@ export function ChatQuotaCard({ limit, resetAt }: ChatQuotaCardProps) {
           type="button"
           data-testid="chat-quota-card-upgrade"
           onClick={() => {
-            trackUpgradeClick(chatQuotaPrompt.source, "primary", "billing", "toast");
+            trackUpgradeClick(chatQuotaPrompt.source, "primary", "billing", "card");
             window.location.assign(buildUpgradeUrl(chatQuotaPrompt.billingPath, chatQuotaPrompt.source));
           }}
           className="btn-primary rounded-md px-3 text-xs min-h-[44px] md:min-h-0 md:h-7"

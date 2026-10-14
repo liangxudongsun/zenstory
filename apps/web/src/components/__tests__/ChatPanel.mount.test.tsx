@@ -307,6 +307,7 @@ import { notifyEditorContentSaved, setOpenEditorFlush } from '../../lib/editorSa
 describe('ChatPanel mount smoke', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    sessionStorage.clear()
     capturedUseAgentStream.options = null
     mockStreamSnapshot.items = []
     mockAgentStreamState.isStreaming = false
@@ -1557,6 +1558,22 @@ describe('ChatPanel mount smoke', () => {
     expect(screen.queryByText('这次出错不计入今日 AI 消息。')).not.toBeInTheDocument()
   })
 
+  it('limits automatic quota prompts per account period while explicit blocked sends still explain', async () => {
+    mockAgentStreamState.errorCode = 'ERR_QUOTA_AI_CONVERSATIONS_EXCEEDED'
+    mockAgentStreamState.error = 'quota exceeded'
+    const first = render(<ChatPanel />)
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'common:closeModal' }))
+    first.unmount()
+    render(<ChatPanel />)
+    await screen.findByTestId('chat-quota-card')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await act(async () => { await lastMessageInputProps().onSend('保留我的新稿', []) })
+    expect(await screen.findByRole('dialog')).toBeVisible()
+    expect(mockDraft.saveDraft).toHaveBeenCalledWith('保留我的新稿')
+    expect(mockStartStream).not.toHaveBeenCalled()
+  })
+
   it('quota modal primary action navigates to billing with source', async () => {
     const originalLocation = window.location
     const assignMock = vi.fn()
@@ -1717,6 +1734,7 @@ const lastMessageListProps = () => mockMessageList.mock.calls.at(-1)?.[0] as {
 describe('ChatPanel new-author flow', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    sessionStorage.clear()
     capturedUseAgentStream.options = null
     mockStreamSnapshot.items = []
     mockAgentStreamState.isStreaming = false

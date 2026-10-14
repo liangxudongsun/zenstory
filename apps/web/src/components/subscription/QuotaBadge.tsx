@@ -1,15 +1,14 @@
-import { useEffect, useRef } from "react";
+import { useUpgradeExposure } from "../../hooks/useUpgradeExposure";
 import { useQuery } from '@tanstack/react-query';
 import { Sparkles } from "lucide-react";
 import { subscriptionApi, subscriptionQueryKeys } from '../../lib/subscriptionApi';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '../ui/Badge';
 import { buildUpgradeUrl, getUpgradePromptDefinition } from "../../config/upgradeExperience";
-import { trackUpgradeClick, trackUpgradeExpose } from "../../lib/upgradeAnalytics";
+import { trackUpgradeClick } from "../../lib/upgradeAnalytics";
 import {
   buildStagedUpgradeSource,
   resolveUpgradeTriggerStage,
-  type UpgradeTriggerStage,
 } from "../../lib/upgradeTriggerStrategy";
 
 interface QuotaBadgeProps {
@@ -25,7 +24,6 @@ interface QuotaBadgeProps {
 export function QuotaBadge({ compact = false }: QuotaBadgeProps = {}) {
   const { t } = useTranslation('settings');
   const settingsUpgradePrompt = getUpgradePromptDefinition("settings_subscription_upgrade");
-  const lastExposedStageRef = useRef<UpgradeTriggerStage | null>(null);
   const { data: quota } = useQuery({
     queryKey: subscriptionQueryKeys.quota(),
     queryFn: () => subscriptionApi.getQuota(),
@@ -40,14 +38,12 @@ export function QuotaBadge({ compact = false }: QuotaBadgeProps = {}) {
     : resolveUpgradeTriggerStage({ used, limit });
   const stagedSource = buildStagedUpgradeSource(settingsUpgradePrompt.source, stage);
 
-  useEffect(() => {
-    if (!quota) return;
-    if (stage === "normal" || !stagedSource) return;
-    if (lastExposedStageRef.current === stage) return;
-
-    trackUpgradeExpose(stagedSource, "toast");
-    lastExposedStageRef.current = stage;
-  }, [quota, stage, stagedSource]);
+  const exposureRef = useUpgradeExposure({
+    enabled: Boolean(quota) && stage !== "normal" && !isUnlimited,
+    source: stagedSource, surface: "badge",
+    placement: compact ? "chat-header" : "page-header",
+    period: quota?.ai_conversations.reset_at ?? "",
+  });
 
   if (!quota) return null;
 
@@ -70,7 +66,7 @@ export function QuotaBadge({ compact = false }: QuotaBadgeProps = {}) {
   const handleUpgradeClick = () => {
     if (!stagedSource) return;
 
-    trackUpgradeClick(stagedSource, "primary", "billing", "toast");
+    trackUpgradeClick(stagedSource, "primary", "billing", "badge");
     window.location.assign(
       buildUpgradeUrl(settingsUpgradePrompt.billingPath, stagedSource)
     );
@@ -91,7 +87,7 @@ export function QuotaBadge({ compact = false }: QuotaBadgeProps = {}) {
   );
 
   return (
-    <div className={`flex items-center text-xs ${compact ? "shrink-0 gap-1" : "min-w-0 max-w-full flex-wrap gap-2"}`}>
+    <div ref={exposureRef} className={`flex items-center text-xs ${compact ? "shrink-0 gap-1" : "min-w-0 max-w-full flex-wrap gap-2"}`}>
       {compact ? (
         // Not a live region: the counter rarely changes, and role="status"
         // would compete with the page's real status announcements.

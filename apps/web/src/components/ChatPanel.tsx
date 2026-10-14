@@ -1,3 +1,4 @@
+import { claimAutoUpgradePrompt } from "../lib/upgradeTriggerStrategy";
 /**
  * @fileoverview ChatPanel component - AI chat interface for the zenstory writing workbench.
  *
@@ -1366,11 +1367,13 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     ? lastMessage
     : null;
 
+  const quotaAccount = subscriptionQueryKeys.status()[1];
+  const quotaPeriod = aiMessageQuota?.reset_at ?? String(nextAiQuotaResetMs(Date.now()));
   useEffect(() => {
-    if (isAiQuotaLimit && chatQuotaUpgradePrompt.surface === "modal") {
+    if (isAiQuotaLimit && chatQuotaUpgradePrompt.surface === "modal" && claimAutoUpgradePrompt(quotaAccount, chatQuotaUpgradePrompt.source, quotaPeriod)) {
       setShowQuotaUpgradeModal(true);
     }
-  }, [chatQuotaUpgradePrompt.surface, isAiQuotaLimit]);
+  }, [chatQuotaUpgradePrompt.surface, chatQuotaUpgradePrompt.source, isAiQuotaLimit, quotaAccount, quotaPeriod]);
 
   /**
    * Loads chat history for a specific project from the server.

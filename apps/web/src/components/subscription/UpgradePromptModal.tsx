@@ -1,8 +1,8 @@
 import { Sparkles } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useUpgradeExposure } from "../../hooks/useUpgradeExposure";
 import { useTranslation } from "react-i18next";
 import { usePaidPlanWhenOpen } from "../../hooks/usePaidPlanWhenOpen";
-import { trackUpgradeClick, trackUpgradeExpose, type UpgradeFunnelSurface } from "../../lib/upgradeAnalytics";
+import { trackUpgradeClick, type UpgradeFunnelSurface } from "../../lib/upgradeAnalytics";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
 
@@ -42,22 +42,11 @@ export function UpgradePromptModal({
   secondaryDestination,
 }: UpgradePromptModalProps) {
   const { t } = useTranslation(["dashboard"]);
-  const trackedExposeRef = useRef(false);
   // A paid author hitting a paid-plan limit has nothing to upgrade to: say the limit is
   // reached instead of offering "开通 Pro", and keep it out of the upgrade funnel.
   const { isPaid, resolved } = usePaidPlanWhenOpen(open);
 
-  useEffect(() => {
-    if (!open) {
-      trackedExposeRef.current = false;
-      return;
-    }
-
-    if (source && resolved && !isPaid && !trackedExposeRef.current) {
-      trackUpgradeExpose(source, surface);
-      trackedExposeRef.current = true;
-    }
-  }, [open, source, surface, resolved, isPaid]);
+  const exposureRef = useUpgradeExposure({ enabled: open && resolved && !isPaid, source, surface, placement: "limit-dialog" });
 
   if (open && !resolved) {
     // Plan not known yet: never flash "开通 Pro" at someone who may already have it.
@@ -107,7 +96,7 @@ export function UpgradePromptModal({
       title={title}
       className="w-[calc(100vw-32px)] sm:w-auto"
     >
-      <div className="space-y-3">
+      <div ref={exposureRef} className="space-y-3">
         <div className="inline-flex items-center gap-1.5 rounded-full border border-[hsl(var(--accent-primary)/0.35)] bg-[hsl(var(--accent-primary)/0.08)] px-2.5 py-1 text-xs font-medium text-[hsl(var(--accent-primary))]">
           <Sparkles className="h-3.5 w-3.5" />
           {/* "Pro" reads the same in every locale. */}

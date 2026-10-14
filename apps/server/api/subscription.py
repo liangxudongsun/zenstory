@@ -170,7 +170,7 @@ class UpgradeFunnelEventRequest(BaseModel):
         max_length=128,
         pattern=r"^[A-Za-z0-9_:-]+$",
     )
-    surface: Literal["modal", "toast", "page"] = "modal"
+    surface: Literal["modal", "toast", "page", "badge", "card"] = "modal"
     cta: Literal["primary", "secondary", "direct"] | None = None
     destination: str | None = Field(
         default=None,

@@ -25,7 +25,7 @@ UPGRADE_FUNNEL_EVENT_NAME_BY_ACTION = {
     UPGRADE_FUNNEL_ACTION_CONVERSION: "upgrade_entry_conversion",
 }
 
-UPGRADE_FUNNEL_SURFACES = {"modal", "toast", "page"}
+UPGRADE_FUNNEL_SURFACES = {"modal", "toast", "page", "badge", "card"}
 UPGRADE_FUNNEL_CTAS = {"primary", "secondary", "direct"}
 
 

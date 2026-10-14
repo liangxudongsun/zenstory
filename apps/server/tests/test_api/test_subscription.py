@@ -833,3 +833,9 @@ class TestTrackUpgradeFunnelEvent:
 
         assert response.status_code == 429
         assert response.json()["detail"] == "Rate limit exceeded"
+
+
+@pytest.mark.parametrize("surface", ["badge", "card", "toast"])
+async def test_upgrade_tracking_accepts_static_and_legacy_surfaces(client, auth_headers, surface):
+    response = await client.post("/api/v1/subscription/upgrade-funnel-events", headers=auth_headers, json={"action": "expose", "source": "quota_surface", "surface": surface})
+    assert response.status_code == 201
