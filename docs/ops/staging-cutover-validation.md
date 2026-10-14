@@ -68,6 +68,13 @@ backend cancellation or accounting behavior. Coordinate the provider and any
 temporary staging configuration with the release operator and restore them
 afterwards. Use one run per scenario, never automatic retries:
 
+When the user explicitly authorizes real-model staging validation, a bounded
+synthetic request may cover the observed native handoff instead. Record that
+authorization, the exact request count, source, actual overlap and ledger cost;
+restore temporary configuration afterwards. A naturally completing request
+only proves its observed outcome, not a deterministic timeout or the full drain
+budget.
+
 - A run that finishes within the drain budget must retain its files, assistant
   terminal state and one account-scoped quota reservation/settlement.
 - For an interrupted run, independently read back saved output, stop outcome,
