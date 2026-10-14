@@ -49,6 +49,7 @@ import type { UseChatStreamingOptions } from '../../hooks/useChatStreaming';
 import { ApiError } from '../../lib/apiClient';
 import { BEFORE_CHUNK_RELOAD_EVENT, createEditorDraftSnapshot, writeEditorDraftSnapshot, readEditorDraftSnapshot } from '../../lib/editorDraftRecovery';
 import { getLastOpenedFile, setLastOpenedFile } from '../../lib/lastOpenedFile';
+import { notifyFileRemoved } from '../../lib/fileRemovalEvents';
 import { Editor } from '../Editor';
 
 const CH1: ServerFile = { id: 'ch-1', project_id: 'project-1', file_type: 'draft', title: '第1章', content: '第一章正文。', updated_at: '2026-10-09T12:00:00.000001' };
@@ -804,10 +805,26 @@ describe('deleted open file terminal state', () => {
       expect(server.update).not.toHaveBeenCalled();
     } finally { write.mockRestore(); }
   });
-  it('does not let an old GET response replace a newly selected file after deletion', async () => {
+  it('ignores deletion events for another project or another file while preserving the active draft', async () => {
+    await mountOpenFile();
+    fireEvent.change(textarea(), { target: { value: 'Keep this project draft' } });
+    act(() => {
+      notifyFileRemoved('project-2', CH1.id);
+      notifyFileRemoved('project-1', CH2_ID);
+    });
+    await settle();
+    expect(harness.project?.selectedItem?.id).toBe(CH1.id);
+    expect(textarea()).toHaveValue('Keep this project draft');
+    expect(screen.queryByLabelText('editor:deletedFile.draft')).not.toBeInTheDocument();
+    expect(server.get).toHaveBeenCalledTimes(1);
+    expect(server.update).not.toHaveBeenCalled();
+  });
+
+  it.each(['success', '404'] as const)('ignores an obsolete GET %s after deletion and selection of another file', async outcome => {
     await mountOpenFile();
     let resolveOld!: (file: ServerFile) => void;
-    server.get.mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }));
+    let rejectOld!: (error: Error) => void;
+    server.get.mockImplementationOnce(() => new Promise((resolve, reject) => { resolveOld = resolve; rejectOld = reject; }));
     act(() => harness.project?.triggerEditorRefresh(CH1.id));
     await advance(100);
     const second = { ...CH1, id: CH2_ID, title: '第2章', content: '另一个文件的正文' };
@@ -817,7 +834,10 @@ describe('deleted open file terminal state', () => {
       harness.project?.setSelectedItem({ id: CH2_ID, type: 'draft', title: second.title });
     });
     await settle();
-    await act(async () => resolveOld({ ...CH1, content: '删除前的过期响应' }));
+    await act(async () => {
+      if (outcome === 'success') resolveOld({ ...CH1, content: '删除前的过期响应' });
+      else rejectOld(new ApiError(404, 'gone', 'ERR_FILE_NOT_FOUND'));
+    });
     await settle();
     expect(harness.project?.selectedItem?.id).toBe(CH2_ID);
     expect(textarea()).toHaveValue(second.content);
@@ -878,10 +898,11 @@ describe('deleted open file terminal state', () => {
     expect(screen.getAllByLabelText('editor:deletedFile.draft').map(node => (node as HTMLTextAreaElement).value)).toEqual(['Fresh server-based edit', 'Previous conflict draft']);
   });
 
-  it('keeps the latest dirty recovery copy when an earlier PUT completes after deletion', async () => {
+  it.each(['success', '404', '500'] as const)('keeps the latest dirty recovery copy when an earlier PUT resolves with %s after deletion', async outcome => {
     await mountOpenFile();
     let resolveSave!: (file: ServerFile) => void;
-    server.update.mockImplementationOnce(() => new Promise(resolve => { resolveSave = resolve; }));
+    let rejectSave!: (error: Error) => void;
+    server.update.mockImplementationOnce(() => new Promise((resolve, reject) => { resolveSave = resolve; rejectSave = reject; }));
     fireEvent.change(textarea(), { target: { value: '先提交的正文' } });
     fireEvent.keyDown(textarea(), { key: 's', ctrlKey: true });
     await settle();
@@ -889,12 +910,16 @@ describe('deleted open file terminal state', () => {
     fireEvent.change(textarea(), { target: { value: '删除前最后输入的正文' } });
     act(() => callbacks().onToolResult('delete_file', 'success', { id: CH1.id }));
     await settle();
-    await act(async () => resolveSave({ ...CH1, content: '先提交的正文' }));
+    await act(async () => {
+      if (outcome === 'success') resolveSave({ ...CH1, content: '先提交的正文' });
+      else rejectSave(new ApiError(Number(outcome), 'gone', outcome === '404' ? 'ERR_FILE_NOT_FOUND' : 'ERR_INTERNAL'));
+    });
     await settle();
     expect(harness.project?.selectedItem).toBeNull();
     expect(readEditorDraftSnapshot(localStorage, { userId: 'user-1', projectId: 'project-1', fileId: CH1.id })?.content).toBe('删除前最后输入的正文');
     expect(screen.getByLabelText('editor:deletedFile.draft')).toHaveValue('删除前最后输入的正文');
     expect(recordStats).not.toHaveBeenCalled();
+    expect(toastError).not.toHaveBeenCalled();
   });
 
   it('recognizes a deletion completed inside parallel_execute', async () => {
@@ -923,6 +948,12 @@ describe('deleted open file terminal state', () => {
 
   it.each(['success', '404'] as const)('retains a saved recovery when deletion arrives before the initial GET resolves with %s', async outcome => {
     const scope = { userId: 'user-1', projectId: 'project-1', fileId: CH1.id };
+    const earlierScope = { ...scope, fileId: CH2_ID };
+    const earlierSnapshot = createEditorDraftSnapshot({
+      ...earlierScope, title: 'Already deleted file', content: 'Earlier removed local body',
+      baseUpdatedAt: 'earlier-removed-token', reason: 'file-deleted',
+    });
+    writeEditorDraftSnapshot(localStorage, earlierSnapshot);
     const snapshot = createEditorDraftSnapshot({
       ...scope, title: 'Pending draft', content: 'Saved before leaving the page',
       baseUpdatedAt: 'original-token', reason: 'page-exit',
@@ -941,7 +972,7 @@ describe('deleted open file terminal state', () => {
     expect(harness.project?.selectedItem).toBeNull();
     expect(readEditorDraftSnapshot(localStorage, scope)).toEqual({ ...snapshot, reason: 'file-deleted' });
     expect(screen.getAllByLabelText('editor:deletedFile.draft').map(node => (node as HTMLTextAreaElement).value))
-      .toEqual(['Saved before leaving the page', 'Earlier conflict copy']);
+      .toEqual(['Earlier removed local body', 'Saved before leaving the page', 'Earlier conflict copy']);
     await act(async () => {
       if (outcome === 'success') resolveRead({ ...CH1, content: 'Obsolete response' });
       else rejectRead(new ApiError(404, 'gone', 'ERR_FILE_NOT_FOUND'));
@@ -950,7 +981,8 @@ describe('deleted open file terminal state', () => {
     expect(harness.project?.selectedItem).toBeNull();
     expect(screen.queryByPlaceholderText('editor:placeholder.contentPlaceholder')).not.toBeInTheDocument();
     expect(readEditorDraftSnapshot(localStorage, scope)).toEqual({ ...snapshot, reason: 'file-deleted' });
-    expect(screen.getAllByLabelText('editor:deletedFile.draft')).toHaveLength(2);
+    expect(screen.getAllByLabelText('editor:deletedFile.draft')).toHaveLength(3);
+    expect(readEditorDraftSnapshot(localStorage, earlierScope)).toEqual(earlierSnapshot);
     expect(server.get).toHaveBeenCalledTimes(1);
     expect(server.update).not.toHaveBeenCalled();
   });
