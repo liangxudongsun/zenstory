@@ -370,7 +370,7 @@ Agent 用自己的模型写，ZenStory 负责存稿和整理上下文。`files p
 ## 参与贡献
 
 - **GitHub Issues**：[提交 Bug](https://github.com/zenstory-ai/zenstory/issues/new?template=bug_report.md) · [功能建议](https://github.com/zenstory-ai/zenstory/issues/new?template=feature_request.md)。在线版里也可以从项目页右上角「…」→「问题反馈」提交，能附截图。
-- 改代码前先读 [CONTRIBUTING.md](CONTRIBUTING.md)。多 Agent 工作流、工具和 SSE 事件的细节在 [`apps/server/agent/CLAUDE.md`](apps/server/agent/CLAUDE.md)。
+- 改代码前先读 [CONTRIBUTING.md](CONTRIBUTING.md)。多 Agent 工作流、工具和 SSE 事件的细节在 [`apps/server/agent/AGENTS.md`](apps/server/agent/AGENTS.md)。
 
 <details>
 <summary>项目结构与技术栈</summary>
