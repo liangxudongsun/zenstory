@@ -72,6 +72,7 @@ class SubscriptionCatalogEntitlementsResponse(BaseModel):
     writing_credits_monthly: int = Field(default=0, deprecated=True, description="Legacy compatibility only; no runtime quota")
     agent_runs_monthly: int = Field(default=0, deprecated=True, description="Legacy compatibility only; no runtime quota")
     active_projects_limit: int = 0
+    file_versions_per_file: int = 0
     materials_library_access: bool = False
     material_uploads_monthly: int = Field(default=0, deprecated=True, description="Uploads use material decompositions; no separate upload quota")
     material_decompositions_monthly: int = 0
@@ -250,6 +251,7 @@ def _normalize_plan_entitlements(plan_name: str, features: dict | None) -> dict[
         "writing_credits_monthly": 0,
         "agent_runs_monthly": 0,
         "active_projects_limit": limit("max_projects"),
+        "file_versions_per_file": limit("file_versions_per_file"),
         "materials_library_access": materials_library_access,
         "material_uploads_monthly": 0,
         "material_decompositions_monthly": limit("material_decompositions"),

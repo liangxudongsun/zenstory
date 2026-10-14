@@ -23,7 +23,7 @@
   "benefit": {
     "unlimitedAI": "AI 消息不限条数",
     "unlimitedProjects": "项目数不限",
-    "materials": "每月 5 次素材拆解"
+    "materials": "每月 {{limit}} 次素材拆解"
   },
   "opportunityDescriptions": {
     "check_in": "每日签到",
