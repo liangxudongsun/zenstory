@@ -86,9 +86,10 @@ export function ProductTourProvider({
   const [resolvedTarget, setResolvedTarget] = useState<ResolvedTarget | null>(null);
   const lastViewedStepRef = useRef<string | null>(null);
   const clearResolvedTarget = useCallback(() => {
-    window.requestAnimationFrame(() => {
+    const frameId = window.requestAnimationFrame(() => {
       setResolvedTarget(null);
     });
+    return () => window.cancelAnimationFrame(frameId);
   }, []);
   const currentStepIndex = useMemo(
     () => tour.steps.findIndex((step) => step.id === tourState.currentStepId),
@@ -278,13 +279,11 @@ export function ProductTourProvider({
 
   useEffect(() => {
     if (!isActive || !currentStep) {
-      clearResolvedTarget();
-      return;
+      return clearResolvedTarget();
     }
 
     if (location.pathname !== currentStep.route) {
-      clearResolvedTarget();
-      return;
+      return clearResolvedTarget();
     }
 
     let cancelled = false;
