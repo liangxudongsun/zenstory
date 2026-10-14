@@ -50,7 +50,7 @@ for (const width of [390, 1280]) {
     await expect(table).toBeVisible();
     await expect(table).toContainText('12 / 4');
     await expect(table).toContainText('6 / 3');
-    await expect(table).toContainText('Persistent card');
+    await expect(table).toContainText('Inline card');
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     await table.scrollIntoViewIfNeeded();
     await page.screenshot({ path: `/tmp/zenstory-issue-validation/184-admin-${width}.png`, fullPage: true });
