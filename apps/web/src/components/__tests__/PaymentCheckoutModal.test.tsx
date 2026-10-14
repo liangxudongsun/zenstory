@@ -1,3 +1,4 @@
+vi.mock('../../lib/subscriptionApi', () => ({ subscriptionApi: { getCatalog: vi.fn(async () => ({ tiers: [{ name: 'pro', entitlements: { material_decompositions_monthly: 5 } }] })) } }))
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
@@ -104,7 +105,7 @@ describe('PaymentCheckoutModal', () => {
     expect(await screen.findByText('支付宝')).toBeInTheDocument()
     expect(screen.getByText('开通 Pro')).toBeInTheDocument()
     // The buyer sees what Pro includes and that nothing renews by itself.
-    expect(screen.getByText('AI 消息不限条数 · 项目不限 · 每月 5 次素材拆解')).toBeInTheDocument()
+    expect(await screen.findByText('AI 消息不限条数 · 项目不限 · 每月 5 次素材拆解')).toBeInTheDocument()
     expect(screen.getByText('一次性付款，不会自动续费。到期前续费，时长会接在当前到期日之后。')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^去支付 ¥19$/ })).toBeInTheDocument()
     // The yearly option carries the saving so the better deal is visible before choosing.

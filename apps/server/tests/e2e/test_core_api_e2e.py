@@ -17,6 +17,8 @@ import pytest
 from httpx import AsyncClient
 from sqlmodel import Session, select
 
+import api.auth as auth_api
+from config.datetime_utils import utcnow
 from models import AgentArtifactLedger, ChatMessage, ChatSession, Inspiration, PublicSkill, User
 from models.material_models import Chapter, Character, IngestionJob, Novel, StoryLine, WorldView
 from models.points import PointsTransaction
@@ -190,7 +192,7 @@ def _build_valid_redemption_code(*, tier_duration: str = "PRO7M", random_part: s
 
 
 @pytest.mark.asyncio
-async def test_auth_login_refresh_and_me_roundtrip(client: AsyncClient, db_session: Session):
+async def test_auth_login_refresh_and_me_roundtrip(client: AsyncClient, db_session: Session, monkeypatch):
     user = await _create_user(db_session, prefix="auth_e2e")
 
     unauthenticated_me = await client.get("/api/auth/me")
@@ -216,11 +218,20 @@ async def test_auth_login_refresh_and_me_roundtrip(client: AsyncClient, db_sessi
     refreshed_payload = refresh_response.json()
     assert refreshed_payload["refresh_token"] != login_payload["refresh_token"]
 
+    concurrent_refresh = await client.post(
+        "/api/auth/refresh", json={"refresh_token": login_payload["refresh_token"]},
+    )
+    assert concurrent_refresh.status_code == 409
+    assert "refresh_token" not in concurrent_refresh.json()
+    original_now = utcnow()
+    monkeypatch.setattr(auth_api, "utcnow", lambda: original_now + timedelta(seconds=11))
     replay_refresh = await client.post(
         "/api/auth/refresh",
         json={"refresh_token": login_payload["refresh_token"]},
     )
     assert replay_refresh.status_code == 401
+    revoked_child = await client.post("/api/auth/refresh", json={"refresh_token": refreshed_payload["refresh_token"]})
+    assert revoked_child.status_code == 401
 
     refreshed_me = await client.get(
         "/api/auth/me",

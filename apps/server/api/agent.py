@@ -139,6 +139,13 @@ def _check_ai_conversation_quota_sync(user_id: str) -> tuple[bool, int, int]:
         return quota_service.check_ai_conversation_quota(quota_session, user_id)
 
 
+def _record_first_work_ai_sync(user_id: str, project_id: str) -> None:
+    from services.first_work_service import observe_first_work_ai_request
+
+    with create_session() as action_session:
+        observe_first_work_ai_request(action_session, user_id, project_id)
+
+
 def _reserve_ai_conversation_sync(user_id: str) -> datetime | None:
     """Reserve quota using a fresh sync DB session."""
     with create_session() as quota_session:
@@ -473,6 +480,20 @@ async def stream_request(
             detail=f"AI conversation quota exceeded ({used}/{limit}). Please upgrade your plan.",
         )
 
+    # Only an explicitly submitted, quota-accepted task ends static onboarding.
+    # An observation failure must not turn an already reserved request into an
+    # unrefunded pre-stream failure; the existing stream settlement still owns it.
+    try:
+        if _should_offload_session_work(session):
+            await asyncio.to_thread(_record_first_work_ai_sync, user_id, body.project_id)
+        else:
+            from services.first_work_service import observe_first_work_ai_request
+
+            observe_first_work_ai_request(session, user_id, body.project_id)
+    except Exception:
+        session.rollback()
+        logger.warning("Could not record first-work AI request", exc_info=True)
+
     # SSE 可能持续数分钟，而鉴权/权限校验的 SELECT 会让请求级 session 一直
     # 保持事务打开（Postgres 上表现为 idle in transaction，连接被整个流式
     # 期间占用）。此处主动结束事务把连接还回连接池；后续对该 session 的
@@ -556,6 +577,16 @@ async def stream_request(
             tracker.observe(frame)
             written_files.observe(frame)
 
+        def _deadline_terminal_frame() -> str | None:
+            nonlocal deadline_exceeded
+            deadline_exceeded = True
+            if tracker.delivered_terminal_event:
+                return None
+            info = run_timeout_error()
+            return error_event(
+                info.message, code=info.code, retryable=info.retryable, refundable=info.refundable
+            ).to_sse()
+
         # 计费看这次运行实际产出了什么：源生成器的每一帧都在入队前记账，
         # 断线时还没送到客户端的帧也算数。
         pump = SSEStreamPump(
@@ -563,6 +594,7 @@ async def stream_request(
             heartbeat_interval_s=AGENT_SSE_HEARTBEAT_INTERVAL_S,
             deadline_s=AGENT_RUN_WALL_CLOCK_TIMEOUT_S,
             on_item=_observe_frame,
+            on_deadline=_deadline_terminal_frame,
         )
         run_key = (user_id, agent_run_id)
 
@@ -663,6 +695,7 @@ async def stream_request(
         _running_streams[run_key] = _RunningStream(pump=pump, outcome=run_outcome)
         try:
             async for event in pump:
+                tracker.observe_delivery(event)
                 yield event
             # 正常收尾：先结算，退还真正落库后才告诉前端「不计入」。
             billing_reason, _, refund_applied = await _settle_billing()
@@ -688,6 +721,7 @@ async def stream_request(
                     data={"reason": USER_STOPPED_REASON, "message": USER_STOPPED_MESSAGE},
                 ).to_sse()
                 tracker.observe(stop_frame)
+                tracker.observe_delivery(stop_frame)
                 yield stop_frame
                 assistant_message_id = await run_outcome.wait_message_id(STOP_MESSAGE_ID_WAIT_S)
                 done_frame = done_event(
@@ -703,6 +737,7 @@ async def stream_request(
                     ),
                 ).to_sse()
                 tracker.observe(done_frame)
+                tracker.observe_delivery(done_frame)
                 yield done_frame
                 billing_reason, _, refund_applied = await _settle_billing()
                 if refund_applied:
@@ -721,7 +756,7 @@ async def stream_request(
             # aclose（GeneratorExit）。GeneratorExit 路径上不能 yield，也不做任何
             # 会挂起的 await。作者先点了停止、前端等不到收尾才断开时仍算主动停止。
             client_disconnected = True
-            user_stopped = pump.stop_requested
+            user_stopped = pump.stop_requested and not deadline_exceeded
             if user_stopped:
                 run_outcome.stop_kind = STOP_KIND_USER_STOPPED
             elif not tracker.saw_terminal_event and knows_stop_contract:
@@ -740,7 +775,7 @@ async def stream_request(
                 agent_run_id=agent_run_id,
                 timeout_s=AGENT_RUN_WALL_CLOCK_TIMEOUT_S,
             )
-            if not tracker.saw_terminal_event:
+            if not tracker.delivered_terminal_event:
                 frame = error_event(
                     info.message,
                     code=info.code,
@@ -748,12 +783,17 @@ async def stream_request(
                     refundable=info.refundable,
                 ).to_sse()
                 tracker.observe(frame)
+                tracker.observe_delivery(frame)
                 with contextlib.suppress(Exception):
                     yield frame
-            billing_reason, _, refund_applied = await _settle_billing()
-            if refund_applied:
-                with contextlib.suppress(Exception):
-                    yield quota_refunded_frame(billing_reason)
+            try:
+                billing_reason, _, refund_applied = await _settle_billing()
+                if refund_applied:
+                    with contextlib.suppress(Exception):
+                        yield quota_refunded_frame(billing_reason)
+            except (asyncio.CancelledError, GeneratorExit):
+                client_disconnected = True
+                raise
         except Exception as exc:
             unexpected_exception = True
             # An exception escaping process_stream (e.g. a pre-stream setup
@@ -771,7 +811,7 @@ async def stream_request(
                 user_id=user_id,
                 project_id=body.project_id,
             )
-            if not tracker.saw_terminal_event:
+            if not tracker.delivered_terminal_event:
                 frame = error_event(
                     info.message,
                     code=info.code,
@@ -779,6 +819,7 @@ async def stream_request(
                     refundable=info.refundable,
                 ).to_sse()
                 tracker.observe(frame)
+                tracker.observe_delivery(frame)
                 with contextlib.suppress(Exception):
                     yield frame
             billing_reason, _, refund_applied = await _settle_billing()
@@ -790,9 +831,29 @@ async def stream_request(
             running = _running_streams.get(run_key)
             if running is not None and running.pump is pump:
                 del _running_streams[run_key]
-            billing_reason, should_refund, refund_applied = await _settle_billing(
-                detached=client_disconnected
+            settlement_pending = (
+                deadline_exceeded and client_disconnected and not pump.producer_stopped
             )
+            if settlement_pending:
+                # The timeout already reached the author. Keep cancellation/lease
+                # cleanup alive; settle from its final output rather than refund early.
+                async def _settle_after_deadline_cleanup() -> None:
+                    await pump.wait_stopped()
+                    reason, should, applied = await _settle_billing(detached=True)
+                    log_with_context(
+                        logger, 20, "Agent deadline billing settled after disconnect",
+                        agent_run_id=agent_run_id, billing_reason=reason,
+                        charged=not should, refunded=applied, refund_scheduled=refund_scheduled,
+                    )
+
+                task = asyncio.create_task(_settle_after_deadline_cleanup())
+                _detached_refund_tasks.add(task)
+                task.add_done_callback(_detached_refund_tasks.discard)
+                billing_reason, should_refund, refund_applied = "run_deadline_exceeded", None, False
+            else:
+                billing_reason, should_refund, refund_applied = await _settle_billing(
+                    detached=client_disconnected
+                )
             # 终止帧（done 等）之后才断开的一轮已经正常结束：不写「已中断」终态。
             # 旧前端（不带停止约定头）断线：照旧只补存部分历史，不写终态、不移除文件。
             if user_stopped or (
@@ -809,12 +870,14 @@ async def stream_request(
                 user_id=user_id,
                 project_id=body.project_id,
                 agent_run_id=agent_run_id,
-                charged=not should_refund,
+                charged=None if should_refund is None else not should_refund,
+                settlement_pending=settlement_pending,
                 refunded=refund_applied,
                 refund_scheduled=refund_scheduled,
                 billing_reason=billing_reason,
                 saw_any_event=tracker.saw_any_event,
                 saw_terminal_event=tracker.saw_terminal_event,
+                delivered_terminal_event=tracker.delivered_terminal_event,
                 saw_internal_error_event=tracker.saw_error_event,
                 error_refundable=tracker.error_refundable,
                 produced_output=tracker.produced_output,
@@ -894,6 +957,12 @@ async def suggest_next_action(
         has_recent_messages=body.recent_messages is not None,
         message_count=len(body.recent_messages) if body.recent_messages else 0,
     )
+
+    from services.first_work_service import get_first_work_state
+
+    first_work = get_first_work_state(session, user_id)
+    if first_work.project_id == body.project_id and first_work.static_guidance:
+        return SuggestResponse(suggestions=[])
 
     service = get_suggest_service()
     lang = (accept_language or "").split(",")[0].split("-")[0].strip().lower() or "zh"

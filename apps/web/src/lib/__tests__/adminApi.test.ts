@@ -628,6 +628,8 @@ describe('adminApi', () => {
         total_users: '10',
         active_users: '8',
         total_projects: 4,
+        author_created_projects: '3',
+        auto_initialized_projects: '1',
       })
 
       const result = await getDashboardStats()
@@ -638,6 +640,8 @@ describe('adminApi', () => {
         active_users: 8,
         total_projects: 4,
         week_referrals: 0,
+        author_created_projects: 3,
+        auto_initialized_projects: 1,
       })
     })
 
@@ -743,6 +747,7 @@ describe('adminApi', () => {
       mockApi.get.mockResolvedValue({
         window_days: '7',
         totals: { expose: '20', click: '8', conversion: '3' },
+        surfaces: [{ source: 'chat_quota_blocked', surface: 'card', exposes: '12', exposed_users: '4', clicks: '6', clicking_users: '3', page_arrivals: '2' }],
         sources: [
           {
             source: 'chat_quota_blocked',
@@ -764,6 +769,7 @@ describe('adminApi', () => {
         period_start: '',
         period_end: '',
         totals: { expose: 20, click: 8, conversion: 3 },
+        surfaces: [{ source: 'chat_quota_blocked', surface: 'card', exposes: 12, exposed_users: 4, clicks: 6, clicking_users: 3, page_arrivals: 2 }],
         sources: [
           {
             source: 'chat_quota_blocked',

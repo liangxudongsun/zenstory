@@ -1,6 +1,6 @@
 {
   "panel": {
-    "title": "AI Creative Partner",
+    "title": "AI Assistant",
     "processing": "Processing",
     "loadingHistory": "Loading conversation…",
     "aiMemory": "AI Memory",
@@ -42,7 +42,10 @@
     "roundSavedFile": "\"{{title}}\"",
     "roundSavedFileWords": "\"{{title}}\" ({{words}} words)",
     "roundSavedFilesJoiner": ", ",
-    "roundSavedFilesMore": "{{files}} and {{rest}} more"
+    "roundSavedFilesMore": "{{files}} and {{rest}} more",
+    "creatingSession": "Creating new chat",
+    "newSessionFailed": "Couldn't create a new chat. Please try again.",
+    "sessionRecoveryFailed": "Couldn't load this chat. Please try again."
   },
   "input": {
     "placeholder": "Tell the AI what to write",
@@ -361,6 +364,7 @@
     "cancel": "Cancel"
   },
   "quotaCard": {
+    "paidTitle": "Today’s AI message allowance is used up",
     "title": "You've used today's {{limit}} free AI messages",
     "resetOnDay": "They come back on {{day}} at 00:00 Beijing time (UTC+8). What you type stays in the box until then.",
     "resetTomorrow": "They come back tomorrow at 00:00 Beijing time (UTC+8). What you type stays in the box until then.",

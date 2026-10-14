@@ -71,6 +71,8 @@ const DEFAULT_DASHBOARD_STATS: DashboardStats = {
   active_users: 0,
   new_users_today: 0,
   total_projects: 0,
+  author_created_projects: 0,
+  auto_initialized_projects: 0,
   total_inspirations: 0,
   pending_inspirations: 0,
   active_subscriptions: 0,
@@ -1371,6 +1373,8 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     active_users: asNumber(payloadRecord.active_users, DEFAULT_DASHBOARD_STATS.active_users),
     new_users_today: asNumber(payloadRecord.new_users_today, DEFAULT_DASHBOARD_STATS.new_users_today),
     total_projects: asNumber(payloadRecord.total_projects, DEFAULT_DASHBOARD_STATS.total_projects),
+    author_created_projects: asNumber(payloadRecord.author_created_projects, DEFAULT_DASHBOARD_STATS.author_created_projects),
+    auto_initialized_projects: asNumber(payloadRecord.auto_initialized_projects, DEFAULT_DASHBOARD_STATS.auto_initialized_projects),
     total_inspirations: asNumber(payloadRecord.total_inspirations, DEFAULT_DASHBOARD_STATS.total_inspirations),
     pending_inspirations: asNumber(payloadRecord.pending_inspirations, DEFAULT_DASHBOARD_STATS.pending_inspirations),
     active_subscriptions: asNumber(payloadRecord.active_subscriptions, DEFAULT_DASHBOARD_STATS.active_subscriptions),
@@ -1499,6 +1503,15 @@ export async function getUpgradeFunnelStats(days = 7): Promise<UpgradeFunnelStat
       click: asNumber(rawTotals.click, DEFAULT_UPGRADE_FUNNEL.totals.click),
       conversion: asNumber(rawTotals.conversion, DEFAULT_UPGRADE_FUNNEL.totals.conversion),
     },
+    surfaces: pickArray<unknown>(payload, ["surfaces"]).map(item => {
+      const raw = resolvePayloadRecord(item);
+      return {
+        source: asText(raw.source, ""), surface: asText(raw.surface, ""),
+        exposes: asNumber(raw.exposes, 0), exposed_users: asNumber(raw.exposed_users, 0),
+        clicks: asNumber(raw.clicks, 0), clicking_users: asNumber(raw.clicking_users, 0),
+        page_arrivals: asNumber(raw.page_arrivals, 0),
+      };
+    }),
     sources: rawSources.map((item) => {
       const raw = resolvePayloadRecord(item);
       return {

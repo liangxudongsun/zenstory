@@ -23,6 +23,7 @@ from core.error_handler import APIException
 from database import create_session, get_session
 from models import ChatMessage, ChatSession, Project, User
 from services.chat_feedback_service import chat_feedback_service
+from services.chat_session_service import lock_active_chat_session
 from utils.logger import get_logger, log_with_context
 from utils.permission import verify_project_access_sync
 
@@ -123,6 +124,7 @@ def _create_new_session_sync(
     does not execute DB mutation work on the event loop.
     """
     with create_session() as session:
+        lock_active_chat_session(session, user_id=user_id, project_id=project_id)
         current_sessions = _list_active_sessions(session, project_id, user_id)
         if current_sessions:
             for existing in current_sessions:
@@ -138,6 +140,7 @@ def _create_new_session_sync(
                 latest_session_id=current_sessions[0].id,
             )
 
+        session.flush()
         new_session = ChatSession(
             user_id=user_id,
             project_id=project_id,
@@ -178,6 +181,7 @@ def get_or_create_session(
     # Check if project exists and is not deleted
     verify_project_access_sync(project_id, session, current_user)
 
+    lock_active_chat_session(session, user_id=user_id, project_id=project_id)
     active_sessions = _list_active_sessions(session, project_id, user_id)
     chat_session = active_sessions[0] if active_sessions else None
 
@@ -496,6 +500,7 @@ def create_new_session(
     if _should_offload_session_work(session):
         new_session = _create_new_session_sync(project_id, user_id, title)
     else:
+        lock_active_chat_session(session, user_id=user_id, project_id=project_id)
         current_sessions = _list_active_sessions(session, project_id, user_id)
         if current_sessions:
             for existing in current_sessions:
@@ -511,6 +516,7 @@ def create_new_session(
                 latest_session_id=current_sessions[0].id,
             )
 
+        session.flush()
         new_session = ChatSession(
             user_id=user_id,
             project_id=project_id,

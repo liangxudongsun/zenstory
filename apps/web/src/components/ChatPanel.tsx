@@ -1,3 +1,4 @@
+import { claimAutoUpgradePrompt } from "../lib/upgradeTriggerStrategy";
 /**
  * @fileoverview ChatPanel component - AI chat interface for the zenstory writing workbench.
  *
@@ -23,10 +24,15 @@
  * @see useAgentStream - SSE streaming hook for AI responses
  * @module components/ChatPanel
  */
-import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { MAX_AGENT_MESSAGE_CHARS } from "../lib/agentLimits";
+import { hasAnyUnprotectedDeletedDraft, notifyFileRemoved, subscribeDeletedDraftProtection } from "../lib/fileRemovalEvents";
+import React, { useState, useRef, useEffect, useCallback, useMemo, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useProject } from "../contexts/ProjectContext";
+import { useAuth } from "../contexts/AuthContext";
+import { useFirstWork, needsStaticFirstWorkGuidance } from "../hooks/useFirstWork";
+import { firstWorkApi, firstWorkQueryKey } from "../lib/firstWorkApi";
 import { useMobileLayout } from "../contexts/MobileLayoutContext";
 import { useMaterialAttachment } from "../contexts/MaterialAttachmentContext";
 import { useTextQuote } from "../contexts/TextQuoteContext";
@@ -54,6 +60,7 @@ import type {
   AgentRequest,
   ApplyAction,
   FileEditUndoTarget,
+  FileType,
   SSEWorkflowStoppedData,
 } from "../types";
 import { logger } from "../lib/logger";
@@ -78,7 +85,7 @@ import { ProjectStatusDialog } from "./ProjectStatusDialog";
 import { useDraftPersistence } from "../hooks/useDraftPersistence";
 import { UpgradePromptModal } from "./subscription/UpgradePromptModal";
 import { ChatQuotaCard } from "./subscription/ChatQuotaCard";
-import { nextAiQuotaResetMs } from "../hooks/useAiMessageQuota";
+import { nextAiQuotaResetMs, aiQuotaPeriodKey } from "../hooks/useAiMessageQuota";
 import { buildUpgradeUrl, getUpgradePromptDefinition } from "../config/upgradeExperience";
 import { trackEvent } from "../lib/analytics";
 import { useLeaveWhileGenerating } from "../hooks/useLeaveWhileGenerating";
@@ -414,6 +421,10 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
   } =
     useProject();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+  const firstWork = useFirstWork(userId);
+  const staticFirstWork = needsStaticFirstWorkGuidance(firstWork.data, currentProjectId);
   // Same query (and cache) as the header's QuotaBadge, which also polls it.
   const { data: quota } = useQuery({
     queryKey: subscriptionQueryKeys.quota(),
@@ -448,7 +459,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     queryClient.setQueryData<QuotaResponse>(subscriptionQueryKeys.quota(), restore);
     queryClient.setQueryData<QuotaResponse>(subscriptionQueryKeys.quotaLite(), restore);
   }, [queryClient]);
-  const { isMobile } = useMobileLayout();
+  const { isMobile, activePanel, chatFocusRequest, switchToEditor } = useMobileLayout();
   const { attachedFileIds, attachedLibraryMaterials, clearMaterials } = useMaterialAttachment();
   const { quotes, clearQuotes } = useTextQuote();
 
@@ -501,6 +512,10 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
    */
   const newChatAfterStopRef = useRef(false);
   const [newChatPending, setNewChatPending] = useState(false);
+  const creatingSessionRef = useRef<number | null>(null);
+  const [isCreatingSession, setIsCreatingSession] = useState(false);
+  const sessionRecoveryBlockedRef = useRef<string | null>(null);
+  const [sessionRecoveryError, setSessionRecoveryError] = useState<string | null>(null);
   const pendingMaterialClearRef = useRef(false);
   const pendingQuoteClearRef = useRef(false);
   const currentAgentSessionIdRef = useRef<string | null>(null);
@@ -598,6 +613,19 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
   }, [currentProjectId, generationMode, t]);
 
   const currentProjectIdRef = useRef<string | null>(currentProjectId);
+  const handleOpenFile = useCallback((fileId: string, fileType: string, title: string) => {
+    if (!currentProjectId || currentProject?.id !== currentProjectId || currentProjectIdRef.current !== currentProjectId) return;
+    const typeMap: Record<string, FileType> = {
+      folder: "folder", outline: "outline", draft: "draft", document: "document", script: "script",
+      character: "character", lore: "lore", snippet: "material", material: "material",
+    };
+    // Reselecting an open file would reload it, including an unsaved title-only draft.
+    if (selectedItemRef.current?.id !== fileId) {
+      setSelectedItem({ id: fileId, type: typeMap[fileType] || "draft", title });
+    }
+    if (isMobile) switchToEditor();
+  }, [currentProjectId, currentProject, setSelectedItem, isMobile, switchToEditor]);
+
   // "Write chapter 1" once a framework exists but no prose yet; refreshed on open, after each round
   // and after an editor save while the card can show.
   const [frameworkReadyProjectId, setFrameworkReadyProjectId] = useState<string | null>(null);
@@ -637,6 +665,10 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
   }, [refreshNextStep]);
   useEffect(() => {
     currentProjectIdRef.current = currentProjectId;
+    creatingSessionRef.current = null;
+    setIsCreatingSession(false);
+    sessionRecoveryBlockedRef.current = null;
+    setSessionRecoveryError(null);
     return () => {
       currentProjectIdRef.current = null;
       newSessionRequestSeqRef.current += 1;
@@ -666,6 +698,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
    * 直接跳过，不重复打 /suggest。
    */
   const lastAutoSuggestionKeyRef = useRef<string | null>(null);
+  const lastAutoSuggestionStateRef = useRef<"ready" | "fallback">("ready");
 
   // Keep messagesRef in sync
   useEffect(() => {
@@ -742,21 +775,21 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     return `${SUGGESTION_CACHE_KEY_PREFIX}${projectId}`;
   }, []);
 
-  const readCachedSuggestions = useCallback((projectId: string): string[] => {
+  const readCachedSuggestions = useCallback((projectId: string): string[] | null => {
     try {
       const raw = localStorage.getItem(getSuggestionCacheKey(projectId));
-      if (!raw) return [];
+      if (!raw) return null;
       const parsed = JSON.parse(raw) as SuggestionCachePayload;
       if (!Array.isArray(parsed.suggestions) || typeof parsed.updatedAt !== "number") {
-        return [];
+        return null;
       }
       if (Date.now() - parsed.updatedAt > SUGGESTION_CACHE_TTL_MS) {
         localStorage.removeItem(getSuggestionCacheKey(projectId));
-        return [];
+        return null;
       }
       return parsed.suggestions.filter((s): s is string => typeof s === "string" && Boolean(s.trim())).slice(0, 3);
     } catch {
-      return [];
+      return null;
     }
   }, [getSuggestionCacheKey]);
 
@@ -772,19 +805,39 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     }
   }, [getSuggestionCacheKey]);
 
+  const canRequestSuggestions = useCallback(async (projectId: string) => {
+    if (!userId) return false;
+    try {
+      const state = await queryClient.fetchQuery({
+        queryKey: firstWorkQueryKey(userId), queryFn: firstWorkApi.get, retry: false, staleTime: 1000,
+      });
+      return !needsStaticFirstWorkGuidance(state, projectId);
+    } catch {
+      // Unknown status must not spend an AI request. Author-initiated chat and writing remain available.
+      return false;
+    }
+  }, [queryClient, userId]);
+
   const fetchAndApplySuggestions = useCallback(async (
     projectId: string,
     sourceMessages: Message[],
     options?: { allowFallback?: boolean }
-  ): Promise<string[]> => {
+  ): Promise<string[] | null> => {
+    const allowed = await canRequestSuggestions(projectId);
+    if (currentProjectIdRef.current !== projectId) return null;
+    if (!allowed) {
+      setAiSuggestions([]);
+      setSuggestionDisplayState("ready");
+      return [];
+    }
     const suggestions = await fetchSuggestions(projectId, toRecentMessages(sourceMessages), 3);
 
     // Ignore stale responses from previous projects/requests.
     if (currentProjectIdRef.current !== projectId) {
-      return [];
+      return null;
     }
 
-    if (suggestions.length > 0) {
+    if (suggestions !== null) {
       setAiSuggestions(suggestions);
       setSuggestionDisplayState("ready");
       writeSuggestionCache(projectId, suggestions);
@@ -794,8 +847,8 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     if (options?.allowFallback && aiSuggestionsRef.current.length === 0) {
       setSuggestionDisplayState("fallback");
     }
-    return [];
-  }, [setAiSuggestions, toRecentMessages, writeSuggestionCache]);
+    return null;
+  }, [canRequestSuggestions, setAiSuggestions, toRecentMessages, writeSuggestionCache]);
 
   const requestInitialSuggestions = useCallback(async (
     projectId: string,
@@ -803,9 +856,16 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
   ) => {
     suggestionRequestSeqRef.current += 1;
     const requestSeq = suggestionRequestSeqRef.current;
+    const allowed = await canRequestSuggestions(projectId);
+    if (currentProjectIdRef.current !== projectId || requestSeq !== suggestionRequestSeqRef.current) return;
+    if (!allowed) {
+      setAiSuggestions([]);
+      setSuggestionDisplayState("ready");
+      return;
+    }
     const cached = readCachedSuggestions(projectId);
 
-    if (cached.length > 0) {
+    if (cached !== null) {
       // 有缓存就直接用，不再后台刷新：打开/切换项目不该凭空多打一次 /suggest。
       // 下一轮对话结束后会按新上下文自动刷新一次。
       setAiSuggestions(cached);
@@ -818,8 +878,8 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
 
     const firstResult = await Promise.race([
       fetchPromise.then((suggestions) => ({ timedOut: false, suggestions })),
-      new Promise<{ timedOut: true; suggestions: string[] }>((resolve) => {
-        setTimeout(() => resolve({ timedOut: true, suggestions: [] }), SUGGESTION_INITIAL_TIMEOUT_MS);
+      new Promise<{ timedOut: true; suggestions: null }>((resolve) => {
+        setTimeout(() => resolve({ timedOut: true, suggestions: null }), SUGGESTION_INITIAL_TIMEOUT_MS);
       }),
     ]);
 
@@ -835,16 +895,16 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
       if (currentProjectIdRef.current !== projectId || requestSeq !== suggestionRequestSeqRef.current) {
         return;
       }
-      if (eventual.length === 0 && aiSuggestionsRef.current.length === 0) {
+      if (eventual === null && aiSuggestionsRef.current.length === 0) {
         setSuggestionDisplayState("fallback");
       }
       return;
     }
 
-    if (firstResult.suggestions.length === 0 && aiSuggestionsRef.current.length === 0) {
+    if (firstResult.suggestions === null && aiSuggestionsRef.current.length === 0) {
       setSuggestionDisplayState("fallback");
     }
-  }, [fetchAndApplySuggestions, readCachedSuggestions, setAiSuggestions]);
+  }, [canRequestSuggestions, fetchAndApplySuggestions, readCachedSuggestions, setAiSuggestions]);
 
   const finalizePendingContextClears = useCallback(() => {
     if (pendingMaterialClearRef.current) {
@@ -954,6 +1014,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
       return;
     }
     onCompleteCalledRef.current = true;
+    void queryClient.invalidateQueries({ queryKey: firstWorkQueryKey(userId) });
 
     // 【关键修复】将流式内容持久化到 messages，防止下一轮对话时丢失
     const accumulatedContent = completedSegments
@@ -1056,22 +1117,23 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
         const lastMessage = currentMessages[currentMessages.length - 1];
         const suggestionKey = `${currentProjectId}:${currentMessages.length}:${lastMessage?.id ?? ""}`;
         if (lastAutoSuggestionKeyRef.current === suggestionKey) {
-          if (aiSuggestionsRef.current.length > 0) {
-            setSuggestionDisplayState("ready");
-          } else {
-            setSuggestionDisplayState("fallback");
-          }
+          setSuggestionDisplayState(lastAutoSuggestionStateRef.current);
           return;
         }
         lastAutoSuggestionKeyRef.current = suggestionKey;
         try {
-          await fetchAndApplySuggestions(currentProjectId, currentMessages, { allowFallback: true });
+          const result = await fetchAndApplySuggestions(currentProjectId, currentMessages, { allowFallback: true });
+          if (currentProjectIdRef.current !== currentProjectId || lastAutoSuggestionKeyRef.current !== suggestionKey) return;
+          const displayState = result === null && aiSuggestionsRef.current.length === 0 ? "fallback" : "ready";
+          lastAutoSuggestionStateRef.current = displayState;
+          setSuggestionDisplayState(displayState);
         } catch (error) {
+          if (currentProjectIdRef.current !== currentProjectId || lastAutoSuggestionKeyRef.current !== suggestionKey) return;
           // Silent failure - suggestion is non-critical
           logger.error("Failed to fetch suggestions:", error);
-          if (aiSuggestionsRef.current.length === 0) {
-            setSuggestionDisplayState("fallback");
-          }
+          const displayState = aiSuggestionsRef.current.length === 0 ? "fallback" : "ready";
+          lastAutoSuggestionStateRef.current = displayState;
+          setSuggestionDisplayState(displayState);
         }
       }
     }, 1500);
@@ -1084,6 +1146,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     hydrateAssistantBackendMessage,
     invalidateQuota,
     refreshNextStep,
+    queryClient, userId,
   ]);
 
   // Agent stream hook - uses callbacks from useChatStreaming hook
@@ -1224,6 +1287,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
       // The server has already charged this round's AI message by now.
       roundProgressRef.current.charged = true;
       invalidateQuota();
+      void queryClient.invalidateQueries({ queryKey: firstWorkQueryKey(userId) });
     },
     onParallelStart: (executionId, taskCount, taskDescriptions, droppedCount) => {
       proseCounterRef.current.boundary();
@@ -1239,6 +1303,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
       invalidateQuota();
       if (removedFiles.length > 0) {
         // The server removed blank files this stopped round had created.
+        if (currentProjectId) removedFiles.forEach(file => notifyFileRemoved(currentProjectId, file.id));
         const removedIds = new Set(removedFiles.map((file) => file.id));
         if (selectedItemRef.current && removedIds.has(selectedItemRef.current.id)) setSelectedItem(null);
         triggerFileTreeRefresh();
@@ -1246,7 +1311,12 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     },
   });
   // Stopping already ends the round on its own; no need to ask before leaving then.
-  const leaveGuard = useLeaveWhileGenerating(isStreaming && !isStopping);
+  const unprotectedDeletedDraft = useSyncExternalStore(
+    subscribeDeletedDraftProtection,
+    hasAnyUnprotectedDeletedDraft,
+    () => false,
+  );
+  const leaveGuard = useLeaveWhileGenerating((isStreaming && !isStopping) || unprotectedDeletedDraft);
   // Leaving mid-round: the server settles (and may refund) after the chat is gone.
   useQuotaRefreshAfterLeave(isStreaming, currentProjectId ?? null);
   /** A confirmed leave is waiting for the editor's save. */
@@ -1257,7 +1327,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
   // the open file so the server keeps it, then leave.
   const handleConfirmLeave = () => {
     const confirmLeave = leaveGuard.confirmLeave;
-    if (leaveGuard.roundEnded) {
+    if (!isStreaming || leaveGuard.roundEnded) {
       confirmLeave();
       return;
     }
@@ -1366,11 +1436,13 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     ? lastMessage
     : null;
 
+  const quotaAccount = subscriptionQueryKeys.status()[1];
+  const quotaPeriod = aiQuotaPeriodKey(aiMessageQuota?.reset_at);
   useEffect(() => {
-    if (isAiQuotaLimit && chatQuotaUpgradePrompt.surface === "modal") {
+    if (isAiQuotaLimit && chatQuotaUpgradePrompt.surface === "modal" && claimAutoUpgradePrompt(quotaAccount, chatQuotaUpgradePrompt.source, quotaPeriod)) {
       setShowQuotaUpgradeModal(true);
     }
-  }, [chatQuotaUpgradePrompt.surface, isAiQuotaLimit]);
+  }, [chatQuotaUpgradePrompt.surface, chatQuotaUpgradePrompt.source, isAiQuotaLimit, quotaAccount, quotaPeriod]);
 
   /**
    * Loads chat history for a specific project from the server.
@@ -1380,7 +1452,11 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
    * @param projectId - The ID of the project to load chat history for
    */
   // Load chat history when project changes
-  const loadChatHistory = useCallback(async (projectId: string): Promise<Message[] | null> => {
+  const loadChatHistory = useCallback(async (projectId: string, recoverSession = false): Promise<Message[] | null> => {
+    if (recoverSession) {
+      sessionRecoveryBlockedRef.current = projectId;
+      setSessionRecoveryError(null);
+    }
     const requestId = ++historyRequestSeqRef.current;
     setIsLoadingHistory(true);
     try {
@@ -1414,6 +1490,11 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
       });
 
       setMessages(loadedMessages);
+      if (recoverSession) {
+        sessionRecoveryBlockedRef.current = null;
+        setSessionRecoveryError(null);
+        currentAgentSessionIdRef.current = historyMessages.at(-1)?.session_id ?? null;
+      }
       return loadedMessages;
     } catch (err) {
       logger.error("Failed to load chat history:", err);
@@ -1421,9 +1502,14 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
       if (currentProjectIdRef.current !== projectId || requestId !== historyRequestSeqRef.current) {
         return null;
       }
-      // Don't show error to user, just start fresh
       setMessages([]);
       setFeedbackPendingMessageId(null);
+      if (recoverSession) {
+        setSessionRecoveryError(projectId);
+        return null;
+      }
+      // Opening history retains the existing empty-state behavior. A failed
+      // session mutation instead requires an explicit read before sending.
       return [];
     } finally {
       if (requestId === historyRequestSeqRef.current && currentProjectIdRef.current === projectId) {
@@ -1624,7 +1710,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     request: Omit<AgentRequest, "project_id">,
     options: { userBubble: boolean },
   ): boolean => {
-    if (sendLockRef.current || isStreaming || newChatAfterStopRef.current) return false;
+    if (sendLockRef.current || isStreaming || newChatAfterStopRef.current || creatingSessionRef.current !== null || sessionRecoveryBlockedRef.current) return false;
     // Held until the next task: by then React has re-rendered with isStreaming = true,
     // which guards every later click.
     sendLockRef.current = true;
@@ -1682,7 +1768,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     selectedSkillIds?: string[],
     extraMetadata?: Record<string, unknown>,
   ) => {
-    if (!message.trim() || isStreaming || sendLockRef.current || newChatAfterStopRef.current) return;
+    if (!message.trim() || isStreaming || sendLockRef.current || newChatAfterStopRef.current || creatingSessionRef.current !== null || sessionRecoveryBlockedRef.current) return;
 
     // Used up for today: keep the words as the draft and explain, instead of sending.
     if (aiSendBlocked) {
@@ -1839,7 +1925,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
   const inspirationSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!currentProjectId || isLoadingHistory || isStreaming) return;
+    if (!currentProjectId || isLoadingHistory || isStreaming || newChatPending || isCreatingSession || sessionRecoveryError || !firstWork.isSuccess || firstWork.data?.project_id === currentProjectId) return;
     
     // Skip if we've already processed this project's inspiration
     if (inspirationProcessedRef.current.has(currentProjectId)) return;
@@ -1851,6 +1937,15 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
       try {
         const { content, timestamp } = JSON.parse(stored);
 
+        if (typeof content === "string" && content.length > MAX_AGENT_MESSAGE_CHARS) {
+          // Keep legacy oversized ideas editable even after the auto-send window.
+          // Do not remove the only durable copy when browser storage is full.
+          inspirationProcessedRef.current.add(currentProjectId);
+          const saved = saveDraft(draft && !draft.includes(content) ? `${draft}\n\n${content}` : draft || content);
+          if (saved) localStorage.removeItem(inspirationKey);
+          return;
+        }
+
         // Only use if recent (within 5 minutes) and content is not empty
         const isRecent = Date.now() - timestamp < 5 * 60 * 1000;
 
@@ -1859,6 +1954,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
           // author's own words. `entry` lets the server add its first-message hint
           // to the model context without persisting it (older servers ignore it).
           const idea = content;
+
 
           // Delay slightly to ensure UI is ready. Tracked in a ref so it can be
           // cleared on unmount/deps-change, otherwise a stray auto-send could
@@ -1874,6 +1970,9 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
           }
           inspirationSendTimerRef.current = setTimeout(() => {
             inspirationSendTimerRef.current = null;
+            // A ready task can precede effect cleanup. Keep its durable idea
+            // until the owning chat is ready; the state change reschedules it.
+            if (currentProjectIdRef.current !== projectIdForSend || creatingSessionRef.current !== null || newChatAfterStopRef.current || sessionRecoveryBlockedRef.current || sendLockRef.current) return;
             inspirationProcessedRef.current.add(projectIdForSend);
             localStorage.removeItem(inspirationKey);
             void handleSendMessage(idea, undefined, { entry: "dashboard_idea" });
@@ -1894,7 +1993,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
         inspirationSendTimerRef.current = null;
       }
     };
-  }, [currentProjectId, isLoadingHistory, isStreaming, handleSendMessage]);
+  }, [currentProjectId, isLoadingHistory, isStreaming, newChatPending, isCreatingSession, sessionRecoveryError, handleSendMessage, draft, saveDraft, firstWork.isSuccess, firstWork.data?.project_id]);
 
   /**
    * Starts a new chat session for the current project.
@@ -1903,38 +2002,55 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
    */
   // Handle new session
   const handleNewSession = async () => {
-    if (!currentProjectId) return;
+    if (!currentProjectId || creatingSessionRef.current !== null) return;
     const projectId = currentProjectId;
     const requestSeq = ++newSessionRequestSeqRef.current;
-
-    resetPendingContextClears();
-    currentAgentSessionIdRef.current = null;
-
-    // Clear AI suggestions when starting new session
+    creatingSessionRef.current = requestSeq;
+    setIsCreatingSession(true);
     setAiSuggestions([]);
     setSuggestionDisplayState("loading");
-    if (suggestionTimeoutRef.current) {
-      clearTimeout(suggestionTimeoutRef.current);
-    }
+    if (suggestionTimeoutRef.current) clearTimeout(suggestionTimeoutRef.current);
+    const ownsRequest = () => currentProjectIdRef.current === projectId && requestSeq === newSessionRequestSeqRef.current;
 
     try {
-      await createNewSession(projectId);
-      if (currentProjectIdRef.current !== projectId || requestSeq !== newSessionRequestSeqRef.current) return;
+      const created = await createNewSession(projectId);
+      if (!ownsRequest()) return;
+      resetPendingContextClears();
+      currentAgentSessionIdRef.current = created.id;
+      sessionRecoveryBlockedRef.current = null;
+      setSessionRecoveryError(null);
       historyRequestSeqRef.current += 1;
       setIsLoadingHistory(false);
       setMessages([]);
       setFeedbackPendingMessageId(null);
-      // 上一轮若被取消/出错，流式渲染残留不会被 onComplete 清理，这里一并清空。
       clearStreamItems();
       setMatchedSkills([]);
       reset();
       setQuotaRefund(null);
       setUserStop(null);
-      await requestInitialSuggestions(projectId, []);
+      // Suggestions cannot turn a committed session into a creation failure.
+      void requestInitialSuggestions(projectId, []).catch(error => {
+        logger.error("Failed to load new-session suggestions:", error);
+        if (ownsRequest()) setSuggestionDisplayState("fallback");
+      });
     } catch (err) {
       logger.error("Failed to create new session:", err);
-      if (currentProjectIdRef.current === projectId && requestSeq === newSessionRequestSeqRef.current) {
-        setSuggestionDisplayState("fallback");
+      if (!ownsRequest()) return;
+      currentAgentSessionIdRef.current = null;
+      reset();
+      clearStreamItems();
+      setMatchedSkills([]);
+      setSuggestionDisplayState("fallback");
+      // A failed response may follow a committed creation. Read the actual
+      // active history; never replay the POST or guess that the old chat won.
+      const recoveredMessages = await loadChatHistory(projectId, true);
+      if (recoveredMessages !== null && ownsRequest()) {
+        toast.error(t("chat:panel.newSessionFailed"));
+      }
+    } finally {
+      if (ownsRequest() && creatingSessionRef.current === requestSeq) {
+        creatingSessionRef.current = null;
+        setIsCreatingSession(false);
       }
     }
   };
@@ -2033,7 +2149,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     await handleNewSessionRef.current();
   };
   const requestNewChat = () => {
-    if (newChatAfterStopRef.current) return;
+    if (newChatAfterStopRef.current || creatingSessionRef.current !== null) return;
     if (!isStreaming) {
       void handleNewSession();
       return;
@@ -2195,12 +2311,27 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     return () => window.removeEventListener("resize", clampToMax);
   }, [getMaxInputPanelHeight]);
 
+  const leaveConfirmation = (
+    <LeaveWhileGeneratingDialog
+      open={leaveGuard.leavePending}
+      unprotectedDraft={unprotectedDeletedDraft}
+      roundEnded={unprotectedDeletedDraft ? !isStreaming : leaveGuard.roundEnded}
+      producedOutput={roundProgressRef.current.producedOutput}
+      showDailyCount={showDailyCount}
+      onStay={leaveGuard.cancelLeave}
+      onLeave={handleConfirmLeave}
+    />
+  );
+
   if (!currentProjectId) {
     return (
+      <>
       <div className="h-full flex flex-col items-center justify-center text-[hsl(var(--text-secondary))] p-4 text-center">
         <Sparkles size={48} className="mb-4 opacity-50" />
         <p className="text-sm">{t('chat:panel.selectProject')}</p>
       </div>
+      {leaveConfirmation}
+      </>
     );
   }
 
@@ -2234,8 +2365,8 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
         className={`shrink-0 flex items-center justify-between border-b border-[hsl(var(--separator-color))] ${isMobile ? 'h-11 px-2' : 'h-12 px-3'}`}
       >
         {/* 右栏可能只有 300px 宽：标题不折行，状态词放不下就省略，额度用紧凑胶囊。 */}
-        <div className="flex min-w-0 items-center gap-1" data-testid="chat-panel-header-title">
-          <span className={`shrink-0 whitespace-nowrap font-medium text-[hsl(var(--text-primary))] ${isMobile ? 'text-xs' : 'text-sm'}`}>{t('chat:panel.title')}</span>
+        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden" data-testid="chat-panel-header-title">
+          <span className={`min-w-0 truncate whitespace-nowrap font-medium text-[hsl(var(--text-primary))] ${isMobile ? 'text-xs' : 'text-sm'}`}>{t('chat:panel.title')}</span>
           {isStreaming && (
             <span className="min-w-0 truncate whitespace-nowrap text-xs text-[hsl(var(--success))] animate-[breathe_1.5s_ease-in-out_infinite]">
               · {t('chat:panel.processing')}
@@ -2245,7 +2376,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
             <span className="min-w-0 truncate whitespace-nowrap text-xs text-[hsl(var(--text-secondary))]">· {t('chat:panel.loadingHistory')}</span>
           )}
         </div>
-        <div className={`flex min-w-0 items-center ${isMobile ? 'gap-1' : 'gap-2'}`} data-testid="chat-panel-header-actions">
+        <div className={`flex shrink-0 items-center ${isMobile ? 'gap-1' : 'gap-2'}`} data-testid="chat-panel-header-actions">
           <QuotaBadge compact />
           <button
             onClick={() => setShowAIMemory(true)}
@@ -2256,10 +2387,12 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
           </button>
           <button
             onClick={requestNewChat}
+            disabled={isCreatingSession || newChatPending}
+            aria-busy={isCreatingSession}
             className={`flex items-center justify-center text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))] hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-primary)/0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-[hsl(var(--bg-primary))] ${isMobile ? 'p-2 min-h-[44px] min-w-[44px]' : 'p-1.5 min-h-0 min-w-0'}`}
             title={t('chat:panel.newSession')}
           >
-            <Plus size={isMobile ? 18 : 16} />
+            {isCreatingSession ? <><Loader2 size={isMobile ? 18 : 16} className="animate-spin" /><span className="sr-only" role="status">{t("chat:panel.creatingSession")}</span></> : <Plus size={isMobile ? 18 : 16} />}
           </button>
         </div>
       </div>
@@ -2268,12 +2401,18 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
       {/* data-testid: message-list - Message container for message display tests */}
       <div ref={messagesScrollContainerRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden" data-testid="message-list">
         <div className={`py-3 ${isMobile ? 'px-2 pb-2' : 'px-3'}`}>
+          {sessionRecoveryError === currentProjectId && (
+            <div role="alert" className="mb-3 rounded-lg border border-[hsl(var(--border-color))] bg-[hsl(var(--bg-secondary))] p-3 text-sm">
+              <p>{t("chat:panel.sessionRecoveryFailed")}</p>
+              <button type="button" className="btn-secondary mt-2 min-h-11" disabled={isLoadingHistory} onClick={() => { if (currentProjectId) void loadChatHistory(currentProjectId, true); }}>{t("common:retry")}</button>
+            </div>
+          )}
           {isLoadingHistory ? (
             <div className="h-[200px] flex flex-col items-center justify-center text-[hsl(var(--text-secondary))]">
               <Loader2 size={32} className="mb-4 animate-spin opacity-50" />
               <p className="text-sm">{t('chat:panel.loadingMessages')}</p>
             </div>
-          ) : messages.length === 0 && !isStreaming && !isThinking && !(error && retryable) ? (
+          ) : messages.length === 0 && !isStreaming && !isThinking && !(error && retryable) && sessionRecoveryError !== currentProjectId ? (
             <div className="h-[200px] flex flex-col items-center justify-center text-[hsl(var(--text-secondary))]">
               <Sparkles size={48} className="mb-4 opacity-30" />
               <p className={`text-center ${isMobile ? 'text-xs mb-1.5 px-2' : 'text-sm mb-2'}`}>{t('chat:panel.welcome')}</p>
@@ -2291,6 +2430,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
                 onIterationAssistAction={handleIterationAssistAction}
                 streamingMessageId={undefined}
                 onUndo={handleUndo}
+                onOpenFile={currentProjectId && currentProject?.id === currentProjectId ? handleOpenFile : undefined}
                 onSubmitFeedback={handleSubmitFeedback}
                 feedbackPendingMessageId={feedbackPendingMessageId}
                 showDailyCount={showDailyCount}
@@ -2533,10 +2673,11 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
             />
           )}
           <MessageInput
+            focusRequest={!isMobile || activePanel === "chat" ? chatFocusRequest : 0}
             onSend={handleSendMessage}
             // Allow drafting while AI is streaming/thinking, but prevent sending until it finishes.
             disabled={isLoadingHistory}
-            sendDisabled={isStreaming || isThinking || isLoadingHistory || newChatPending}
+            sendDisabled={isStreaming || isThinking || isLoadingHistory || newChatPending || isCreatingSession || sessionRecoveryError === currentProjectId}
             // Quota used up: drafting stays possible; send / Enter explains instead of sending.
             onBlockedSend={aiSendBlocked ? () => setShowQuotaUpgradeModal(true) : undefined}
             // Waiting for the round to wrap up before a new chat: still 「正在停止…」.
@@ -2557,7 +2698,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
             // While the card offers "write chapter 1", chips (AI or fallback) saying the same are dropped: one entry for it.
             hideSuggestion={showNextStep ? duplicatesNextStep : undefined}
             messageCount={messages.length}
-            suggestionDisplayState={suggestionDisplayState}
+            suggestionDisplayState={staticFirstWork || !firstWork.isSuccess ? "ready" : suggestionDisplayState}
             onRefreshSuggestions={refreshSuggestionsNow}
             isRefreshingSuggestions={isRefreshingSuggestions}
             // Mobile input panel uses a max-height (not a fixed height). Using "fill" can cause
@@ -2635,14 +2776,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
       />
 
       {/* Leaving the workbench mid-round drops the stream and ends the round. */}
-      <LeaveWhileGeneratingDialog
-        open={leaveGuard.leavePending}
-        roundEnded={leaveGuard.roundEnded}
-        producedOutput={roundProgressRef.current.producedOutput}
-        showDailyCount={showDailyCount}
-        onStay={leaveGuard.cancelLeave}
-        onLeave={handleConfirmLeave}
-      />
+      {leaveConfirmation}
 
       {/* 新对话 mid-round stops this round first. */}
       <LeaveWhileGeneratingDialog

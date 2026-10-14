@@ -54,20 +54,20 @@ const PlanCard: React.FC<{
   );
 
   return (
-    <div className="admin-surface p-4 space-y-3">
-      <div className="flex items-start justify-between">
-        <div className="flex-1">
-          <h3 className="text-lg font-semibold text-[hsl(var(--text-primary))] mb-1">
+    <div className="admin-surface flex min-w-0 flex-col gap-3 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <h3 className="mb-1 text-lg font-semibold text-[hsl(var(--text-primary))] [overflow-wrap:anywhere]">
             {plan.display_name}
           </h3>
           {plan.display_name_en && (
-            <p className="text-sm text-[hsl(var(--text-secondary))]">
+            <p className="text-sm text-[hsl(var(--text-secondary))] [overflow-wrap:anywhere]">
               {plan.display_name_en}
             </p>
           )}
         </div>
         <span
-          className={`px-2 py-0.5 rounded text-xs font-medium ${
+          className={`shrink-0 whitespace-nowrap px-2 py-0.5 rounded text-xs font-medium ${
             plan.is_active
               ? "bg-[hsl(var(--success)/0.15)] text-[hsl(var(--success-text))]"
               : "bg-[hsl(var(--bg-tertiary))] text-[hsl(var(--text-secondary))]"
@@ -104,11 +104,11 @@ const PlanCard: React.FC<{
         </div>
         <div className="grid grid-cols-1 gap-1 text-sm">
           {planFeatureKeys.map((key) => (
-            <div key={key} className="flex items-center justify-between">
-              <span className="text-[hsl(var(--text-secondary))]">
+            <div key={key} className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4">
+              <span className="text-[hsl(var(--text-secondary))] [overflow-wrap:anywhere]">
                 {featureLabels[key]}
               </span>
-              <span className="text-[hsl(var(--text-primary))] font-medium">
+              <span className="text-right text-[hsl(var(--text-primary))] font-medium">
                 {formatFeatureValue(features[key])}
               </span>
             </div>
@@ -121,7 +121,7 @@ const PlanCard: React.FC<{
         )}
       </div>
 
-      <div className="pt-3 border-t border-[hsl(var(--separator-color))] flex items-center justify-end">
+      <div className="mt-auto pt-3 border-t border-[hsl(var(--separator-color))] flex items-center justify-end">
         <button
           onClick={() => onEdit(plan)}
           className="flex min-h-11 items-center gap-1.5 px-3 py-1.5 text-sm bg-[hsl(var(--accent-primary))] text-white rounded-lg hover:opacity-90 transition-all"
@@ -148,6 +148,7 @@ export const SubscriptionPlanManagement: React.FC = () => {
     featuresJson: "",
   });
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const freeDailyLimit = editingPlan?.effective_features?.ai_conversations_per_day ?? 3;
 
   // Fetch plans
   const { data: plans, isLoading, isFetching, isError, error, refetch } = useQuery({
@@ -188,6 +189,9 @@ export const SubscriptionPlanManagement: React.FC = () => {
   });
 
   const handleEdit = (plan: SubscriptionPlan) => {
+    const editableFeatures = { ...plan.features };
+    if (plan.name === "free") delete editableFeatures.ai_conversations_per_day;
+    if (plan.name === "pro") delete editableFeatures.inspiration_copies_monthly;
     setEditingPlan(plan);
     setEditFormData({
       display_name: plan.display_name,
@@ -195,7 +199,7 @@ export const SubscriptionPlanManagement: React.FC = () => {
       price_monthly_cents: plan.price_monthly_cents,
       price_yearly_cents: plan.price_yearly_cents,
       is_active: plan.is_active,
-      featuresJson: JSON.stringify(plan.features, null, 2),
+      featuresJson: JSON.stringify(editableFeatures, null, 2),
     });
     setJsonError(null);
     setShowEditModal(true);
@@ -217,9 +221,27 @@ export const SubscriptionPlanManagement: React.FC = () => {
     let features: Record<string, unknown> | undefined;
     try {
       features = JSON.parse(editFormData.featuresJson);
+      if (!features || typeof features !== "object" || Array.isArray(features)) {
+        setJsonError(t("plans.invalidJson"));
+        return;
+      }
     } catch {
       setJsonError(t("plans.invalidJson"));
       return;
+    }
+    if (editingPlan.name === "free") {
+      if (features.ai_conversations_per_day !== undefined && features.ai_conversations_per_day !== freeDailyLimit) {
+        setJsonError(t("plans.featuresDetail.freeDailyPolicy", {count: freeDailyLimit}));
+        return;
+      }
+      features.ai_conversations_per_day = freeDailyLimit;
+    }
+    if (editingPlan.name === "pro") {
+      if (features.inspiration_copies_monthly !== undefined && features.inspiration_copies_monthly !== -1) {
+        setJsonError(t("plans.featuresDetail.proInspirationPolicy"));
+        return;
+      }
+      features.inspiration_copies_monthly = -1;
     }
 
     updateMutation.mutate({
@@ -260,7 +282,7 @@ export const SubscriptionPlanManagement: React.FC = () => {
           void refetch();
         }}
       >
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
           {(plans ?? []).map((plan) => (
             <PlanCard
               key={plan.id}
@@ -405,6 +427,33 @@ export const SubscriptionPlanManagement: React.FC = () => {
               <h3 className="text-sm font-medium text-[hsl(var(--text-primary))] uppercase tracking-wide">
                 {t("plans.featuresDetail.title")}
               </h3>
+
+              {editingPlan.name === "free" && (
+                <div>
+                  <label htmlFor="admin-plans-free-daily-limit" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                    {t("plans.featuresDetail.ai_conversations_per_day")}
+                  </label>
+                  <input id="admin-plans-free-daily-limit" type="number" value={freeDailyLimit} readOnly
+                    aria-describedby="admin-plans-free-daily-policy"
+                    className="w-full min-h-11 rounded-lg border border-[hsl(var(--separator-color))] bg-[hsl(var(--bg-secondary))] px-3 py-2.5 text-[hsl(var(--text-secondary))]" />
+                  <p id="admin-plans-free-daily-policy" className="mt-1 text-sm text-[hsl(var(--text-secondary))]">
+                    {t("plans.featuresDetail.freeDailyPolicy", {count: freeDailyLimit})}
+                  </p>
+                </div>
+              )}
+              {editingPlan.name === "pro" && (
+                <div>
+                  <label htmlFor="admin-plans-pro-copy-limit" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                    {t("plans.featuresDetail.inspiration_copies_monthly")}
+                  </label>
+                  <input id="admin-plans-pro-copy-limit" value={t("plans.unlimited")} readOnly
+                    aria-describedby="admin-plans-pro-copy-policy"
+                    className="w-full min-h-11 rounded-lg border border-[hsl(var(--separator-color))] bg-[hsl(var(--bg-secondary))] px-3 py-2.5 text-[hsl(var(--text-secondary))]" />
+                  <p id="admin-plans-pro-copy-policy" className="mt-1 text-sm text-[hsl(var(--text-secondary))]">
+                    {t("plans.featuresDetail.proInspirationPolicy")}
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label htmlFor="admin-plans-featuresDetail-jsonLabel" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">

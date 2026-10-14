@@ -46,8 +46,11 @@ from models.referral import InviteCode
 from services.features import password_reset_service
 from services.features.activation_event_service import activation_event_service
 from services.features.referral_service import create_referral as create_referral_service
+from services.features.registration_recovery_service import correct_registration_email
+from services.features.verification_service import clear_registration_verification
+from services.infra.email_client import InvalidRecipientError
 from services.subscription.subscription_service import subscription_service
-from utils.email_identity import email_identity_matches, normalize_email_identity
+from utils.email_identity import email_identity_matches, normalize_email_identity, validate_registration_email
 from utils.logger import get_logger, log_with_context
 
 logger = get_logger(__name__)
@@ -55,6 +58,7 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 _REFRESH_TOKEN_CLEANUP_LAST_RUN_AT: datetime | None = None
+_REFRESH_ROTATION_CONFLICT_SECONDS = 10
 
 
 # Request/Response schemas
@@ -155,6 +159,13 @@ class PasswordResetConfirmRequest(BaseModel):
     @classmethod
     def validate_new_password(cls, value: str) -> str:
         return _validate_new_password(value)
+
+
+class RegistrationEmailRequest(BaseModel):
+    email: EmailStr
+    password: str
+    new_email: EmailStr
+    language: str = "zh"
 
 
 def _validate_new_password(value: str) -> str:
@@ -439,6 +450,11 @@ async def register(
     """
     normalized_email = normalize_email_identity(str(request.email))
 
+    try:
+        validate_registration_email(normalized_email)
+    except ValueError:
+        raise APIException(error_code=ErrorCode.AUTH_EMAIL_UNDELIVERABLE, status_code=400) from None
+
     # Check if username already exists
     existing_user = session.exec(
         select(User).where(User.username == request.username)
@@ -540,6 +556,24 @@ async def register(
     )
 
     session.add(new_user)
+    # Reserve uniqueness before sending, but keep a rejected recipient out of
+    # the database and avoid committing any referral/subscription side effects.
+    await asyncio.to_thread(session.flush)
+    try:
+        # An abandoned correction may have left code/cooldown under this address.
+        # Keep the unique reservation until no former owner code can verify it.
+        await clear_registration_verification(normalized_email)
+    except Exception:
+        session.rollback()
+        raise APIException(error_code=ErrorCode.AUTH_RESEND_FAILED, status_code=503) from None
+    try:
+        success, error = await send_verification_code(normalized_email, language=request.language or "zh")
+    except InvalidRecipientError:
+        session.rollback()
+        raise APIException(error_code=ErrorCode.AUTH_EMAIL_UNDELIVERABLE, status_code=400) from None
+    from services.first_work_service import enroll_new_user
+
+    enroll_new_user(session, new_user)
     session.commit()
     session.refresh(new_user)
 
@@ -607,10 +641,6 @@ async def register(
             error_type=type(e).__name__,
         )
 
-    # Send verification code
-    language = request.language or "zh"
-    success, error = await send_verification_code(normalized_email, language=language)
-
     if not success:
         # Keep registration successful to avoid "account created but API failed" inconsistency.
         # User can request a new code via /api/auth/resend-verification.
@@ -647,11 +677,34 @@ async def register(
         )
 
     return {
-        "message": get_message("auth_register_success", _accept_language),
+        "message": get_message("auth_register_success" if success else "auth_register_delivery_pending", _accept_language),
         "email": normalized_email,
         "email_verified": False,
         "verification_sent": success,
     }
+
+
+@router.post("/registration-email")
+async def change_registration_email(
+    request: RegistrationEmailRequest,
+    http_request: Request,
+    session: Session = Depends(get_session),
+):
+    if _is_auth_rate_limit_enabled():
+        await asyncio.to_thread(
+            _enforce_auth_rate_limit, http_request=http_request, key="registration_email_ip",
+            max_requests=10, window_seconds=600, endpoint="registration-email",
+        )
+        await asyncio.to_thread(
+            _enforce_auth_rate_limit,
+            http_request=http_request, key=f"registration_email:{normalize_email_identity(str(request.email))}",
+            max_requests=5, window_seconds=600, endpoint="registration-email", include_client_ip=False,
+        )
+    corrected = await correct_registration_email(
+        session, email=str(request.email), password=request.password,
+        new_email=str(request.new_email), language=request.language,
+    )
+    return {"email": corrected, "verification_sent": True}
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -903,6 +956,7 @@ def refresh_token(
                 RefreshTokenRecord.user_id == user.id,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         ).first()
 
         if not refresh_record:
@@ -939,6 +993,21 @@ def refresh_token(
             )
 
         if refresh_record.revoked_at is not None:
+            elapsed = (now - normalize_datetime_to_utc(refresh_record.revoked_at)).total_seconds()
+            if (
+                refresh_record.revoke_reason == "rotated"
+                and refresh_record.replaced_by_jti
+                and 0 <= elapsed <= _REFRESH_ROTATION_CONFLICT_SECONDS
+                and session.exec(select(RefreshTokenRecord.id).where(
+                    RefreshTokenRecord.user_id == user.id,
+                    RefreshTokenRecord.family_id == refresh_record.family_id,
+                    RefreshTokenRecord.revoked_at.is_(None),
+                    RefreshTokenRecord.expires_at > now,
+                )).first() is not None
+            ):
+                # The winner owns the only credentials. Do not mint a sibling,
+                # extend the original window, or revoke its active descendant.
+                raise APIException(error_code=ErrorCode.RESOURCE_CONFLICT, status_code=409)
             revoked_count = _revoke_refresh_family(
                 session,
                 family_id=refresh_record.family_id,

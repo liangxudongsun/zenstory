@@ -109,7 +109,8 @@ function start(surface: Surface) {
 }
 function assertDenied(result: Outcome, surface: Surface) {
   if (surface === 'stream') expect(result).toEqual({ ok: false, code: 'AUTH_ERROR', retryable: false })
-  else if (surface === 'suggestions') expect(result).toEqual({ ok: true, value: [] })
+  // Unavailable suggestions stay distinct from a valid empty success (issue #180).
+  else if (surface === 'suggestions') expect(result).toEqual({ ok: true, value: null })
   else if (surface === 'steer') expect(result).toEqual({ ok: false, status: undefined })
   else expect(result).toEqual({ ok: false, status: 401 })
   expect(downloads).toEqual([])

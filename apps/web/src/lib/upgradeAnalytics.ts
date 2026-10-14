@@ -5,7 +5,7 @@ import { trackEvent } from "./analytics";
 export const UPGRADE_FUNNEL_EVENT = "zenstory:upgrade-funnel";
 
 export type UpgradeFunnelAction = "expose" | "click" | "conversion";
-export type UpgradeFunnelSurface = "modal" | "toast" | "page";
+export type UpgradeFunnelSurface = "modal" | "toast" | "page" | "badge" | "card";
 export type UpgradeFunnelCta = "primary" | "secondary" | "direct";
 
 const EVENT_NAME_BY_ACTION: Record<UpgradeFunnelAction, string> = {
@@ -40,7 +40,7 @@ const RETRY_DELAY_MS = 5000;
 const DROP_STATUS_CODES = new Set([400, 404, 413, 422]);
 
 const ACTION_SET = new Set<UpgradeFunnelAction>(["expose", "click", "conversion"]);
-const SURFACE_SET = new Set<UpgradeFunnelSurface>(["modal", "toast", "page"]);
+const SURFACE_SET = new Set<UpgradeFunnelSurface>(["modal", "toast", "page", "badge", "card"]);
 const CTA_SET = new Set<UpgradeFunnelCta>(["primary", "secondary", "direct"]);
 
 let isFlushing = false;
@@ -346,11 +346,12 @@ export function clearPendingUpgradeFunnelEvents(): void {
   }
 }
 
-export function trackUpgradeExpose(source: string, surface: UpgradeFunnelSurface = "modal"): void {
+export function trackUpgradeExpose(source: string, surface: UpgradeFunnelSurface = "modal", meta?: UpgradeFunnelPayload["meta"]): void {
   trackUpgradeFunnelEvent({
     action: "expose",
     source,
     surface,
+    meta,
   });
 }
 

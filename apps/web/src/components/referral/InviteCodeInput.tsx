@@ -94,7 +94,7 @@ export const InviteCodeInput: React.FC<InviteCodeInputProps> = ({
           required={required}
           maxLength={9}
           autoComplete="off"
-          className="input pr-10 font-mono tracking-widest uppercase text-center"
+          className="input min-h-11 pr-10 font-mono tracking-widest uppercase text-center"
           aria-describedby={describedById}
           aria-invalid={showValidation ? !isValid : undefined}
         />

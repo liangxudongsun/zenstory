@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Mail, AlertCircle, CheckCircle } from "../components/icons";
 import { useAuth } from "../contexts/AuthContext";
@@ -15,7 +15,8 @@ interface VerifyEmailProps {
 
 export default function VerifyEmail({ email, planIntent }: VerifyEmailProps) {
   const navigate = useNavigate();
-  const { t } = useTranslation(['auth']);
+  const location = useLocation();
+  const { t, i18n } = useTranslation(['auth']);
   const { verifyEmail, resendVerification } = useAuth();
   const normalizedEmail = email.trim();
   const hasEmail = normalizedEmail.length > 0;
@@ -29,6 +30,9 @@ export default function VerifyEmail({ email, planIntent }: VerifyEmailProps) {
 
   const [code, setCode] = useState<string[]>(["", "", "", "", "", ""]);
   const inputRefs = useRef<HTMLInputElement[]>([]);
+  const newEmailRef = useRef<HTMLInputElement>(null);
+  const correctionTriggerRef = useRef<HTMLButtonElement>(null);
+  const restoreCorrectionFocusRef = useRef(false);
   const automaticSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pageLifetimeRef = useRef(0);
   const activeOperationRef = useRef<{ lifetime: number } | null>(null);
@@ -44,6 +48,21 @@ export default function VerifyEmail({ email, planIntent }: VerifyEmailProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [deliveryPending, setDeliveryPending] = useState(
+    (location.state as { verificationSent?: boolean } | null)?.verificationSent === false,
+  );
+  const [correctingEmail, setCorrectingEmail] = useState(false);
+  const [newEmail, setNewEmail] = useState('');
+  const [registrationPassword, setRegistrationPassword] = useState('');
+
+  useEffect(() => {
+    if (correctingEmail) {
+      newEmailRef.current?.focus();
+    } else if (restoreCorrectionFocusRef.current) {
+      restoreCorrectionFocusRef.current = false;
+      correctionTriggerRef.current?.focus();
+    }
+  }, [correctingEmail]);
 
   const [cooldown, setCooldown] = useState(60);
   const [codeTtl, setCodeTtl] = useState(300);
@@ -256,6 +275,7 @@ export default function VerifyEmail({ email, planIntent }: VerifyEmailProps) {
     try {
       await resendVerification(normalizedEmail);
       if (!ownsOperation(operation)) return;
+      setDeliveryPending(false);
       await syncVerificationStatus(() => {
         setCooldown(60);
         setCodeTtl(300);
@@ -284,6 +304,34 @@ export default function VerifyEmail({ email, planIntent }: VerifyEmailProps) {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
+  const handleCorrectEmail = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const operation = beginOperation();
+    if (!operation) return;
+    cancelAutomaticSubmit();
+    setError('');
+    try {
+      const result = await authApi.correctRegistrationEmail({
+        email: normalizedEmail, password: registrationPassword, new_email: newEmail.trim(),
+        language: i18n?.language?.startsWith('en') ? 'en' : 'zh',
+      });
+      if (!ownsOperation(operation)) return;
+      setRegistrationPassword('');
+      setCorrectingEmail(false);
+      setDeliveryPending(false);
+      setCode(['', '', '', '', '', '']);
+      const path = planIntent ? `/verify-email?plan=${encodeURIComponent(planIntent)}` : '/verify-email';
+      navigate(path, { replace: true, state: { email: result.email, verificationSent: true } });
+    } catch (err) {
+      if (ownsOperation(operation)) setError(err instanceof Error ? err.message : t('auth:errors.resendFailed'));
+    } finally {
+      if (ownsOperation(operation)) {
+        activeOperationRef.current = null;
+        setLoading(false);
+      }
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[hsl(var(--bg-primary))] flex flex-col">
       <PublicHeader variant="auth" />
@@ -300,28 +348,50 @@ export default function VerifyEmail({ email, planIntent }: VerifyEmailProps) {
                 )}
               </div>
               <h1 className="text-2xl font-bold text-[hsl(var(--text-primary))] mb-2">
-                {success ? t('auth:verifyEmail.successTitle') : t('auth:verifyEmail.title')}
+                {correctingEmail ? t('auth:verifyEmail.changeEmail') : success ? t('auth:verifyEmail.successTitle') : t('auth:verifyEmail.title')}
               </h1>
               <p className="text-[hsl(var(--text-secondary))] text-sm break-words">
-                {success
+                {correctingEmail ? t('auth:verifyEmail.changeEmailHint') : success
                   ? t('auth:verifyEmail.successSubtitle')
                   : hasEmail
-                    ? t('auth:verifyEmail.subtitle', { email: normalizedEmail })
+                    ? deliveryPending ? t('auth:verifyEmail.deliveryPending', { email: normalizedEmail }) : t('auth:verifyEmail.subtitle', { email: normalizedEmail })
                     : t('auth:verifyEmail.missingEmailSubtitle')
                 }
               </p>
             </div>
 
             {error && (
-              <div className="bg-[hsl(var(--error)/0.1)] border border-[hsl(var(--error)/0.3)] rounded-xl p-4 mb-6 flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-[hsl(var(--error-text))] flex-shrink-0 mt-0.5" />
+              <div id="verification-error" role="alert" className="bg-[hsl(var(--error)/0.1)] border border-[hsl(var(--error)/0.3)] rounded-xl p-4 mb-6 flex items-start gap-3">
+                <AlertCircle aria-hidden="true" className="w-5 h-5 text-[hsl(var(--error-text))] flex-shrink-0 mt-0.5" />
                 <p className="text-[hsl(var(--error-text))] text-sm break-words">{error}</p>
               </div>
             )}
 
-            {!success && hasEmail && (
+            {!success && hasEmail && correctingEmail && (
+              <form onSubmit={handleCorrectEmail} aria-busy={loading} className="space-y-4">
+                <div>
+                  <label htmlFor="registration-new-email" className="mb-2 block text-sm font-medium">{t('auth:verifyEmail.newEmail')}</label>
+                  <input ref={newEmailRef} id="registration-new-email" type="text" inputMode="email" autoComplete="email" required disabled={loading}
+                    value={newEmail} onChange={event => setNewEmail(event.target.value)}
+                    aria-describedby={error ? "verification-error" : undefined}
+                    className="input min-h-11" />
+                </div>
+                <div>
+                  <label htmlFor="registration-password" className="mb-2 block text-sm font-medium">{t('auth:verifyEmail.registrationPassword')}</label>
+                  <input id="registration-password" type="password" autoComplete="current-password" required disabled={loading}
+                    value={registrationPassword} onChange={event => setRegistrationPassword(event.target.value)}
+                    aria-describedby={error ? "verification-error" : undefined}
+                    className="input min-h-11" />
+                </div>
+                <button type="submit" disabled={loading} className="btn-primary min-h-11 w-full">{loading ? t('auth:verifyEmail.updatingEmail') : t('auth:verifyEmail.confirmChange')}</button>
+                <button type="button" disabled={loading} onClick={() => { restoreCorrectionFocusRef.current = true; setCorrectingEmail(false); setRegistrationPassword(''); setError(''); }}
+                  className="btn-ghost min-h-11 w-full">{t('auth:verifyEmail.cancelChange')}</button>
+              </form>
+            )}
+
+            {!success && hasEmail && !correctingEmail && (
               <>
-                <div className="grid grid-cols-6 gap-1.5 sm:gap-2 mb-6">
+                {!deliveryPending && <><div className="grid grid-cols-6 gap-1.5 sm:gap-2 mb-6">
                   {code.map((digit, index) => (
                     <input
                       key={index}
@@ -330,6 +400,7 @@ export default function VerifyEmail({ email, planIntent }: VerifyEmailProps) {
                       inputMode="numeric"
                       aria-label={t('auth:verifyEmail.digitLabel', { index: index + 1, count: code.length })}
                       autoComplete={index === 0 ? 'one-time-code' : 'off'}
+                      aria-describedby={error ? "verification-error" : undefined}
                       maxLength={1}
                       value={digit}
                       onChange={(e) => handleInputChange(index, e.target.value)}
@@ -350,6 +421,7 @@ export default function VerifyEmail({ email, planIntent }: VerifyEmailProps) {
                     )}
                   </p>
                 </div>
+                </>}
 
                 <button
                   type="button"
@@ -365,6 +437,10 @@ export default function VerifyEmail({ email, planIntent }: VerifyEmailProps) {
                 </button>
 
                 <div className="mt-6 text-center">
+                  <button ref={correctionTriggerRef} type="button" disabled={loading} onClick={() => { cancelAutomaticSubmit(); setCorrectingEmail(true); setError(''); }}
+                    className="min-h-11 rounded-lg px-3 text-sm text-[hsl(var(--text-primary))]">
+                    {t('auth:verifyEmail.changeEmail')}
+                  </button>
                   <button
                     type="button"
                     onClick={() => navigate(loginLink)}

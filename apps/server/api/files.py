@@ -999,6 +999,10 @@ def update_file(
                     operation="update_file_create_version",
                 )
 
+        if content_changed and change_source == CHANGE_SOURCE_USER and change_type != CHANGE_TYPE_AI_EDIT and file.file_type in {"draft", "script"} and file.content.strip():
+            from services.first_work_service import record_first_work_action
+
+            record_first_work_action(session, current_user.id, file.project_id, "manual_write")
         session.commit()
         session.refresh(file)
 

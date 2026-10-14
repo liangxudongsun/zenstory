@@ -1,7 +1,14 @@
 import React from 'react'
+import { BrowserRouter, Link } from 'react-router-dom'
+import { setUnprotectedDeletedDraft } from '../../lib/fileRemovalEvents'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, render as rtlRender, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+
+const mockFirstWork = vi.hoisted(() => ({ get: vi.fn() }))
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'test-user' } }) }))
+vi.mock('../../lib/firstWorkApi', async (importOriginal) => ({ ...await importOriginal<typeof import('../../lib/firstWorkApi')>(), firstWorkApi: mockFirstWork }))
+const inactiveFirstWork = { status: 'ineligible', project_id: null, file_id: null, available: false, static_guidance: false, opened_at: null, first_manual_write_at: null, first_ai_requested_at: null }
 
 const mockDraft = vi.hoisted(() => ({ draft: '', saveDraft: vi.fn(), clearDraft: vi.fn() }))
 const mockStop = vi.hoisted(() => vi.fn())
@@ -16,11 +23,14 @@ const mockQuota = vi.hoisted(() => ({
 }))
 
 const mockProjectState = vi.hoisted(() => ({
+  currentProjectId: 'project-1' as string | null,
+  selectedItem: null as { id: string; type: string; title: string } | null,
   currentProject: { id: 'project-1', name: '外卖小哥看见倒计时' } as { id: string; name: string } | null,
   refreshProjects: vi.fn(async () => {}),
   refreshProject: vi.fn(async (_projectId: string) => {}),
   triggerFileTreeRefresh: vi.fn(),
   triggerEditorRefresh: vi.fn(),
+  setSelectedItem: vi.fn(),
 }))
 
 const mockStartStream = vi.hoisted(() => vi.fn())
@@ -78,14 +88,14 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('../../contexts/ProjectContext', () => ({
   useProject: () => ({
-    currentProjectId: 'project-1',
+    currentProjectId: mockProjectState.currentProjectId,
     currentProject: mockProjectState.currentProject,
     refreshProjects: mockProjectState.refreshProjects,
     refreshProject: mockProjectState.refreshProject,
-    selectedItem: null,
+    selectedItem: mockProjectState.selectedItem,
     triggerFileTreeRefresh: mockProjectState.triggerFileTreeRefresh,
     triggerEditorRefresh: mockProjectState.triggerEditorRefresh,
-    setSelectedItem: vi.fn(),
+    setSelectedItem: mockProjectState.setSelectedItem,
     appendFileContent: vi.fn(),
     finishFileStreaming: vi.fn(),
     startFileStreaming: vi.fn(),
@@ -106,8 +116,9 @@ vi.mock('../../lib/subscriptionApi', () => ({
   },
 }))
 
+const mockLayout = vi.hoisted(() => ({ isMobile: false, switchToEditor: vi.fn() }))
 vi.mock('../../contexts/MobileLayoutContext', () => ({
-  useMobileLayout: () => ({ isMobile: false }),
+  useMobileLayout: () => mockLayout,
 }))
 
 const mockAttachments = vi.hoisted(() => ({ fileIds: [] as string[] }))
@@ -234,6 +245,8 @@ vi.mock('../../lib/api', () => ({
 }))
 
 type MockMessageInputProps = {
+  aiSuggestions?: string[]
+  suggestionDisplayState?: string
   onGenerationModeChange?: (mode: 'fast' | 'quality') => void
   onSend: (message: string, selectedSkillIds: string[]) => void | Promise<void>
   disabled?: boolean
@@ -307,6 +320,8 @@ import { notifyEditorContentSaved, setOpenEditorFlush } from '../../lib/editorSa
 describe('ChatPanel mount smoke', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    sessionStorage.clear()
+    mockFirstWork.get.mockReset().mockResolvedValue(inactiveFirstWork)
     capturedUseAgentStream.options = null
     mockStreamSnapshot.items = []
     mockAgentStreamState.isStreaming = false
@@ -318,12 +333,95 @@ describe('ChatPanel mount smoke', () => {
     localStorage.removeItem('zenstory_inspiration_project-1')
     localStorage.removeItem('zenstory_next_step_dismissed_project-1')
     mockQuota.value = { ai_conversations: { used: 2, limit: 10, reset_at: null } }
+    mockProjectState.currentProjectId = 'project-1'
+    mockProjectState.selectedItem = null
     mockProjectState.currentProject = { id: 'project-1', name: '外卖小哥看见倒计时' }
     mockDraft.draft = ''
+    mockDraft.saveDraft.mockReturnValue(true)
     mockAttachments.fileIds = []
     // 进度 mock 每个用例重置，避免中途失败的用例把排队的返回值留给下一个。
     mockGetProgress.mockReset()
     mockGetProgress.mockResolvedValue([])
+  })
+
+  it.each(['project-1', null])('asks before navigation with a memory-only draft even when current project is %s', async activeProject => {
+    const previousProject = mockProjectState.currentProjectId
+    mockProjectState.currentProjectId = activeProject
+    const originalPath = window.location.pathname
+    setUnprotectedDeletedDraft('previous-project-with-memory-draft', true)
+    const view = render(<BrowserRouter><Link to="/protected-draft-leave">leave-project</Link><ChatPanel /></BrowserRouter>)
+    try {
+      fireEvent.click(screen.getByText('leave-project'))
+      expect(await screen.findByRole('dialog')).toHaveTextContent('editor:deletedFile.leaveMessage')
+      expect(window.location.pathname).toBe(originalPath)
+      fireEvent.click(screen.getByTestId('leave-dialog-stay'))
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(window.location.pathname).toBe(originalPath)
+    } finally {
+      act(() => setUnprotectedDeletedDraft('previous-project-with-memory-draft', false))
+      view.unmount()
+      mockProjectState.currentProjectId = previousProject
+    }
+  })
+
+  it.each([false, true])('opens the exact file using existing selection while streaming (mobile=%s)', async isMobile => {
+    mockLayout.isMobile = isMobile
+    mockAgentStreamState.isStreaming = true
+    mockDraft.draft = 'Keep my chat draft'
+    try {
+      render(<ChatPanel />)
+      await waitFor(() => expect(mockMessageList).toHaveBeenCalled())
+      const props = mockMessageList.mock.calls.at(-1)?.[0] as { onOpenFile?: (id: string, fileType: string, title: string) => void }
+      expect(props.onOpenFile).toBeTypeOf('function')
+      const previousScrolls = mockScrollToBottom.mock.calls.length
+      act(() => props.onOpenFile?.('exact-file', 'script', 'My script'))
+      expect(mockProjectState.setSelectedItem).toHaveBeenCalledWith({ id: 'exact-file', type: 'script', title: 'My script' })
+      expect(mockLayout.switchToEditor).toHaveBeenCalledTimes(isMobile ? 1 : 0)
+      expect(mockStartStream).not.toHaveBeenCalled()
+      expect(mockStop).not.toHaveBeenCalled()
+      expect(mockDraft.clearDraft).not.toHaveBeenCalled()
+      expect(mockDraft.draft).toBe('Keep my chat draft')
+      expect(mockScrollToBottom).toHaveBeenCalledTimes(previousScrolls)
+    } finally { mockLayout.isMobile = false }
+  })
+
+  it('keeps the existing selection object when opening the same file', async () => {
+    mockAgentStreamState.isStreaming = true
+    mockProjectState.selectedItem = { id: 'already-open', type: 'draft', title: 'Unsaved title' }
+    render(<ChatPanel />)
+    await waitFor(() => expect(mockMessageList).toHaveBeenCalled())
+    const props = mockMessageList.mock.calls.at(-1)?.[0] as { onOpenFile?: (id: string, fileType: string, title: string) => void }
+    act(() => props.onOpenFile?.('already-open', 'draft', 'Older server title'))
+    expect(mockProjectState.setSelectedItem).not.toHaveBeenCalled()
+  })
+
+  it('preserves directory selection instead of treating it as an editable draft', async () => {
+    mockAgentStreamState.isStreaming = true
+    render(<ChatPanel />)
+    await waitFor(() => expect(mockMessageList).toHaveBeenCalled())
+    const props = mockMessageList.mock.calls.at(-1)?.[0] as { onOpenFile?: (id: string, fileType: string, title: string) => void }
+    act(() => props.onOpenFile?.('folder-1', 'folder', 'Drafts'))
+    expect(mockProjectState.setSelectedItem).toHaveBeenCalledWith({ id: 'folder-1', type: 'folder', title: 'Drafts' })
+  })
+
+  it('rejects an old title callback after switching projects', async () => {
+    mockAgentStreamState.isStreaming = true
+    const { rerender } = render(<ChatPanel />)
+    await waitFor(() => expect(mockMessageList).toHaveBeenCalled())
+    const props = mockMessageList.mock.calls.at(-1)?.[0] as { onOpenFile?: (id: string, fileType: string, title: string) => void }
+    mockProjectState.currentProjectId = 'project-2'
+    mockProjectState.currentProject = { id: 'project-2', name: 'Another project' }
+    rerender(<QueryClientProvider client={testQueryClient}><ChatPanel /></QueryClientProvider>)
+    act(() => props.onOpenFile?.('old-file', 'draft', 'Old project file'))
+    expect(mockProjectState.setSelectedItem).not.toHaveBeenCalled()
+  })
+
+  it('does not expose file opening without a confirmed current project', async () => {
+    mockProjectState.currentProject = null
+    mockAgentStreamState.isStreaming = true
+    render(<ChatPanel />)
+    await waitFor(() => expect(mockMessageList).toHaveBeenCalled())
+    expect((mockMessageList.mock.calls.at(-1)?.[0] as { onOpenFile?: unknown }).onOpenFile).toBeUndefined()
   })
 
   it('mounts without runtime initialization errors', async () => {
@@ -554,7 +652,7 @@ describe('ChatPanel mount smoke', () => {
       render(<ChatPanel />)
       // 成本兜底和每日条数用同一个标题与说明；错误码文案本身不再重复显示。
       const card = await screen.findByTestId('chat-quota-card')
-      expect(card).toHaveTextContent('今天的免费 AI 消息用完了')
+      await waitFor(() => expect(card).toHaveTextContent('今天的免费 AI 消息用完了'))
       expect(card).toHaveTextContent(/北京时间明天 00:00 恢复/)
       // No count it cannot back up (the badge says 2/10), and no second limit.
       expect(card).not.toHaveTextContent(/\d+ 条/)
@@ -1531,6 +1629,22 @@ describe('ChatPanel mount smoke', () => {
       expect(createNewSession).not.toHaveBeenCalled()
     })
 
+    it('keeps a committed new chat when its auxiliary suggestions reject', async () => {
+      render(<ChatPanel />)
+      await waitFor(() => expect(fetchSuggestions).toHaveBeenCalledTimes(1))
+      await act(async () => { await Promise.resolve() })
+      // Exercise a fresh auxiliary request rather than a valid project-cache hit.
+      localStorage.removeItem('zenstory_suggestions_cache_project-1')
+      vi.mocked(fetchSuggestions).mockRejectedValueOnce(new Error('Auxiliary suggestions unavailable'))
+      fireEvent.click(newChatButton())
+      await waitFor(() => expect(fetchSuggestions).toHaveBeenCalledTimes(2))
+      await act(async () => { await Promise.resolve() })
+      expect(createNewSession).toHaveBeenCalledTimes(1)
+      expect(getRecentMessages).toHaveBeenCalledTimes(1)
+      expect(toast.error).not.toHaveBeenCalled()
+      expect(newChatButton()).toBeEnabled()
+    })
+
     it('starts the new chat right away when nothing is generating', async () => {
       render(<ChatPanel />)
       await waitFor(() => expect(screen.getByTestId('message-list')).toBeInTheDocument())
@@ -1557,6 +1671,38 @@ describe('ChatPanel mount smoke', () => {
     expect(screen.queryByText('这次出错不计入今日 AI 消息。')).not.toBeInTheDocument()
   })
 
+  it('limits automatic quota prompts per account period while explicit blocked sends still explain', async () => {
+    mockAgentStreamState.errorCode = 'ERR_QUOTA_AI_CONVERSATIONS_EXCEEDED'
+    mockAgentStreamState.error = 'quota exceeded'
+    const first = render(<ChatPanel />)
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'common:closeModal' }))
+    first.unmount()
+    render(<ChatPanel />)
+    await screen.findByTestId('chat-quota-card')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await act(async () => { await lastMessageInputProps().onSend('保留我的新稿', []) })
+    expect(await screen.findByRole('dialog')).toBeVisible()
+    expect(mockDraft.saveDraft).toHaveBeenCalledWith('保留我的新稿')
+    expect(mockStartStream).not.toHaveBeenCalled()
+  })
+
+  it('does not reopen a refused quota prompt when the same Beijing reset arrives as ISO data', async () => {
+    mockQuota.value = null as never
+    mockAgentStreamState.errorCode = 'ERR_QUOTA_AI_CONVERSATIONS_EXCEEDED'
+    mockAgentStreamState.error = 'quota exceeded'
+    render(<ChatPanel />)
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'common:closeModal' }))
+    const offset = 8 * 60 * 60 * 1000
+    const nextReset = Math.floor((Date.now() + offset) / 86400000) * 86400000 + 86400000 - offset
+    await act(async () => { testQueryClient.setQueryData(['subscription-quota', 'test-user'], {ai_conversations: {used: 3, limit: 3, reset_at: new Date(nextReset).toISOString()}}) })
+    await waitFor(() => expect(testQueryClient.getQueryData(['subscription-quota', 'test-user'])).toBeDefined())
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 5)) })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByTestId('chat-quota-card')).toBeVisible()
+  })
+
   it('quota modal primary action navigates to billing with source', async () => {
     const originalLocation = window.location
     const assignMock = vi.fn()
@@ -1572,7 +1718,7 @@ describe('ChatPanel mount smoke', () => {
       render(<ChatPanel />)
 
       const dialog = await screen.findByRole('dialog')
-      within(dialog).getByRole('button', { name: '升级专业版' }).click()
+      fireEvent.click(await within(dialog).findByRole('button', { name: '升级专业版' }))
       expect(assignMock).toHaveBeenCalledWith('/dashboard/billing?source=chat_quota_blocked')
     } finally {
       Object.defineProperty(window, 'location', {
@@ -1644,6 +1790,45 @@ describe('ChatPanel mount smoke', () => {
     expect(vi.mocked(fetchSuggestions)).not.toHaveBeenCalled()
   })
 
+  it('keeps an intentional empty result ready, clears old chips and caches it', async () => {
+    vi.mocked(fetchSuggestions).mockResolvedValueOnce([])
+    render(<ChatPanel />)
+    await waitFor(() => expect(lastMessageInputProps().suggestionDisplayState).toBe('ready'))
+    expect(lastMessageInputProps().aiSuggestions).toEqual([])
+    expect(JSON.parse(localStorage.getItem('zenstory_suggestions_cache_project-1')!).suggestions).toEqual([])
+  })
+
+  it('replaces timeout fallback with a late valid empty result', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      let finish!: (suggestions: string[]) => void
+      vi.mocked(fetchSuggestions).mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+      render(<ChatPanel />)
+      await waitFor(() => expect(vi.mocked(fetchSuggestions)).toHaveBeenCalled())
+      await act(async () => { vi.advanceTimersByTime(1600) })
+      expect(lastMessageInputProps().suggestionDisplayState).toBe('fallback')
+      await act(async () => { finish([]) })
+      expect(lastMessageInputProps().suggestionDisplayState).toBe('ready')
+      expect(lastMessageInputProps().aiSuggestions).toEqual([])
+    } finally { vi.useRealTimers() }
+  })
+
+  it('reuses a cached empty successful result without refetching', async () => {
+    localStorage.setItem('zenstory_suggestions_cache_project-1',
+      JSON.stringify({ suggestions: [], updatedAt: Date.now() }))
+    render(<ChatPanel />)
+    await waitFor(() => expect(lastMessageInputProps().suggestionDisplayState).toBe('ready'))
+    expect(lastMessageInputProps().aiSuggestions).toEqual([])
+    expect(vi.mocked(fetchSuggestions)).not.toHaveBeenCalled()
+  })
+
+  it('uses local fallback only when the suggestion request fails', async () => {
+    vi.mocked(fetchSuggestions).mockResolvedValueOnce(null)
+    render(<ChatPanel />)
+    await waitFor(() => expect(lastMessageInputProps().suggestionDisplayState).toBe('fallback'))
+    expect(localStorage.getItem('zenstory_suggestions_cache_project-1')).toBeNull()
+  })
+
   it('does not poll suggestions while the user is idle', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     try {
@@ -1696,6 +1881,8 @@ describe('ChatPanel mount smoke', () => {
       })
 
       expect(vi.mocked(fetchSuggestions)).toHaveBeenCalledTimes(1)
+      expect(lastMessageInputProps().aiSuggestions).toEqual([])
+      expect(lastMessageInputProps().suggestionDisplayState).toBe('ready')
     } finally {
       vi.useRealTimers()
     }
@@ -1716,7 +1903,9 @@ const lastMessageListProps = () => mockMessageList.mock.calls.at(-1)?.[0] as {
 
 describe('ChatPanel new-author flow', () => {
   beforeEach(() => {
+    mockFirstWork.get.mockReset().mockResolvedValue(inactiveFirstWork)
     vi.clearAllMocks()
+    sessionStorage.clear()
     capturedUseAgentStream.options = null
     mockStreamSnapshot.items = []
     mockAgentStreamState.isStreaming = false
@@ -1727,8 +1916,11 @@ describe('ChatPanel new-author flow', () => {
     localStorage.removeItem('zenstory_suggestions_cache_project-1')
     localStorage.removeItem('zenstory_inspiration_project-1')
     mockQuota.value = { ai_conversations: { used: 2, limit: 10, reset_at: null } }
+    mockProjectState.currentProjectId = 'project-1'
+    mockProjectState.selectedItem = null
     mockProjectState.currentProject = { id: 'project-1', name: '外卖小哥看见倒计时' }
     mockDraft.draft = ''
+    mockDraft.saveDraft.mockReturnValue(true)
   })
 
   it('sends the dashboard idea exactly as written and tags the request as the dashboard entry', async () => {
@@ -1752,6 +1944,38 @@ describe('ChatPanel new-author flow', () => {
     })
     // The automatic snapshot after this round is described with the author's words.
     expect(mockGetStreamCallbacks.mock.calls.at(-1)?.[0].getLatestUserRequest?.()).toBe(idea)
+  })
+
+
+  it('recovers an oversized stored idea into the draft without replacing existing typed text or sending', async () => {
+    const idea = '文'.repeat(20001)
+    mockDraft.draft = '尚未发送的补充要求'
+    localStorage.setItem('zenstory_inspiration_project-1', JSON.stringify({ content: idea, timestamp: Date.now() }))
+    render(<ChatPanel />)
+    await waitFor(() => expect(mockDraft.saveDraft).toHaveBeenCalledWith(`尚未发送的补充要求\n\n${idea}`))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 650)))
+    expect(mockStartStream).not.toHaveBeenCalled()
+    expect(mockDraft.clearDraft).not.toHaveBeenCalled()
+  })
+
+
+  it('keeps the source idea when draft persistence fails, including an expired legacy entry', async () => {
+    const idea = '文'.repeat(20001)
+    const stored = JSON.stringify({ content: idea, timestamp: Date.now() - 6 * 60 * 1000 })
+    mockDraft.saveDraft.mockReturnValue(false)
+    localStorage.setItem('zenstory_inspiration_project-1', stored)
+    render(<ChatPanel />)
+    await waitFor(() => expect(mockDraft.saveDraft).toHaveBeenCalledWith(idea))
+    expect(localStorage.getItem('zenstory_inspiration_project-1')).toBe(stored)
+    expect(mockStartStream).not.toHaveBeenCalled()
+  })
+
+  it('automatically sends a stored idea at the 20000 character boundary', async () => {
+    const idea = '文'.repeat(20000)
+    localStorage.setItem('zenstory_inspiration_project-1', JSON.stringify({ content: idea, timestamp: Date.now() }))
+    render(<ChatPanel />)
+    await waitFor(() => expect(mockStartStream).toHaveBeenCalledTimes(1), { timeout: 3000 })
+    expect(mockStartStream.mock.calls[0][0].message).toBe(idea)
   })
 
   it('does not tag ordinary sends from the input box', async () => {
@@ -1824,7 +2048,7 @@ describe('ChatPanel new-author flow', () => {
     render(<ChatPanel />)
 
     const card = await screen.findByTestId('chat-quota-card')
-    expect(card).toHaveTextContent('今天的 10 条免费 AI 消息用完了')
+    await waitFor(() => expect(card).toHaveTextContent('今天的 10 条免费 AI 消息用完了'))
     expect(card).toHaveTextContent('北京时间 10月10日 00:00 恢复')
     expect(card).toHaveTextContent('开通 Pro')
     // Only the daily message count is ever named.
@@ -1993,8 +2217,8 @@ describe('ChatPanel new-author flow', () => {
 
     const titleGroup = screen.getByTestId('chat-panel-header-title')
     expect(titleGroup).toHaveClass('min-w-0')
-    expect(titleGroup.firstElementChild).toHaveClass('shrink-0', 'whitespace-nowrap')
-    expect(screen.getByTestId('chat-panel-header-actions')).toHaveClass('min-w-0')
+    expect(titleGroup.firstElementChild).toHaveClass('min-w-0', 'truncate', 'whitespace-nowrap')
+    expect(screen.getByTestId('chat-panel-header-actions')).toHaveClass('shrink-0')
     expect(screen.getByTestId('mock-quota-badge')).toHaveAttribute('data-compact', 'true')
   })
 
@@ -2058,4 +2282,53 @@ describe('ChatPanel new-author flow', () => {
     expect(mockProjectState.refreshProject).toHaveBeenCalledWith('project-1')
     expect(mockProjectState.refreshProjects).not.toHaveBeenCalled()
   })
+  it('waits for first-work status and suppresses every automatic suggestion and inspiration send for static work', async () => {
+    let resolve!: (value: typeof inactiveFirstWork) => void
+    mockFirstWork.get.mockReturnValue(new Promise(yes => { resolve = yes }))
+    localStorage.setItem('zenstory_inspiration_project-1', JSON.stringify({ content: 'stale first-work idea', timestamp: Date.now() }))
+    render(<ChatPanel />)
+    await waitFor(() => expect(getRecentMessages).toHaveBeenCalled())
+    expect(fetchSuggestions).not.toHaveBeenCalled()
+    expect(mockStartStream).not.toHaveBeenCalled()
+    await act(async () => resolve({ ...inactiveFirstWork, status: 'created', project_id: 'project-1', file_id: 'first-file', available: true, static_guidance: true } as typeof inactiveFirstWork))
+    await new Promise(resolve => setTimeout(resolve, 650))
+    expect(fetchSuggestions).not.toHaveBeenCalled()
+    expect(mockStartStream).not.toHaveBeenCalled()
+    expect(screen.getByTestId('mock-message-input')).toBeInTheDocument()
+  })
+
+  it('keeps suggestions disabled if the original first manuscript was deleted', async () => {
+    mockFirstWork.get.mockResolvedValue({ ...inactiveFirstWork, status: 'created', project_id: 'project-1', file_id: 'deleted', available: false, static_guidance: true })
+    render(<ChatPanel />)
+    await waitFor(() => expect(getRecentMessages).toHaveBeenCalled())
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+    expect(fetchSuggestions).not.toHaveBeenCalled()
+  })
+
+  it('fails closed on unknown first-work status without disabling manual chat drafting', async () => {
+    mockFirstWork.get.mockRejectedValue(new Error('status unavailable'))
+    render(<ChatPanel />)
+    await waitFor(() => expect(getRecentMessages).toHaveBeenCalled())
+    await waitFor(() => expect(lastMessageInputProps().disabled).toBe(false))
+    expect(fetchSuggestions).not.toHaveBeenCalled()
+    expect(mockStartStream).not.toHaveBeenCalled()
+  })
+
+  it('waits for accepted AI evidence and never sends a stale dashboard idea from the default work', async () => {
+    const state = { ...inactiveFirstWork, status: 'created', project_id: 'project-1', file_id: 'first-file', available: true, static_guidance: true }
+    mockFirstWork.get.mockResolvedValue(state)
+    localStorage.setItem('zenstory_inspiration_project-1', JSON.stringify({ content: 'stale accidental idea', timestamp: Date.now() }))
+    render(<ChatPanel />)
+    await waitFor(() => expect(lastMessageInputProps().disabled).toBe(false))
+    await act(async () => { await lastMessageInputProps().onSend('My explicit request', []) })
+    expect(mockStartStream).toHaveBeenCalledTimes(1)
+    expect(fetchSuggestions).not.toHaveBeenCalled()
+    expect(testQueryClient.getQueryData(['workspace-first-work', 'test-user'])).toMatchObject({ static_guidance: true })
+    mockFirstWork.get.mockResolvedValue({ ...state, static_guidance: false, first_ai_requested_at: 'accepted' })
+    await act(async () => { (capturedUseAgentStream.options!.onSessionStarted as (id: string) => void)('accepted-session') })
+    await waitFor(() => expect(testQueryClient.getQueryData(['workspace-first-work', 'test-user'])).toMatchObject({ static_guidance: false }))
+    await new Promise(resolve => setTimeout(resolve, 650))
+    expect(mockStartStream).toHaveBeenCalledTimes(1)
+  })
+
 })

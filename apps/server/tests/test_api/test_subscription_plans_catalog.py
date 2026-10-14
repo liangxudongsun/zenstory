@@ -276,10 +276,10 @@ async def test_subscription_catalog_normalizes_feature_based_entitlements(
     assert entitlements["active_projects_limit"] == 6
     # Deprecated neutral values: stored context/priority features are not advertised.
     assert entitlements["context_tokens_limit"] == 0
-    assert entitlements["material_uploads_monthly"] == 12
+    assert entitlements["material_uploads_monthly"] == 0
     assert entitlements["material_decompositions_monthly"] == 8
     assert entitlements["custom_skills_limit"] == 9
-    assert entitlements["inspiration_copies_monthly"] == 33
+    assert entitlements["inspiration_copies_monthly"] == -1
     assert entitlements["priority_queue_level"] == "standard"
     assert entitlements["export_formats"] == []
 
@@ -493,3 +493,23 @@ async def test_subscription_redeem_success_maps_service_result(
         "tier": "pro",
         "duration_days": 30,
     }
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(("tier", "stored", "expected"), [("free", {}, 10), ("pro", {}, 100), ("pro", {"file_versions_per_file": 42}, 42)])
+async def test_catalog_file_versions_match_current_plan_features(client, db_session, tier, stored, expected):
+    user = await create_user(db_session, "version_catalog", "version_catalog@example.com")
+    plan = SubscriptionPlan(name=tier, display_name=tier, features=stored, is_active=True)
+    db_session.add(plan)
+    db_session.commit()
+    db_session.refresh(plan)
+    if tier == "pro":
+        now = datetime.utcnow()
+        db_session.add(UserSubscription(user_id=user.id, plan_id=plan.id, status="active", current_period_start=now, current_period_end=now + timedelta(days=30)))
+        db_session.commit()
+    headers = auth_headers(await login_user(client, user.username))
+    catalog = await client.get("/api/v1/subscription/catalog", headers=headers)
+    current = await client.get("/api/v1/subscription/me", headers=headers)
+    assert catalog.status_code == current.status_code == 200
+    assert catalog.json()["tiers"][0]["entitlements"].get("file_versions_per_file") == expected
+    assert current.json()["features"]["file_versions_per_file"] == expected

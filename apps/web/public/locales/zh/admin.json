@@ -65,6 +65,11 @@
     "activationRate": "激活率",
     "loadError": "加载失败，请重试",
     "upgradeFunnelTitle": "升级入口漏斗（{{days}}天）",
+    "upgradeSurfaceBreakdown": "升级入口展示分类",
+    "upgradeSurface": "展示位置",
+    "upgradeViewsUsers": "曝光次数 / 人数",
+    "upgradeClicksUsers": "点击次数 / 人数",
+    "upgradeSurfaceLabels": {"badge": "额度提示", "card": "页面卡片", "modal": "弹窗", "toast": "通知提示", "page": "页面"},
     "upgradeExpose": "曝光",
     "upgradeClick": "点击",
     "upgradeConversion": "转化",
@@ -97,7 +102,8 @@
     },
     "upgradeEntryEvents": "升级入口事件",
     "upgradeAfterAiQuotaWall": "撞过每日 AI 上限后转化",
-    "upgradeAfterAiQuotaWallPaid": "其中付费 {{count}}"
+    "upgradeAfterAiQuotaWallPaid": "其中付费 {{count}}",
+    "projectOrigins": "作者创建 {{author}} · 自动初始化 {{automatic}}"
   },
   "users": {
     "title": "用户管理",
@@ -493,7 +499,9 @@
       "priority_support": "优先支持",
       "priority_queue_level": "队列优先级",
       "materials_library_access": "素材库",
-      "effectiveHint": "这里显示用户实际获得、系统实际限制的权益；编辑框中是存储的原始配置，未生效的键不会显示。"
+      "effectiveHint": "这里显示用户实际获得、系统实际限制的权益；编辑框中是存储的原始配置，未生效的键不会显示。",
+      "freeDailyPolicy": "免费版每日 AI 消息固定为 {{count}} 条，此处不可修改；调整此策略需要发布代码。",
+      "proInspirationPolicy": "Pro 灵感复用不限次数，此处不可修改；调整此策略需要发布代码。"
     }
   },
   "points": {

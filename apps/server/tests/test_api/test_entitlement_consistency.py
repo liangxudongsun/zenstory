@@ -89,8 +89,8 @@ async def test_pro_quota_limits_match_catalog_entitlements(client: AsyncClient, 
     quota = (await client.get("/api/v1/subscription/quota", headers=headers)).json()
 
     assert quota["skill_creates"]["limit"] == entitlements["custom_skills_limit"] == 20
-    assert quota["inspiration_copies"]["limit"] == entitlements["inspiration_copies_monthly"] == 100
-    assert quota["material_uploads"]["limit"] == entitlements["material_uploads_monthly"]
+    assert quota["inspiration_copies"]["limit"] == entitlements["inspiration_copies_monthly"] == -1
+    assert quota["material_uploads"]["limit"] == entitlements["material_uploads_monthly"] == 0
     assert quota["material_decompositions"]["limit"] == entitlements["material_decompositions_monthly"]
     assert quota["projects"]["limit"] == entitlements["active_projects_limit"] == -1
     assert quota["ai_conversations"]["limit"] == entitlements["ai_conversations_per_day"] == -1
@@ -128,12 +128,8 @@ async def test_empty_pro_features_resolve_consistently_across_public_and_user_su
         == -1
     )
     assert pro_features["max_projects"] == entitlements["active_projects_limit"] == quota["projects"]["limit"] == -1
-    assert (
-        pro_features["material_uploads"]
-        == entitlements["material_uploads_monthly"]
-        == quota["material_uploads"]["limit"]
-        == 5
-    )
+    assert "material_uploads" not in pro_features
+    assert entitlements["material_uploads_monthly"] == quota["material_uploads"]["limit"] == 0
     assert (
         pro_features["material_decompositions"]
         == entitlements["material_decompositions_monthly"]
@@ -145,7 +141,7 @@ async def test_empty_pro_features_resolve_consistently_across_public_and_user_su
         pro_features["inspiration_copies_monthly"]
         == entitlements["inspiration_copies_monthly"]
         == quota["inspiration_copies"]["limit"]
-        == 100
+        == -1
     )
     assert pro_features["materials_library_access"] is entitlements["materials_library_access"] is True
     assert pro_features["export_formats"] == entitlements["export_formats"] == ["txt"]
@@ -191,12 +187,14 @@ async def test_explicit_pro_zero_and_false_overrides_remain_effective_everywhere
     for feature_key, entitlement_key, quota_key in (
         ("ai_conversations_per_day", "ai_conversations_per_day", "ai_conversations"),
         ("max_projects", "active_projects_limit", "projects"),
-        ("material_uploads", "material_uploads_monthly", "material_uploads"),
         ("material_decompositions", "material_decompositions_monthly", "material_decompositions"),
         ("custom_skills", "custom_skills_limit", "skill_creates"),
-        ("inspiration_copies_monthly", "inspiration_copies_monthly", "inspiration_copies"),
     ):
         assert pro_features[feature_key] == entitlements[entitlement_key] == quota[quota_key]["limit"] == 0
+    # Pro already bypassed this limit at execution; zero in old JSON never
+    # disabled copying. Public rights now describe that existing behavior.
+    assert pro_features["inspiration_copies_monthly"] == entitlements["inspiration_copies_monthly"] == quota["inspiration_copies"]["limit"] == -1
+    assert "material_uploads" not in pro_features
 
 
 @pytest.mark.integration
@@ -213,12 +211,8 @@ async def test_free_upload_limit_does_not_imply_materials_library_access(client:
 
     assert me["features"]["materials_library_access"] is False
     assert entitlements["materials_library_access"] is False
-    assert (
-        me["features"]["material_uploads"]
-        == entitlements["material_uploads_monthly"]
-        == quota["material_uploads"]["limit"]
-        == 1
-    )
+    assert "material_uploads" not in me["features"]
+    assert entitlements["material_uploads_monthly"] == quota["material_uploads"]["limit"] == 0
     assert materials_access.status_code == 402
 
 

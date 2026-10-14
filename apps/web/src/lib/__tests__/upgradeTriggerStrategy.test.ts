@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   buildStagedUpgradeSource,
+  claimAutoUpgradePrompt,
   resolveUpgradeTriggerStage,
 } from "../upgradeTriggerStrategy";
 
@@ -30,4 +31,25 @@ describe("upgradeTriggerStrategy", () => {
       "settings_subscription_upgrade"
     );
   });
+});
+
+
+it("isolates proactive claims by account, kind and period without suppressing another day", () => {
+  sessionStorage.clear();
+  expect(claimAutoUpgradePrompt("a", "chat", "day1")).toBe(true);
+  expect(claimAutoUpgradePrompt("a", "chat", "day1")).toBe(false);
+  expect(claimAutoUpgradePrompt("a", "chat", "day2")).toBe(true);
+  expect(claimAutoUpgradePrompt("b", "chat", "day1")).toBe(true);
+  expect(claimAutoUpgradePrompt("a", "versions", "day1")).toBe(true);
+  sessionStorage.clear();
+});
+
+it("retains the in-memory proactive claim if sessionStorage later fails", () => {
+  sessionStorage.clear();
+  expect(claimAutoUpgradePrompt("storage-a", "chat", "day1")).toBe(true);
+  const read = vi.spyOn(sessionStorage, 'getItem').mockImplementation(() => { throw new Error('Storage unavailable'); });
+  expect(claimAutoUpgradePrompt("storage-a", "chat", "day1")).toBe(false);
+  expect(claimAutoUpgradePrompt("storage-a", "chat", "day2")).toBe(true);
+  read.mockRestore();
+  sessionStorage.clear();
 });

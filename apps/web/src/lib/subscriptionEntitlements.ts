@@ -136,13 +136,14 @@ export function getEntitlementMetricDefinitions(
   // "不限" stands alone ("不限 条/天" reads oddly), and a monthly allowance of 0
   // means the plan does not include the feature: "0 次/月" looks broken.
   const withUnit = (value: number | undefined, unit: string) =>
-    value === -1 || value === undefined ? formatLimit(value) : `${formatLimit(value)} ${unit}`;
+    value === -1 || value === undefined ? formatLimit(value) : `${formatLimit(value)}${unit.startsWith("/") ? "" : " "}${unit}`;
   const formatMonthly = (value: number | undefined) =>
     value === 0 ? notIncluded : withUnit(value, monthUnit);
 
   // Only entitlements the backend enforces and that differ by plan. Context
   // window size and priority queueing were advertised without an
   // implementation; export formats are TXT on every plan.
+  const versionsUnit = translate(t, "dashboard:billing.versionsUnit", "个");
   const definitions: EntitlementMetricDefinition[] = [
     {
       key: "ai_conversations_per_day",
@@ -195,6 +196,13 @@ export function getEntitlementMetricDefinitions(
       ),
       value: (plan) => formatLimit(plan.entitlements.custom_skills_limit),
       compareValue: (plan) => plan.entitlements.custom_skills_limit,
+    },
+    {
+      key: "file_versions_per_file",
+      label: translate(t, "dashboard:billing.metricFileVersions", "每个文件保留的历史版本"),
+      outcome: translate(t, "dashboard:billing.metricFileVersionsOutcome", "查看和恢复每个文件之前的内容"),
+      value: (plan) => withUnit(plan.entitlements.file_versions_per_file, versionsUnit),
+      compareValue: (plan) => plan.entitlements.file_versions_per_file,
     },
     {
       key: "inspiration_copies_monthly",
@@ -274,7 +282,7 @@ export function getSubscriptionFeatureRows(
   const withUnit = (value: number | undefined, unit: string): string | null => {
     if (value === undefined) return null;
     if (value === -1) return translate(t, "settings:subscription.unlimited", "不限");
-    return `${value.toLocaleString(resolveLocale(language))} ${unit}`;
+    return `${value.toLocaleString(resolveLocale(language))}${unit.startsWith("/") ? "" : " "}${unit}`;
   };
   const monthUnit = translate(t, "dashboard:billing.timesPerMonth", "次/月");
   const dayUnit = translate(t, "dashboard:billing.messagesPerDay", "条/天");

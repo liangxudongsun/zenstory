@@ -49,6 +49,7 @@ class ErrorCode:
     AUTH_INVITE_CODE_REQUIRED = "ERR_AUTH_INVITE_CODE_REQUIRED"
     AUTH_REGISTRATION_FAILED = "ERR_AUTH_REGISTRATION_FAILED"
     AUTH_RESEND_FAILED = "ERR_AUTH_RESEND_FAILED"
+    AUTH_EMAIL_UNDELIVERABLE = "ERR_AUTH_EMAIL_UNDELIVERABLE"
     AUTH_RATE_LIMIT_EXCEEDED = "ERR_AUTH_RATE_LIMIT_EXCEEDED"
     AUTH_PASSWORD_RESET_CODE_INVALID = "ERR_AUTH_PASSWORD_RESET_CODE_INVALID"
     AUTH_PASSWORD_RESET_TOO_MANY_REQUESTS = "ERR_AUTH_PASSWORD_RESET_TOO_MANY_REQUESTS"
@@ -185,6 +186,7 @@ class ErrorCode:
     AGENT_RUN_TIMEOUT = "ERR_AGENT_RUN_TIMEOUT"
     AGENT_MODEL_CALL_LIMIT = "ERR_AGENT_MODEL_CALL_LIMIT"
     AGENT_OUTPUT_TRUNCATED = "ERR_AGENT_OUTPUT_TRUNCATED"
+    AGENT_OUTPUT_REPEATEDLY_TRUNCATED = "ERR_AGENT_OUTPUT_REPEATEDLY_TRUNCATED"
     AGENT_FILE_SAVE_FAILED = "ERR_AGENT_FILE_SAVE_FAILED"
 
 
@@ -213,6 +215,7 @@ ERROR_MESSAGES = {
         "ERR_AUTH_INVITE_CODE_REQUIRED": "请输入邀请码",
         "ERR_AUTH_REGISTRATION_FAILED": "注册失败，请稍后重试",
         "ERR_AUTH_RESEND_FAILED": "验证码发送失败，请稍后重试",
+        "ERR_AUTH_EMAIL_UNDELIVERABLE": "无法向这个邮箱发送验证码，请检查并修改邮箱地址",
         "ERR_AUTH_RATE_LIMIT_EXCEEDED": "请求过于频繁，请稍后重试",
         "ERR_AUTH_PASSWORD_RESET_CODE_INVALID": "验证码错误或已过期，请重新输入或重新发送",
         "ERR_AUTH_PASSWORD_RESET_TOO_MANY_REQUESTS": "操作太频繁了，请过几分钟再试",
@@ -311,7 +314,8 @@ ERROR_MESSAGES = {
         "ERR_AGENT_NO_PROGRESS": "AI 一直在翻看同样的资料，迟迟没动笔，这一轮先停下了。可以直接告诉它改哪一章、改什么，或者回复「继续」让它接着写。",
         "ERR_AGENT_RUN_TIMEOUT": "这一轮写得太久，先停下了。回复「继续」就能接着写。",
         "ERR_AGENT_MODEL_CALL_LIMIT": "这次任务步骤太多，AI 先停下了。回复「继续」就能接着做。",
-        "ERR_AGENT_OUTPUT_TRUNCATED": "这一步 AI 想得太久，还没写出内容就到了上限，先停下了。回复「继续」就能接着完成。",
+        "ERR_AGENT_OUTPUT_TRUNCATED": "这一步 AI 在思考阶段达到输出上限，尚未交付该步骤的内容。可以回复「继续」再尝试；任务较大时，建议先指定其中一部分。",
+        "ERR_AGENT_OUTPUT_REPEATEDLY_TRUNCATED": "这一步再次在思考阶段达到输出上限，尚未交付该步骤的内容。建议缩小请求范围，例如一次只写一章。",
         "ERR_AGENT_FILE_SAVE_FAILED": "保存生成的文件内容失败，请重试",
     },
     "en": {
@@ -336,6 +340,7 @@ ERROR_MESSAGES = {
         "ERR_AUTH_INVITE_CODE_REQUIRED": "Invite code is required",
         "ERR_AUTH_REGISTRATION_FAILED": "Registration failed, please try again later",
         "ERR_AUTH_RESEND_FAILED": "Failed to send verification code, please try again later",
+        "ERR_AUTH_EMAIL_UNDELIVERABLE": "We cannot send a code to this email. Check and correct the address.",
         "ERR_AUTH_RATE_LIMIT_EXCEEDED": "Too many requests, please try again later",
         "ERR_AUTH_PASSWORD_RESET_CODE_INVALID": "That code is wrong or has expired. Check it or send a new one.",
         "ERR_AUTH_PASSWORD_RESET_TOO_MANY_REQUESTS": "Too many tries. Please wait a few minutes and try again.",
@@ -434,7 +439,8 @@ ERROR_MESSAGES = {
         "ERR_AGENT_NO_PROGRESS": 'The AI kept rereading the same material without writing, so this round stopped. Tell it which chapter to change and how, or reply "continue".',
         "ERR_AGENT_RUN_TIMEOUT": "This round ran too long and stopped. Reply \"continue\" to keep going.",
         "ERR_AGENT_MODEL_CALL_LIMIT": "This task took too many steps, so the AI paused. Reply \"continue\" to keep going.",
-        "ERR_AGENT_OUTPUT_TRUNCATED": "The AI spent this step thinking and hit its output limit before writing anything, so it stopped. Reply \"continue\" to finish.",
+        "ERR_AGENT_OUTPUT_TRUNCATED": "The AI reached its output limit while thinking and did not deliver this step. You can reply \"continue\" to try again, or ask for one part of a larger task.",
+        "ERR_AGENT_OUTPUT_REPEATEDLY_TRUNCATED": "This step reached its output limit again while thinking, without delivering content. Try a smaller request, such as one chapter at a time.",
         "ERR_AGENT_FILE_SAVE_FAILED": "Failed to save the generated file content. Please try again",
     },
 }

@@ -150,6 +150,9 @@ def copy_inspiration_to_project(
         notes=snapshot.get("project_notes"),
     )
     session.add(project)
+    from services.first_work_service import consume_for_author_project
+
+    consume_for_author_project(session, user.id)
     session.flush()  # Get project ID
 
     # Create file ID mapping for parent relationships

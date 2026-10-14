@@ -65,6 +65,11 @@
     "activationRate": "Activation Rate",
     "loadError": "Couldn't load. Please try again.",
     "upgradeFunnelTitle": "Upgrade Entry Funnel ({{days}} days)",
+    "upgradeSurfaceBreakdown": "Upgrade entry surfaces",
+    "upgradeSurface": "Placement",
+    "upgradeViewsUsers": "Views / users",
+    "upgradeClicksUsers": "Clicks / users",
+    "upgradeSurfaceLabels": {"badge": "Quota indicator", "card": "Inline card", "modal": "Dialog", "toast": "Notification", "page": "Page"},
     "upgradeExpose": "Views",
     "upgradeClick": "Clicks",
     "upgradeConversion": "Conversions",
@@ -97,7 +102,8 @@
     },
     "upgradeEntryEvents": "Upgrade entry events",
     "upgradeAfterAiQuotaWall": "Converted after hitting the daily AI limit",
-    "upgradeAfterAiQuotaWallPaid": "{{count}} paid"
+    "upgradeAfterAiQuotaWallPaid": "{{count}} paid",
+    "projectOrigins": "Author created {{author}} · Auto initialized {{automatic}}"
   },
   "users": {
     "title": "User Management",
@@ -493,7 +499,9 @@
       "priority_support": "Priority Support",
       "priority_queue_level": "Queue Priority Level",
       "materials_library_access": "Materials Library",
-      "effectiveHint": "Shows the entitlements users actually get and are held to. The edit box holds the stored configuration; keys that have no effect are not shown."
+      "effectiveHint": "Shows the entitlements users actually get and are held to. The edit box holds the stored configuration; keys that have no effect are not shown.",
+      "freeDailyPolicy": "Free includes {{count}} AI messages per day. This policy is read-only here and requires a code release to change.",
+      "proInspirationPolicy": "Pro includes unlimited inspiration copies. This policy is read-only here and requires a code release to change."
     }
   },
   "points": {

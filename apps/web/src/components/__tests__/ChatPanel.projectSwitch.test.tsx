@@ -14,6 +14,11 @@ import { act, render as rtlRender, screen, waitFor } from '@testing-library/reac
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'test-user' } }) }))
+vi.mock('../../lib/firstWorkApi', async (importOriginal) => ({ ...await importOriginal<typeof import('../../lib/firstWorkApi')>(), firstWorkApi: {
+  get: vi.fn(async () => ({ status: 'ineligible', project_id: null, static_guidance: false })),
+} }))
+
 // ChatPanel reads the quota query (shared with QuotaBadge), so it needs a QueryClient.
 const render = (ui: React.ReactElement) =>
   rtlRender(
@@ -193,8 +198,11 @@ vi.mock('../../lib/toast', () => ({
 
 import { ChatPanel } from '../ChatPanel'
 import { getRecentMessages } from '../../lib/chatApi'
+import { fetchSuggestions } from '../../lib/agentApi'
 
 type StreamCallbackOptions = {
+  onStart?: () => void
+  onComplete?: (segments: unknown[], action: unknown) => Promise<void>
   onThinking?: (message: string) => void
   onSkillsMatched?: (
     skills: Array<{ id: string; name: string; trigger: string; confidence: number }>
@@ -210,7 +218,7 @@ const lastMessageListProps = () => {
 
 const lastMessageInputProps = () => {
   const calls = mockMessageInput.mock.calls as unknown as Array<
-    [{ matchedSkills?: Array<{ name: string }>; disabled?: boolean; sendDisabled?: boolean; onSend?: (message: string, skillIds?: string[]) => void }]
+    [{ aiSuggestions?: string[]; suggestionDisplayState?: string; matchedSkills?: Array<{ name: string }>; disabled?: boolean; sendDisabled?: boolean; onSend?: (message: string, skillIds?: string[]) => void }]
   >
   return calls[calls.length - 1]?.[0]
 }
@@ -218,6 +226,8 @@ const lastMessageInputProps = () => {
 describe('ChatPanel project switch stream cleanup', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.removeItem('zenstory_suggestions_cache_project-1')
+    localStorage.removeItem('zenstory_suggestions_cache_project-2')
     capturedUseAgentStream.options = null
     projectStore.currentProjectId = 'project-1'
     mockAgentStreamState.isStreaming = false
@@ -297,6 +307,167 @@ describe('ChatPanel project switch stream cleanup', () => {
 
     await act(async () => resolveB([]))
     await waitFor(() => expect(lastMessageInputProps()?.disabled).toBe(false))
+  })
+
+  it('does not let an old project result replace the current empty-ready repeat state', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      for (const id of ['project-1', 'project-2']) {
+        localStorage.setItem(`zenstory_suggestions_cache_${id}`, JSON.stringify({ suggestions: [], updatedAt: Date.now() }))
+      }
+      let finishA!: (value: string[]) => void
+      vi.mocked(fetchSuggestions)
+        .mockReturnValueOnce(new Promise(resolve => { finishA = resolve }))
+        .mockResolvedValueOnce([])
+      render(<ChatPanel />)
+      await waitFor(() => expect(lastMessageInputProps()?.suggestionDisplayState).toBe('ready'))
+      const finishRound = async () => {
+        const options = capturedUseAgentStream.options as StreamCallbackOptions
+        await act(async () => { options.onStart?.(); await options.onComplete?.([], null) })
+        await act(async () => { vi.advanceTimersByTime(1600) })
+      }
+      await finishRound()
+      expect(vi.mocked(fetchSuggestions)).toHaveBeenCalledTimes(1)
+      act(() => projectStore.setProjectId('project-2'))
+      await waitFor(() => expect(lastMessageInputProps()?.suggestionDisplayState).toBe('ready'))
+      await finishRound()
+      expect(vi.mocked(fetchSuggestions)).toHaveBeenCalledTimes(2)
+      await act(async () => { finishA([]) })
+      await finishRound()
+      expect(lastMessageInputProps()?.suggestionDisplayState).toBe('ready')
+      expect(lastMessageInputProps()?.aiSuggestions).toEqual([])
+      expect(vi.mocked(fetchSuggestions).mock.calls.map(args => args[0])).toEqual(['project-1', 'project-2'])
+    } finally { vi.useRealTimers() }
+  })
+
+  it('keeps the owned failure fallback on a same-key completion without refetching', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      localStorage.setItem('zenstory_suggestions_cache_project-1', JSON.stringify({ suggestions: [], updatedAt: Date.now() }))
+      vi.mocked(fetchSuggestions).mockRejectedValueOnce(new Error('synthetic failure'))
+      render(<ChatPanel />)
+      await waitFor(() => expect(lastMessageInputProps()?.suggestionDisplayState).toBe('ready'))
+      const options = capturedUseAgentStream.options as StreamCallbackOptions
+      for (let i = 0; i < 2; i++) {
+        await act(async () => { options.onStart?.(); await options.onComplete?.([], null) })
+        await act(async () => { vi.advanceTimersByTime(1600) })
+        expect(lastMessageInputProps()?.suggestionDisplayState).toBe('fallback')
+      }
+      expect(vi.mocked(fetchSuggestions)).toHaveBeenCalledTimes(1)
+    } finally { vi.useRealTimers() }
+  })
+
+  it.each([
+    ['non-array suggestions', () => JSON.stringify({ suggestions: 'invalid', updatedAt: Date.now() })],
+    ['invalid timestamp', () => JSON.stringify({ suggestions: [], updatedAt: 'invalid' })],
+    ['invalid JSON', () => '{not valid json'],
+  ])('refreshes an unusable %s cache once instead of treating it as empty success', async (_name, cache) => {
+    localStorage.setItem('zenstory_suggestions_cache_project-1', cache())
+    vi.mocked(fetchSuggestions).mockResolvedValueOnce(['当前任务的建议'])
+    render(<ChatPanel />)
+    await waitFor(() => expect(lastMessageInputProps()?.aiSuggestions).toEqual(['当前任务的建议']))
+    expect(lastMessageInputProps()?.suggestionDisplayState).toBe('ready')
+    expect(fetchSuggestions).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(localStorage.getItem('zenstory_suggestions_cache_project-1')!).suggestions).toEqual(['当前任务的建议'])
+  })
+
+  it('discards an expired suggestion cache and writes the new explicit empty result', async () => {
+    localStorage.setItem('zenstory_suggestions_cache_project-1', JSON.stringify({
+      suggestions: ['过期建议'], updatedAt: Date.now() - 11 * 60 * 1000,
+    }))
+    const remove = vi.spyOn(localStorage, 'removeItem').mockClear()
+    try {
+      vi.mocked(fetchSuggestions).mockResolvedValueOnce([])
+      render(<ChatPanel />)
+      await waitFor(() => expect(lastMessageInputProps()?.suggestionDisplayState).toBe('ready'))
+      expect(fetchSuggestions).toHaveBeenCalledTimes(1)
+      expect(remove).toHaveBeenCalledWith('zenstory_suggestions_cache_project-1')
+      expect(lastMessageInputProps()?.aiSuggestions).toEqual([])
+      expect(JSON.parse(localStorage.getItem('zenstory_suggestions_cache_project-1')!).suggestions).toEqual([])
+    } finally { remove.mockRestore() }
+  })
+
+  it('keeps timeout fallback when the delayed request is unavailable', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      let finish!: (value: null) => void
+      vi.mocked(fetchSuggestions).mockReturnValueOnce(new Promise(resolve => { finish = resolve }) as never)
+      render(<ChatPanel />)
+      await waitFor(() => expect(fetchSuggestions).toHaveBeenCalledTimes(1))
+      await act(async () => { vi.advanceTimersByTime(1600) })
+      expect(lastMessageInputProps()?.suggestionDisplayState).toBe('fallback')
+      await act(async () => { finish(null) })
+      expect(lastMessageInputProps()?.suggestionDisplayState).toBe('fallback')
+      expect(lastMessageInputProps()?.aiSuggestions).toEqual([])
+      expect(localStorage.getItem('zenstory_suggestions_cache_project-1')).toBeNull()
+      expect(fetchSuggestions).toHaveBeenCalledTimes(1)
+    } finally { vi.useRealTimers() }
+  })
+
+  it.each(['empty', 'existing chips'] as const)('preserves owned %s display state after an unavailable completion', async mode => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const existing = mode === 'empty' ? [] : ['仍适用的任务建议']
+      localStorage.setItem('zenstory_suggestions_cache_project-1', JSON.stringify({ suggestions: existing, updatedAt: Date.now() }))
+      vi.mocked(fetchSuggestions).mockResolvedValueOnce(null as never)
+      render(<ChatPanel />)
+      await waitFor(() => expect(lastMessageInputProps()?.suggestionDisplayState).toBe('ready'))
+      const options = capturedUseAgentStream.options as StreamCallbackOptions
+      for (let i = 0; i < 2; i++) {
+        await act(async () => { options.onStart?.(); await options.onComplete?.([], null) })
+        await act(async () => { vi.advanceTimersByTime(1600) })
+        expect(lastMessageInputProps()?.suggestionDisplayState).toBe(mode === 'empty' ? 'fallback' : 'ready')
+        expect(lastMessageInputProps()?.aiSuggestions).toEqual(existing)
+      }
+      expect(fetchSuggestions).toHaveBeenCalledTimes(1)
+    } finally { vi.useRealTimers() }
+  })
+
+  it('preserves existing chips when the owned completion rejects', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      localStorage.setItem('zenstory_suggestions_cache_project-1', JSON.stringify({ suggestions: ['已有建议'], updatedAt: Date.now() }))
+      vi.mocked(fetchSuggestions).mockRejectedValueOnce(new Error('synthetic refresh failure'))
+      render(<ChatPanel />)
+      await waitFor(() => expect(lastMessageInputProps()?.suggestionDisplayState).toBe('ready'))
+      const options = capturedUseAgentStream.options as StreamCallbackOptions
+      for (let i = 0; i < 2; i++) {
+        await act(async () => { options.onStart?.(); await options.onComplete?.([], null) })
+        await act(async () => { vi.advanceTimersByTime(1600) })
+        expect(lastMessageInputProps()?.suggestionDisplayState).toBe('ready')
+        expect(lastMessageInputProps()?.aiSuggestions).toEqual(['已有建议'])
+      }
+      expect(fetchSuggestions).toHaveBeenCalledTimes(1)
+    } finally { vi.useRealTimers() }
+  })
+
+  it('ignores an old project rejection after the current project confirmed an empty result', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      for (const id of ['project-1', 'project-2']) {
+        localStorage.setItem(`zenstory_suggestions_cache_${id}`, JSON.stringify({ suggestions: [], updatedAt: Date.now() }))
+      }
+      let rejectA!: (error: Error) => void
+      vi.mocked(fetchSuggestions)
+        .mockReturnValueOnce(new Promise((_resolve, reject) => { rejectA = reject }))
+        .mockResolvedValueOnce([])
+      render(<ChatPanel />)
+      await waitFor(() => expect(lastMessageInputProps()?.suggestionDisplayState).toBe('ready'))
+      const finishRound = async () => {
+        const options = capturedUseAgentStream.options as StreamCallbackOptions
+        await act(async () => { options.onStart?.(); await options.onComplete?.([], null) })
+        await act(async () => { vi.advanceTimersByTime(1600) })
+      }
+      await finishRound()
+      act(() => projectStore.setProjectId('project-2'))
+      await waitFor(() => expect(lastMessageInputProps()?.suggestionDisplayState).toBe('ready'))
+      await finishRound()
+      await act(async () => { rejectA(new Error('obsolete failure')) })
+      await finishRound()
+      expect(lastMessageInputProps()?.suggestionDisplayState).toBe('ready')
+      expect(lastMessageInputProps()?.aiSuggestions).toEqual([])
+      expect(vi.mocked(fetchSuggestions).mock.calls.map(args => args[0])).toEqual(['project-1', 'project-2'])
+    } finally { vi.useRealTimers() }
   })
 
   it('shows Retry only for retryable errors and replays the captured request once per click', async () => {

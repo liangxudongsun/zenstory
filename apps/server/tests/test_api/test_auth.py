@@ -7,6 +7,8 @@ Tests user registration and login endpoints:
 - POST /api/auth/refresh
 """
 
+from unittest.mock import AsyncMock
+
 import pytest
 from httpx import AsyncClient
 from jose import jwt
@@ -22,6 +24,7 @@ def _set_invite_code_optional_for_legacy_auth_tests(monkeypatch):
     Keep existing registration tests behavior stable unless a test overrides it.
     """
     monkeypatch.setenv("AUTH_REGISTER_INVITE_CODE_OPTIONAL", "true")
+    monkeypatch.setattr("api.auth.clear_registration_verification", AsyncMock())
 
 
 @pytest.mark.integration
@@ -51,6 +54,7 @@ async def test_register_success(client: AsyncClient):
 @pytest.mark.integration
 async def test_register_creates_free_subscription_and_quota(client: AsyncClient, db_session, monkeypatch):
     """Registration should bootstrap free subscription + usage quota records."""
+    monkeypatch.setenv("FIRST_WORK_ONBOARDING_ROLLOUT_PERCENT", "100")
     from models import User
     from models.subscription import SubscriptionPlan, UsageQuota, UserSubscription
 
@@ -75,6 +79,9 @@ async def test_register_creates_free_subscription_and_quota(client: AsyncClient,
         select(User).where(User.email == "bootstrap_user@example.com")
     ).first()
     assert user is not None
+    from models import WorkspaceOnboarding
+
+    assert db_session.get(WorkspaceOnboarding, user.id).status == "pending"
 
     subscription = db_session.exec(
         select(UserSubscription).where(UserSubscription.user_id == user.id)
@@ -974,7 +981,7 @@ async def test_refresh_token_with_valid_token(client: AsyncClient, db_session):
 
 
 @pytest.mark.integration
-async def test_refresh_token_reuse_is_rejected(client: AsyncClient, db_session):
+async def test_refresh_token_reuse_is_rejected(client: AsyncClient, db_session, monkeypatch):
     """Refresh token rotation should reject reuse of old refresh token."""
     from models import User
     from services.core.auth_service import hash_password
@@ -1005,11 +1012,19 @@ async def test_refresh_token_reuse_is_rejected(client: AsyncClient, db_session):
     )
     assert first_refresh.status_code == 200
 
+    from datetime import timedelta
+
+    from config.datetime_utils import utcnow
+
+    now = utcnow()
+    monkeypatch.setattr(auth_api, "utcnow", lambda: now + timedelta(seconds=11))
     replay_refresh = await client.post(
         "/api/auth/refresh",
         json={"refresh_token": original_refresh_token},
     )
     assert replay_refresh.status_code == 401
+    child = await client.post("/api/auth/refresh", json={"refresh_token": first_refresh.json()["refresh_token"]})
+    assert child.status_code == 401, "late replay must still revoke the complete family"
 
 
 @pytest.mark.integration

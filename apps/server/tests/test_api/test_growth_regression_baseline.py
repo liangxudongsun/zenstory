@@ -1,5 +1,6 @@
 """Regression baseline for key growth journey: register -> create project -> upgrade -> export."""
 
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -22,6 +23,7 @@ async def test_growth_regression_baseline_register_project_upgrade_export(
         return True, None
 
     monkeypatch.setattr("api.auth.send_verification_code", _fake_send_verification_code)
+    monkeypatch.setattr("api.auth.clear_registration_verification", AsyncMock())
 
     suffix = uuid4().hex[:8]
     username = f"growth_baseline_{suffix}"

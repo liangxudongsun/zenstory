@@ -1,4 +1,5 @@
 import React, { Suspense } from "react";
+import { FirstWorkOpenTracker } from "./components/FirstWorkGuidance";
 import { BrowserRouter, Routes, Route, Navigate, useParams, useNavigate, useLocation } from "react-router-dom";
 import { HelmetProvider } from "react-helmet-async";
 import { useTranslation } from "react-i18next";
@@ -9,6 +10,8 @@ import { Editor } from "./components/Editor";
 import { ChatPanel } from "./components/ChatPanel";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PageLoader } from "./components/PageLoader";
+import { AlertCircle } from "./components/icons";
+import { Button } from "./components/ui/Button";
 import { SEOHelmet } from "./components/Helmet";
 import { SEOProvider } from "./providers/SEOProvider";
 import { AuthIdentityQueryBoundary, AuthProvider, useAuth } from "./contexts/AuthContext";
@@ -121,16 +124,13 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (shouldCheckOnboarding && onboardingState.isError) {
     return (
-      <div className="flex min-h-screen items-center justify-center px-4">
-        <div className="space-y-3 text-center" role="alert">
-          <p>{t("onboarding:errors.loadFailed", "加载失败，请检查网络后重试")}</p>
-          <button
-            type="button"
-            className="rounded-md bg-primary px-4 py-2 text-primary-foreground"
-            onClick={() => void onboardingState.refetch()}
-          >
+      <div className="flex min-h-screen items-center justify-center bg-[hsl(var(--bg-primary))] p-4">
+        <div className="w-full max-w-sm rounded-2xl border border-[hsl(var(--border-color))] bg-[hsl(var(--bg-secondary))] p-6 text-center" role="alert">
+          <AlertCircle aria-hidden="true" className="mx-auto mb-3 h-6 w-6 text-[hsl(var(--error-text))]" />
+          <p className="mb-5 text-sm leading-6 text-[hsl(var(--text-secondary))]">{t("onboarding:errors.loadFailed", "加载失败，请检查网络后重试")}</p>
+          <Button size="touch" className="w-full" onClick={() => void onboardingState.refetch()}>
             {t("retry", "重试")}
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -322,7 +322,16 @@ function ProjectEditor() {
   React.useEffect(() => {
     if (!userId || !projectId || !isRouteProjectActive || !selectedFileId) return;
     setLastOpenedFile(userId, projectId, selectedFileId);
-  }, [isRouteProjectActive, projectId, selectedFileId, userId]);
+
+    // A file link chooses the entry file once. After the author opens another
+    // file, refresh should restore that choice rather than the old entry link.
+    const searchParams = new URLSearchParams(location.search);
+    const linkedFileId = searchParams.get("file");
+    if (linkedFileId && selectedFromQueryRef.current === linkedFileId && selectedFileId !== linkedFileId) {
+      searchParams.delete("file");
+      navigate({ pathname: location.pathname, search: searchParams.toString(), hash: location.hash }, { replace: true });
+    }
+  }, [isRouteProjectActive, location.hash, location.pathname, location.search, navigate, projectId, selectedFileId, userId]);
 
   // Reopen the last file when the project is entered without a ?file= link and
   // nothing is selected yet. The id is re-validated: it may have been deleted
@@ -528,6 +537,8 @@ function ProjectEditor() {
   }
 
   return (
+    <>
+    <FirstWorkOpenTracker userId={userId} projectId={isRouteProjectActive ? projectId ?? null : null} />
     <Layout
       left={<Sidebar />}
       middle={(
@@ -542,6 +553,7 @@ function ProjectEditor() {
         </ErrorBoundary>
       )}
     />
+    </>
   );
 }
 

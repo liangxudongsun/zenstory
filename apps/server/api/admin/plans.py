@@ -17,6 +17,7 @@ from models import User
 from models.subscription import SubscriptionPlan
 from services.admin_audit_service import admin_audit_service
 from services.core.auth_service import get_current_superuser
+from services.subscription.defaults import FIXED_PLAN_FEATURES
 from utils.logger import get_logger, log_with_context
 
 from .schemas import AdminPlanResponse, PlanUpdateRequest
@@ -81,6 +82,21 @@ def update_plan(
             detail="Plan not found"
         )
 
+    features = None
+    if request.features is not None:
+        if any(getattr(request.features, key) is None for key in request.features.model_fields_set):
+            raise APIException(error_code=ErrorCode.VALIDATION_ERROR, status_code=422)
+        features = request.features.model_dump(exclude_unset=True)
+        if any(value is None for value in features.values()):
+            raise APIException(error_code=ErrorCode.VALIDATION_ERROR, status_code=422)
+        for key, fixed_limit in FIXED_PLAN_FEATURES.get(plan.name, {}).items():
+            if features.get(key, fixed_limit) != fixed_limit:
+                raise APIException(
+                    error_code=ErrorCode.VALIDATION_ERROR, status_code=422,
+                    detail=f"{key} 套餐 {plan.name} 固定为 {fixed_limit}；该策略须通过代码发布调整。",
+                )
+            features[key] = fixed_limit
+
     # Store old values for audit log
     old_value = {
         "display_name": plan.display_name,
@@ -100,11 +116,7 @@ def update_plan(
         plan.price_monthly_cents = request.price_monthly_cents
     if request.price_yearly_cents is not None:
         plan.price_yearly_cents = request.price_yearly_cents
-    if request.features is not None:
-        features = request.features.model_dump(exclude_unset=True)
-        if any(value is None for value in features.values()):
-            session.rollback()
-            raise APIException(error_code=ErrorCode.VALIDATION_ERROR, status_code=422)
+    if features is not None:
         plan.features = features
     if request.is_active is not None:
         plan.is_active = request.is_active

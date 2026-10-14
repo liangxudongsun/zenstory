@@ -12,7 +12,7 @@ from sqlmodel import Session, func, select
 from config.datetime_utils import beijing_date, beijing_day_bounds, utcnow
 from config.feature_flags import is_inspirations_enabled
 from database import get_session
-from models import Inspiration, Project, UpgradeFunnelEvent, User
+from models import Inspiration, Project, UpgradeFunnelEvent, User, WorkspaceOnboarding
 from models.points import CheckInRecord
 from models.referral import InviteCode, Referral
 from models.subscription import SubscriptionHistory, SubscriptionPlan, UserSubscription
@@ -108,7 +108,12 @@ def get_dashboard_stats(
     ).one()
 
     # Total projects
-    total_projects = session.exec(select(func.count()).select_from(Project)).one()
+    total_projects, auto_initialized_projects = session.exec(
+        select(func.count(func.distinct(Project.id)), func.count(func.distinct(WorkspaceOnboarding.project_id)))
+        .select_from(Project)
+        .outerjoin(WorkspaceOnboarding, WorkspaceOnboarding.project_id == Project.id)
+    ).one()
+    author_created_projects = total_projects - auto_initialized_projects
 
     total_inspirations = 0
     pending_inspirations = 0
@@ -176,6 +181,8 @@ def get_dashboard_stats(
         active_users=active_users,
         new_users_today=new_users_today,
         total_projects=total_projects,
+        author_created_projects=author_created_projects,
+        auto_initialized_projects=auto_initialized_projects,
         total_inspirations=total_inspirations,
         pending_inspirations=pending_inspirations,
         active_subscriptions=active_subscriptions,

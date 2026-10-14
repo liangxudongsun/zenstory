@@ -41,7 +41,9 @@ import { buildTodayActionPlan, type TodayActionPlanItem } from "../lib/dashboard
 import type { ActivationGuideResponse } from "../types/writingStats";
 import { dashboardOnboardingFlags } from "../config/dashboardOnboarding";
 import { inspirationsConfig } from "../config/inspirations";
+import { FirstWorkEntry } from "../components/dashboard/FirstWorkEntry";
 import { useDashboardProjectType } from "../hooks/useDashboardProjectType";
+import { MAX_AGENT_MESSAGE_CHARS } from "../lib/agentLimits";
 
 const SUPPORTED_PROJECT_TYPES: ProjectType[] = ["novel", "short", "screenplay"];
 
@@ -50,7 +52,7 @@ function isProjectType(value: string): value is ProjectType {
 }
 
 export default function DashboardHome() {
-  const { t, i18n } = useTranslation(['dashboard', 'home', 'common']);
+  const { t, i18n } = useTranslation(['dashboard', 'home', 'common', 'chat']);
   const projectQuotaUpgradePrompt = getUpgradePromptDefinition("project_quota_blocked");
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -59,6 +61,7 @@ export default function DashboardHome() {
     loading: projectsLoading,
     createProject: contextCreateProject,
     deleteProject: contextDeleteProject,
+    refreshProjects,
   } = useProject();
   const projectProgress = useProjectsProgress(projects.length);
 
@@ -75,6 +78,7 @@ export default function DashboardHome() {
   const [isQuickCreating, setIsQuickCreating] = useState(false);
   // An idea held back while today's AI messages were used up comes back after a reload.
   const [inspiration, setInspiration] = useState(() => readHeldDashboardIdea(user?.id));
+  const inspirationTooLong = inspiration.length > MAX_AGENT_MESSAGE_CHARS;
   const aiMessageQuota = useAiMessageQuota();
   useHeldDashboardIdea(user?.id, inspiration, aiMessageQuota.exhausted);
   const [showIdeaQuotaModal, setShowIdeaQuotaModal] = useState(false);
@@ -473,7 +477,7 @@ export default function DashboardHome() {
   }, [activeTab, availableProjectTypes, setActiveTab]);
 
   const handleCreateProject = async (useInspiration = false) => {
-    if (!creating) return;
+    if (!creating || (useInspiration && inspirationTooLong)) return;
 
     // The idea would be the first AI message, which cannot go out today: keep it and
     // explain, instead of spending a project slot on an empty project.
@@ -532,7 +536,7 @@ export default function DashboardHome() {
   };
 
   const handleQuickCreate = async () => {
-    if (isQuickCreating) return;
+    if (isQuickCreating || inspirationTooLong) return;
 
     const insp = inspiration.trim();
     if (insp && aiMessageQuota.exhausted) {
@@ -677,6 +681,8 @@ export default function DashboardHome() {
         </div>
       )}
 
+      <FirstWorkEntry key={userId} userId={userId} preferredType={activeTab} onCreated={refreshProjects} />
+
       {/* One surface owns the idea, its format and the creation action. */}
       <div className="dashboard-composer mb-10" data-testid="dashboard-composer">
           <textarea
@@ -685,6 +691,8 @@ export default function DashboardHome() {
             data-tour-id="dashboard-inspiration-input"
             disabled={isQuickCreating}
             aria-label={t('inspiration.title')}
+            aria-invalid={inspirationTooLong}
+            aria-describedby={inspirationTooLong ? 'dashboard-inspiration-too-long' : undefined}
             className="dashboard-idea w-full resize-none bg-transparent text-base leading-7 text-[hsl(var(--text-primary))] placeholder:text-[hsl(var(--text-secondary))] disabled:cursor-not-allowed disabled:opacity-60"
             value={inspiration}
             onChange={(e) => setInspiration(e.target.value)}
@@ -695,6 +703,11 @@ export default function DashboardHome() {
               }
             }}
           />
+          {inspirationTooLong && (
+            <p id="dashboard-inspiration-too-long" role="alert" className="px-1 pb-3 text-sm text-[hsl(var(--error-text))]">
+              {t('chat:input.tooLong', { count: inspiration.length, max: MAX_AGENT_MESSAGE_CHARS })}
+            </p>
+          )}
         <div className="dashboard-composer-footer">
         <div
           className="flex flex-wrap items-center gap-1"
@@ -732,6 +745,7 @@ export default function DashboardHome() {
           <Button
             onClick={handleQuickCreate}
             isLoading={isQuickCreating}
+            disabled={inspirationTooLong}
             loadingText={t('common.creatingProject', { defaultValue: '正在创建项目…' })}
             size={isMobile ? "touch" : "md"}
             leftIcon={<Sparkles className="h-4 w-4" />}
@@ -995,6 +1009,7 @@ export default function DashboardHome() {
                 </button>
                 <button
                   onClick={() => handleCreateProject(true)}
+                  disabled={inspirationTooLong}
                   className={`btn-primary flex items-center justify-center gap-2 ${isMobile ? "flex-1 h-12" : "flex-1 h-11"}`}
                 >
                   <Sparkles className="w-4 h-4" />

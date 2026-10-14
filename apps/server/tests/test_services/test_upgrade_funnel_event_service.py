@@ -90,3 +90,18 @@ def test_get_funnel_stats_clamps_days_and_calculates_rates(db_session: Session):
     assert stats["sources"][0]["click_through_rate"] == 1.0
     assert stats["sources"][0]["conversion_rate_from_click"] == 1.0
     assert stats["sources"][0]["conversion_rate_from_expose"] == 1.0
+
+
+def test_surface_stats_separate_views_users_clicks_and_legacy(db_session):
+    user = _create_user(db_session)
+    now = datetime.now(UTC)
+    for surface, action in [("badge", "expose"), ("badge", "expose"), ("card", "expose"), ("card", "click"), ("modal", "expose"), ("toast", "expose"), ("page", "conversion")]:
+        upgrade_funnel_event_service.record_event(db_session, user_id=user.id, action=action, source="chat_quota_blocked", surface=surface, occurred_at=now)
+    stats = upgrade_funnel_event_service.get_funnel_stats(db_session)
+    rows = {row["surface"]: row for row in stats["surfaces"]}
+    assert stats["totals"] == {"expose": 5, "click": 1, "conversion": 1}
+    assert rows["badge"]["exposes"] == 2 and rows["badge"]["exposed_users"] == 1
+    assert rows["card"]["clicks"] == rows["card"]["clicking_users"] == 1
+    assert rows["toast"]["exposes"] == rows["modal"]["exposes"] == 1
+    assert rows["page"]["page_arrivals"] == 1
+    assert all(row["source"] == "chat_quota_blocked" for row in rows.values())

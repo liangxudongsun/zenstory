@@ -125,7 +125,7 @@ export function MaterialsUpgradeNotice({ source, className = "" }: MaterialsUpgr
         {t("materials:quota.uploadTitle", { defaultValue: "素材库是 Pro 功能" })}
       </p>
       <p className="text-xs leading-5 text-[hsl(var(--text-secondary))]">{description}</p>
-      <button type="button" className="btn-primary h-8 px-3 text-xs" onClick={() => setOpen(true)}>
+      <button type="button" className="btn-primary h-11 px-3 text-xs" onClick={() => setOpen(true)}>
         {label}
       </button>
       <MaterialsUpgradePromptModal open={open} onClose={() => setOpen(false)} source={source} />

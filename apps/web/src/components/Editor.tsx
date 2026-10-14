@@ -10,7 +10,7 @@
  *
  * @module components/Editor
  */
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useProject } from "../contexts/ProjectContext";
 import { useAuth } from "../contexts/AuthContext";
@@ -22,13 +22,14 @@ import { handleApiError } from "../lib/errorHandler";
 import { toast } from "../lib/toast";
 import { isFileTitleTooLong } from "../lib/fileTitle";
 import { logger } from "../lib/logger";
+import { FirstWorkGuidance } from "./FirstWorkGuidance";
 import { SimpleEditor } from "./SimpleEditor";
 import type { SaveOutcome, SaveResult, SaveSubmission } from "./SimpleEditor";
 import { MaterialPreview } from "./MaterialPreview";
 import { ImportMaterialDialog } from "./ImportMaterialDialog";
 import type { File, FileTreeNode } from "../types";
 import { FOLDER_TYPE_MAP } from "../lib/folderTypeMap";
-import { FileText, Users, BookOpen, Sparkles, Folder, Zap, Keyboard, ChevronDown, Clapperboard } from "lucide-react";
+import { FileText, Users, BookOpen, Sparkles, Folder, Zap, Keyboard, ChevronDown, Clapperboard, Download } from "lucide-react";
 import { LoadingSpinner } from "./LoadingSpinner";
 import { UpgradePromptModal } from "./subscription/UpgradePromptModal";
 import { buildUpgradeUrl, getUpgradePromptDefinition } from "../config/upgradeExperience";
@@ -36,7 +37,11 @@ import { claimAutoUpgradePrompt } from "../lib/upgradeTriggerStrategy";
 import { captureException, trackEvent } from "../lib/analytics";
 import { useMobileLayout } from "../contexts/MobileLayoutContext";
 import {
+  BEFORE_CHUNK_RELOAD_EVENT,
   clearEditorDraftSnapshot,
+  createEditorDraftSnapshot,
+  writeEditorDraftSnapshot,
+  readDeletedEditorDraftSnapshots,
   readEditorDraftSnapshot,
   resolveEditorDraftRecovery,
   type EditorDraftSnapshot,
@@ -45,6 +50,8 @@ import { notifyEditorContentSaved, setOpenEditorFlush } from "../lib/editorSaveT
 import { rebaseLocalEdits } from "../lib/rebaseLocalEdits";
 import { applyPendingEditsToDiffs, buildParagraphReviewData } from "../lib/diffReview";
 import type { DiffReviewState } from "../types";
+import { FILE_REMOVED_EVENT, clearFileRemoved, isFileRemoved, notifyFileRemoved, setUnprotectedDeletedDraft, type FileRemovedDetail } from "../lib/fileRemovalEvents";
+import { clearLastOpenedFile } from "../lib/lastOpenedFile";
 
 /** Retry delays for re-reading the open file after an external write. */
 const SERVER_SYNC_RETRY_DELAYS_MS = [1000, 3000];
@@ -195,6 +202,8 @@ const EditorComponent: React.FC<EditorProps> = () => {
    */
   const [serverSyncIssue, setServerSyncIssue] = useState<{ fileId: string; retrying: boolean } | null>(null);
   const conflictReviewRef = useRef<ConflictReview | null>(null);
+  const removedFileHandlerRef = useRef<(fileId: string) => void>(() => {});
+  const [removedDrafts, setRemovedDrafts] = useState<Array<{ snapshot: EditorDraftSnapshot; persisted: boolean }>>([]);
   // syncOpenFileFromServer (defined below), for reloads of the open file in loadData.
   const syncOpenFileFromServerRef = useRef<() => Promise<void>>(async () => {});
   const [draftRecovery, setDraftRecovery] = useState<{
@@ -322,7 +331,7 @@ const EditorComponent: React.FC<EditorProps> = () => {
     restoredSelectionRef.current = null;
     // A failed switch only restores navigation; refetching would replace the retained draft.
     if (restoredId && restoredId === selectedItem?.id && restoredId === currentFile?.id) return;
-    if (currentFile && currentFile.id !== selectedItem?.id && editorFlushRef.current) {
+    if (currentFile && !isFileRemoved(currentProjectId, currentFile.id) && currentFile.id !== selectedItem?.id && editorFlushRef.current) {
       const outcome = await editorFlushRef.current();
       if (generation !== loadGenerationRef.current) return;
       if (outcome !== "saved") {
@@ -368,6 +377,7 @@ const EditorComponent: React.FC<EditorProps> = () => {
     try {
       const data = await fileApi.get(selectedItem.id);
       if (generation !== loadGenerationRef.current) return;
+      clearFileRemoved(currentProjectId, data.id);
       setFile(data);
       hasLoadedRef.current = true;
       setServerSyncIssue((prev) => (prev?.fileId === data.id ? null : prev));
@@ -420,7 +430,11 @@ const EditorComponent: React.FC<EditorProps> = () => {
       }
     } catch (err: unknown) {
       if (generation !== loadGenerationRef.current) return;
-      const error = err as { status?: number };
+      const error = err as { status?: number; errorCode?: string };
+      if (error?.status === 404 || error?.errorCode === "ERR_FILE_NOT_FOUND") {
+        notifyFileRemoved(currentProjectId, selectedItem.id);
+        return;
+      }
       if (error?.status !== 401) {
         logger.error("Failed to load data:", err);
         if (followServer) {
@@ -554,6 +568,99 @@ const EditorComponent: React.FC<EditorProps> = () => {
     };
   }, []);
 
+  useEffect(() => {
+    setRemovedDrafts(previous => {
+      // Context can change before a router decision. A failed storage write
+      // leaves this mounted editor as the only owner; keep that user's copies
+      // until an explicit leave rather than replacing them with the next scope.
+      const memory = previous.filter(({ snapshot, persisted }) => !persisted && snapshot.userId === currentUserId);
+      const stored = currentUserId && currentProjectId
+        ? readDeletedEditorDraftSnapshots(localStorage, { userId: currentUserId, projectId: currentProjectId })
+          .map(snapshot => ({ snapshot, persisted: true }))
+        : [];
+      return [...memory, ...stored.filter(({ snapshot }) => !memory.some(item => item.snapshot.projectId === snapshot.projectId && item.snapshot.fileId === snapshot.fileId))];
+    });
+  }, [currentUserId, currentProjectId]);
+
+  const unprotectedProjectIds = useMemo(() => [...new Set(removedDrafts
+    .filter(({ snapshot, persisted }) => !persisted && snapshot.userId === currentUserId)
+    .map(({ snapshot }) => snapshot.projectId))], [removedDrafts, currentUserId]);
+  useEffect(() => {
+    if (unprotectedProjectIds.length === 0) return;
+    unprotectedProjectIds.forEach(projectId => setUnprotectedDeletedDraft(projectId, true));
+    const protect = (event: Event) => {
+      event.preventDefault();
+      if (event.type === "beforeunload") (event as BeforeUnloadEvent).returnValue = "";
+    };
+    window.addEventListener("beforeunload", protect);
+    window.addEventListener(BEFORE_CHUNK_RELOAD_EVENT, protect);
+    return () => {
+      unprotectedProjectIds.forEach(projectId => setUnprotectedDeletedDraft(projectId, false));
+      window.removeEventListener("beforeunload", protect);
+      window.removeEventListener(BEFORE_CHUNK_RELOAD_EVENT, protect);
+    };
+  }, [unprotectedProjectIds]);
+
+  removedFileHandlerRef.current = (fileId) => {
+    if (!currentProjectId || selectedIdRef.current !== fileId) return;
+    const opened = currentFileRef.current;
+    const review = currentReviewRef.current;
+    const existing = draftRecovery?.snapshot.fileId === fileId ? draftRecovery.snapshot
+      : currentUserId ? readEditorDraftSnapshot(localStorage, { userId: currentUserId, projectId: currentProjectId, fileId }) : null;
+    if (opened?.id === fileId && currentUserId) {
+      const reviewDraft = getReviewLeaveDraft();
+      const pendingRecovery = draftRecovery?.snapshot.fileId === fileId && !draftRecovery.applied ? draftRecovery.snapshot : null;
+      const hasCurrentEdits = review?.fileId === fileId || editTitleRef.current !== opened.title || editContentRef.current !== (opened.content || "");
+      if (hasCurrentEdits || pendingRecovery || existing) {
+        // A page-exit copy can be older than this mounted editor. Only an
+        // explicit unanswered recovery deserves priority when no new edits exist.
+        const current = {
+          title: editTitleRef.current,
+          content: reviewDraft?.content ?? editContentRef.current,
+          baseUpdatedAt: reviewDraft ? reviewDraft.baseUpdatedAt : opened.updated_at,
+        };
+        const retained = !hasCurrentEdits && pendingRecovery ? pendingRecovery : current;
+        const recoveryDraft = pendingRecovery && hasCurrentEdits
+          && (pendingRecovery.title !== current.title || pendingRecovery.content !== current.content)
+          ? { title: pendingRecovery.title, content: pendingRecovery.content, baseUpdatedAt: pendingRecovery.baseUpdatedAt, capturedAt: pendingRecovery.capturedAt }
+          : undefined;
+        const snapshot = createEditorDraftSnapshot({
+          userId: currentUserId, projectId: currentProjectId, fileId,
+          ...retained, recoveryDraft, reason: "file-deleted",
+        });
+        const persisted = writeEditorDraftSnapshot(localStorage, snapshot);
+        setRemovedDrafts(previous => [...previous.filter(item => item.snapshot.fileId !== fileId || item.snapshot.projectId !== currentProjectId || item.snapshot.userId !== currentUserId), { snapshot, persisted }]);
+      }
+    }
+    if (opened?.id !== fileId && existing) {
+      const snapshot: EditorDraftSnapshot = { ...existing, reason: "file-deleted" };
+      const persisted = writeEditorDraftSnapshot(localStorage, snapshot);
+      setRemovedDrafts(previous => [...previous.filter(item => item.snapshot.fileId !== fileId || item.snapshot.projectId !== currentProjectId || item.snapshot.userId !== currentUserId), { snapshot, persisted }]);
+    }
+    // Invalidate a read already in flight before clearing navigation. Its old
+    // success/404 must not replace a newly selected file or restart this one.
+    loadGenerationRef.current += 1;
+    currentFileRef.current = null;
+    editorFlushRef.current = null;
+    hasLoadedRef.current = false;
+    setFile(null);
+    setLoading(false);
+    setServerSyncIssue(null);
+    if (currentUserId) clearLastOpenedFile(currentUserId, currentProjectId);
+    if (review?.fileId === fileId) exitDiffReview();
+    setSelectedItem(null);
+    toast.info(translateRef.current("editor:deletedFile.message"));
+  };
+
+  useEffect(() => {
+    const onRemoved = (event: Event) => {
+      const { projectId, fileId } = (event as CustomEvent<FileRemovedDetail>).detail;
+      if (projectId === activeProjectIdRef.current) removedFileHandlerRef.current(fileId);
+    };
+    window.addEventListener(FILE_REMOVED_EVENT, onRemoved);
+    return () => window.removeEventListener(FILE_REMOVED_EVENT, onRemoved);
+  }, []);
+
   // The author's own choices in a conflict comparison (see ConflictReview).
   const decideConflict = useCallback((editId?: string) => {
     const conflict = conflictReviewRef.current;
@@ -600,7 +707,7 @@ const EditorComponent: React.FC<EditorProps> = () => {
    */
   const syncOpenFileFromServer = useCallback(async () => {
     const opened = currentFileRef.current;
-    if (!opened || selectedIdRef.current !== opened.id) return;
+    if (!opened || selectedIdRef.current !== opened.id || isFileRemoved(activeProjectIdRef.current, opened.id)) return;
     const fileId = opened.id;
     const generation = loadGenerationRef.current;
     const isStillOpen = () =>
@@ -612,6 +719,11 @@ const EditorComponent: React.FC<EditorProps> = () => {
       try {
         data = await fileApi.get(fileId);
       } catch (err) {
+        const failure = err as { status?: number; errorCode?: string };
+        if (failure?.status === 404 || failure?.errorCode === "ERR_FILE_NOT_FOUND") {
+          if (isStillOpen() && activeProjectIdRef.current) notifyFileRemoved(activeProjectIdRef.current, fileId);
+          return;
+        }
         if (attempt >= SERVER_SYNC_RETRY_DELAYS_MS.length) {
           // The save token still guards the server copy (saving stale text
           // gets a 409, which opens the same comparison), but the author must
@@ -685,7 +797,36 @@ const EditorComponent: React.FC<EditorProps> = () => {
 
   const renderWithUpgradeModal = (content: React.ReactNode) => (
     <>
-      {content}
+      <div className="flex h-full min-h-0 flex-col">
+      <div className="max-h-[45%] min-w-0 shrink-0 overflow-y-auto">
+      {removedDrafts.filter(({ snapshot, persisted }) => snapshot.userId === currentUserId && (snapshot.projectId === currentProjectId || !persisted)).flatMap(({ snapshot, persisted }) => [
+        { snapshot, persisted },
+        ...(snapshot.recoveryDraft ? [{ snapshot: { ...snapshot, ...snapshot.recoveryDraft, recoveryDraft: undefined }, persisted }] : []),
+      ]).map(({ snapshot, persisted }, index) => (
+        <details key={`${snapshot.projectId}:${snapshot.fileId}:${index}`} open className="group min-w-0 shrink-0 border-b border-[hsl(var(--border-color))] bg-[hsl(var(--bg-secondary))] px-6 py-3">
+          <summary className="flex min-h-11 min-w-0 cursor-pointer list-none items-start gap-2 py-2 text-sm font-medium text-[hsl(var(--text-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-primary))] [&::-webkit-details-marker]:hidden">
+            <ChevronDown size={16} aria-hidden="true" className="mt-0.5 shrink-0 -rotate-90 text-[hsl(var(--text-secondary))] group-open:rotate-0" />
+            <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{t("editor:deletedFile.recovery", { title: snapshot.title })}</span>
+          </summary>
+          <div className="mt-1 space-y-3">
+          <p role={persisted ? "status" : "alert"} className={`text-sm leading-relaxed ${persisted ? "text-[hsl(var(--text-secondary))]" : "text-[hsl(var(--warning-text))]"}`}>{t(persisted ? "editor:deletedFile.saved" : "editor:deletedFile.storageFailed")}</p>
+          <button type="button" className="btn-secondary inline-flex min-h-11 items-center gap-2" onClick={() => {
+            const url = URL.createObjectURL(new Blob([`${snapshot.title}\n\n${snapshot.content}`], { type: "text/plain;charset=utf-8" }));
+            const anchor = document.createElement("a");
+            anchor.href = url;
+            anchor.download = `${snapshot.title || "draft"}.txt`;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 0);
+          }}><Download size={16} aria-hidden="true" />{t("editor:deletedFile.download")}</button>
+          <textarea aria-label={t("editor:deletedFile.draft")} readOnly value={snapshot.content} className="block h-24 w-full min-w-0 resize-y rounded-xl border border-[hsl(var(--border-color))] bg-[hsl(var(--bg-primary))] p-3 text-sm leading-relaxed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-primary))] sm:h-28" />
+          </div>
+        </details>
+      ))}
+      </div>
+      <div className="min-h-0 flex-1">{content}</div>
+      </div>
       <UpgradePromptModal
         open={showFileVersionUpgradeModal}
         onClose={() => setShowFileVersionUpgradeModal(false)}
@@ -720,7 +861,7 @@ const EditorComponent: React.FC<EditorProps> = () => {
    * refresh if the title has changed to keep the navigation in sync.
    */
   const handleSaveFile = async (submission: SaveSubmission): Promise<SaveResult> => {
-    if (!submission.fileId) return { outcome: "failed" };
+    if (!submission.fileId || isFileRemoved(currentProjectId, submission.fileId)) return { outcome: "failed" };
 
     const targetFileId = submission.fileId;
     const titleChanged = submission.title !== submission.previousTitle;
@@ -738,6 +879,11 @@ const EditorComponent: React.FC<EditorProps> = () => {
         ...submission.versionIntent,
       });
     } catch (error) {
+      if (isFileRemoved(currentProjectId, targetFileId)) return { outcome: "failed" };
+      if (error instanceof ApiError && (error.status === 404 || error.errorCode === "ERR_FILE_NOT_FOUND")) {
+        if (currentProjectId && selectedIdRef.current === targetFileId) notifyFileRemoved(currentProjectId, targetFileId);
+        return { outcome: "failed" };
+      }
       if (error instanceof ApiError && error.errorCode === "ERR_FILE_TITLE_TOO_LONG") {
         // 标题框和正文原样保留，作者缩短标题后下一次保存会一起写入。同一个标题只提示一次。
         if (longTitleWarnedRef.current !== submission.title) {
@@ -822,6 +968,8 @@ const EditorComponent: React.FC<EditorProps> = () => {
       }
       throw error;
     }
+
+    if (isFileRemoved(currentProjectId, targetFileId)) return { outcome: "failed" };
 
     if (
       updated?.version_quota_exceeded &&
@@ -1384,6 +1532,7 @@ const EditorComponent: React.FC<EditorProps> = () => {
 
     // Common editor props
     const editorProps = {
+      emptyHint: (focusEditor: () => void) => <FirstWorkGuidance userId={currentUserId || null} projectId={currentProjectId} fileId={file.id} focusEditor={focusEditor} />,
       userId: currentUserId || undefined,
       fileId: file.id,
       projectId: currentProjectId || undefined,

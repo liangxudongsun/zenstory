@@ -12,11 +12,11 @@ from services.auth import get_current_active_user
 from sqlmodel import Session, select
 
 from config.datetime_utils import utcnow
-from config.feature_flags import is_inspirations_enabled
+from config.feature_flags import is_first_work_onboarding_enabled, is_inspirations_enabled
 from core.error_codes import ErrorCode
 from core.error_handler import APIException
 from database import get_session
-from models import User, UserPersonaProfile
+from models import User, UserPersonaProfile, WorkspaceOnboarding
 
 router = APIRouter(prefix="/api/v1/persona", tags=["persona"])
 
@@ -309,8 +309,13 @@ def get_persona_onboarding_state(
         else []
     )
 
+    legacy_required = _is_onboarding_required(user=current_user, profile=profile)
+    first_work = session.get(WorkspaceOnboarding, current_user.id) if profile is None and not legacy_required and is_first_work_onboarding_enabled() else None
+    # New-source qualification requires an explicit completion/skip record;
+    # the legacy age window must not silently substitute for that state.
+    first_work_waits_for_profile = first_work is not None and first_work.status == "pending"
     return PersonaOnboardingStateResponse(
-        required=_is_onboarding_required(user=current_user, profile=profile),
+        required=legacy_required or first_work_waits_for_profile,
         rollout_at=_get_rollout_datetime(),
         new_user_window_days=_get_rollout_window_days(),
         profile=profile_read,

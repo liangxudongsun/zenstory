@@ -167,6 +167,7 @@ export default function AdminDashboard() {
               icon={<FolderOpen className="h-5 w-5" />}
               title={t('admin:dashboard.totalProjects')}
               value={stats?.total_projects ?? 0}
+              description={t('admin:dashboard.projectOrigins', { author: stats?.author_created_projects ?? 0, automatic: stats?.auto_initialized_projects ?? 0 })}
               isLoading={isLoading}
             />
             {inspirationsConfig.enabled && (
@@ -297,79 +298,104 @@ export default function AdminDashboard() {
 
                 </div>
 
-                <div className="space-y-2">
-                  {allUpgradeSources.length > 0 && (
-                    <div className="text-xs text-[hsl(var(--text-secondary))]">
-                      {t('admin:dashboard.upgradeSourceCount', {
-                        count: allUpgradeSources.length,
-                        defaultValue: `来源数：${allUpgradeSources.length}`,
-                      })}
-                    </div>
-                  )}
-
-                  {allUpgradeSources.length === 0 && (
-                    <p className="text-sm text-[hsl(var(--text-secondary))]">
-                      {t('common:noData')}
-                    </p>
-                  )}
-
-                  {allUpgradeSources.length > 0 && (
+                {(upgradeFunnel.surfaces?.length ?? 0) > 0 ? (
+                  <div className="space-y-2">
                     <div tabIndex={0} className="overflow-x-auto rounded-md border border-[hsl(var(--separator-color)/0.45)]">
-                      <table className="w-full min-w-[760px] text-sm">
-                        <thead className="bg-[hsl(var(--bg-tertiary))] text-[hsl(var(--text-secondary))]">
-                          <tr>
-                            <th className="px-3 py-2 text-left font-medium">
-                              {t('admin:dashboard.upgradeSource', '来源')}
-                            </th>
-                            <th className="px-3 py-2 text-right font-medium">
-                              {t('admin:dashboard.upgradeExpose', '曝光')}
-                            </th>
-                            <th className="px-3 py-2 text-right font-medium">
-                              {t('admin:dashboard.upgradeClick', '点击')}
-                            </th>
-                            <th className="px-3 py-2 text-right font-medium">
-                              {t('admin:dashboard.upgradePageArrival', '页面到达')}
-                            </th>
-
-
+                      <table className="w-full min-w-[640px] text-sm" aria-label={t('admin:dashboard.upgradeSurfaceBreakdown', '升级入口展示分类')}>
+                        <thead><tr>
+                          <th className="whitespace-nowrap px-3 py-2 text-left">{t('admin:dashboard.upgradeSource', '来源')}</th>
+                          <th className="whitespace-nowrap px-3 py-2 text-left">{t('admin:dashboard.upgradeSurface', '展示位置')}</th>
+                          <th className="whitespace-nowrap px-3 py-2 text-right">{t('admin:dashboard.upgradeViewsUsers', '曝光次数 / 人数')}</th>
+                          <th className="whitespace-nowrap px-3 py-2 text-right">{t('admin:dashboard.upgradeClicksUsers', '点击次数 / 人数')}</th>
+                          <th className="whitespace-nowrap px-3 py-2 text-right">{t('admin:dashboard.upgradePageArrival', '页面到达')}</th>
+                        </tr></thead>
+                        <tbody>{upgradeFunnel.surfaces?.map(row => (
+                          <tr key={`${row.source}:${row.surface}`} className="border-t border-[hsl(var(--separator-color)/0.35)]">
+                            <td className="px-3 py-2 max-w-64 break-words">{row.source}</td>
+                            <td className="whitespace-nowrap px-3 py-2">{t(`admin:dashboard.upgradeSurfaceLabels.${row.surface}`, row.surface)}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{row.exposes} / {row.exposed_users}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{row.clicks} / {row.clicking_users}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{row.page_arrivals}</td>
                           </tr>
-                        </thead>
-                        <tbody>
-                          {visibleUpgradeSources.map((item) => (
-                            <tr key={item.source} className="border-t border-[hsl(var(--separator-color)/0.35)]">
-                              <td className="px-3 py-2 text-[hsl(var(--text-primary))] truncate max-w-[320px]" title={item.source}>
-                                {item.source}
-                              </td>
-                              <td className="px-3 py-2 text-right text-[hsl(var(--text-primary))]">{item.exposes}</td>
-                              <td className="px-3 py-2 text-right text-[hsl(var(--text-primary))]">{item.clicks}</td>
-                              <td className="px-3 py-2 text-right text-[hsl(var(--text-primary))]">{item.conversions}</td>
+                        ))}</tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {allUpgradeSources.length > 0 && (
+                      <div className="text-xs text-[hsl(var(--text-secondary))]">
+                        {t('admin:dashboard.upgradeSourceCount', {
+                          count: allUpgradeSources.length,
+                          defaultValue: `来源数：${allUpgradeSources.length}`,
+                        })}
+                      </div>
+                    )}
+
+                    {allUpgradeSources.length === 0 && (
+                      <p className="text-sm text-[hsl(var(--text-secondary))]">
+                        {t('common:noData')}
+                      </p>
+                    )}
+
+                    {allUpgradeSources.length > 0 && (
+                      <div tabIndex={0} className="overflow-x-auto rounded-md border border-[hsl(var(--separator-color)/0.45)]">
+                        <table className="w-full min-w-[760px] text-sm">
+                          <thead className="bg-[hsl(var(--bg-tertiary))] text-[hsl(var(--text-secondary))]">
+                            <tr>
+                              <th className="px-3 py-2 text-left font-medium">
+                                {t('admin:dashboard.upgradeSource', '来源')}
+                              </th>
+                              <th className="px-3 py-2 text-right font-medium">
+                                {t('admin:dashboard.upgradeExpose', '曝光')}
+                              </th>
+                              <th className="px-3 py-2 text-right font-medium">
+                                {t('admin:dashboard.upgradeClick', '点击')}
+                              </th>
+                              <th className="px-3 py-2 text-right font-medium">
+                                {t('admin:dashboard.upgradePageArrival', '页面到达')}
+                              </th>
 
 
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+                          </thead>
+                          <tbody>
+                            {visibleUpgradeSources.map((item) => (
+                              <tr key={item.source} className="border-t border-[hsl(var(--separator-color)/0.35)]">
+                                <td className="px-3 py-2 text-[hsl(var(--text-primary))] truncate max-w-[320px]" title={item.source}>
+                                  {item.source}
+                                </td>
+                                <td className="px-3 py-2 text-right text-[hsl(var(--text-primary))]">{item.exposes}</td>
+                                <td className="px-3 py-2 text-right text-[hsl(var(--text-primary))]">{item.clicks}</td>
+                                <td className="px-3 py-2 text-right text-[hsl(var(--text-primary))]">{item.conversions}</td>
 
-                  {hasMoreUpgradeSources && (
-                    <button
-                      type="button"
-                      className="text-sm text-[var(--admin-accent-text)] hover:underline"
-                      onClick={() => setShowAllUpgradeSources((prev) => !prev)}
-                    >
-                      {showAllUpgradeSources
-                        ? t('admin:dashboard.upgradeShowTopSources', {
-                            count: MAX_VISIBLE_SOURCES,
-                            defaultValue: `仅显示前 ${MAX_VISIBLE_SOURCES} 个`,
-                          })
-                        : t('admin:dashboard.upgradeShowAllSources', {
-                            count: allUpgradeSources.length,
-                            defaultValue: `查看全部（${allUpgradeSources.length}）`,
-                          })}
-                    </button>
-                  )}
-                </div>
+
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {hasMoreUpgradeSources && (
+                      <button
+                        type="button"
+                        className="text-sm text-[var(--admin-accent-text)] hover:underline"
+                        onClick={() => setShowAllUpgradeSources((prev) => !prev)}
+                      >
+                        {showAllUpgradeSources
+                          ? t('admin:dashboard.upgradeShowTopSources', {
+                              count: MAX_VISIBLE_SOURCES,
+                              defaultValue: `仅显示前 ${MAX_VISIBLE_SOURCES} 个`,
+                            })
+                          : t('admin:dashboard.upgradeShowAllSources', {
+                              count: allUpgradeSources.length,
+                              defaultValue: `查看全部（${allUpgradeSources.length}）`,
+                            })}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

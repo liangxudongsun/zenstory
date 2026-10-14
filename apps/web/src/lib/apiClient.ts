@@ -63,6 +63,55 @@ let lastRefreshFailTime = 0;
 let lastFailedRefreshToken: string | null = null;
 const refreshLineage = new Map<string, { accessToken: string; refreshToken: string }>();
 
+type AuthTokens = { accessToken: string; refreshToken: string };
+
+function rememberRefreshDescendant(previous: string, next: AuthTokens): void {
+  for (const [ancestor, latest] of refreshLineage) {
+    if (latest.refreshToken === previous) refreshLineage.set(ancestor, next);
+  }
+  refreshLineage.set(previous, next);
+}
+
+function readTokenClaims(token: string | null): Record<string, unknown> | null {
+  try {
+    if (!token || token.split('.').length !== 3) return null;
+    const encoded = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const claims: unknown = JSON.parse(atob(encoded));
+    return claims && typeof claims === 'object' && !Array.isArray(claims)
+      ? claims as Record<string, unknown> : null;
+  } catch { return null; }
+}
+
+/** Match local session ownership only; the API still verifies JWT signatures. */
+function sharedRefreshDescendant(entryAccess: string | null, entryRefresh: string): AuthTokens | null {
+  const accessToken = localStorage.getItem('access_token');
+  const refreshToken = localStorage.getItem('refresh_token');
+  if (!accessToken || !refreshToken || refreshToken === entryRefresh) return null;
+  const original = readTokenClaims(entryRefresh);
+  const originalAccess = readTokenClaims(entryAccess);
+  const current = readTokenClaims(refreshToken);
+  const currentAccess = readTokenClaims(accessToken);
+  const now = Date.now() / 1000;
+  if (
+    !original || !current || !currentAccess || original.typ !== 'refresh' || current.typ !== 'refresh' ||
+    currentAccess.typ !== 'access' || originalAccess?.typ !== 'access' ||
+    typeof original.sub !== 'string' || originalAccess.sub !== original.sub ||
+    current.sub !== original.sub || currentAccess.sub !== original.sub ||
+    typeof original.family_id !== 'string' || !original.family_id || current.family_id !== original.family_id ||
+    typeof original.jti !== 'string' || typeof current.jti !== 'string' || !current.jti || current.jti === original.jti ||
+    typeof current.exp !== 'number' || current.exp <= now ||
+    typeof currentAccess.exp !== 'number' || currentAccess.exp <= now
+  ) return null;
+  return { accessToken, refreshToken };
+}
+
+function adoptSharedRefresh(entryAccess: string | null, entryRefresh: string): boolean {
+  const descendant = sharedRefreshDescendant(entryAccess, entryRefresh);
+  if (!descendant) return false;
+  rememberRefreshDescendant(entryRefresh, descendant);
+  return true;
+}
+
 /** Resolve only the captured token pair or its confirmed refresh descendant. */
 export function resolveOwnedAuthSession(entryAccess: string | null, entryRefresh: string | null): {
   accessToken: string | null;
@@ -76,7 +125,7 @@ export function resolveOwnedAuthSession(entryAccess: string | null, entryRefresh
   const descendant = entryAccess && entryRefresh ? refreshLineage.get(entryRefresh) : undefined;
   return descendant && accessToken === descendant.accessToken && refreshToken === descendant.refreshToken
     ? { accessToken, refreshToken }
-    : null;
+    : entryRefresh ? sharedRefreshDescendant(entryAccess, entryRefresh) : null;
 }
 
 const isCredentialFailure = (status: number): boolean => status === 401 || status === 403;
@@ -148,6 +197,7 @@ export function clearAuthStorage(reason?: string): void {
  */
 export async function tryRefreshToken(): Promise<boolean> {
   const refreshToken = localStorage.getItem('refresh_token');
+  const entryAccess = localStorage.getItem('access_token');
 
   // Check if we're in cooldown period after a recent refresh failure
   if (
@@ -177,49 +227,50 @@ export async function tryRefreshToken(): Promise<boolean> {
   refreshPromiseToken = refreshToken;
   refreshPromise = (async () => {
     try {
-      const response = await fetch(`${getApiBase()}/api/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: refreshToken }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
+      const refreshUnderLock = async (): Promise<boolean> => {
         if (localStorage.getItem('refresh_token') !== refreshToken) {
-          logger.warn('[Auth] Ignoring stale token refresh result');
+          return adoptSharedRefresh(entryAccess, refreshToken);
+        }
+        const response = await fetch(`${getApiBase()}/api/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (localStorage.getItem('refresh_token') !== refreshToken) {
+            logger.warn('[Auth] Ignoring stale token refresh result');
+            return false;
+          }
+          localStorage.setItem('access_token', data.access_token);
+          localStorage.setItem('refresh_token', data.refresh_token);
+          localStorage.setItem('user', JSON.stringify(data.user));
+          localStorage.setItem('auth_validated_at', Date.now().toString()); // Update cache timestamp
+          lastFailedRefreshToken = null;
+          rememberRefreshDescendant(refreshToken, {
+            accessToken: data.access_token,
+            refreshToken: data.refresh_token,
+          });
+          logger.log('[Auth] Token refresh successful');
+          return true;
+        } else {
+          if (response.status === 409 && adoptSharedRefresh(entryAccess, refreshToken)) return true;
+          logger.warn('[Auth] Token refresh failed', response.status);
+          lastRefreshFailTime = Date.now();
+          lastFailedRefreshToken = refreshToken;
+          if (
+            isCredentialFailure(response.status) &&
+            localStorage.getItem('refresh_token') === refreshToken
+          ) {
+            clearAuthStorage('refresh_failed');
+          }
           return false;
         }
-        localStorage.setItem('access_token', data.access_token);
-        localStorage.setItem('refresh_token', data.refresh_token);
-        localStorage.setItem('user', JSON.stringify(data.user));
-        localStorage.setItem('auth_validated_at', Date.now().toString()); // Update cache timestamp
-        lastFailedRefreshToken = null;
-        for (const [ancestor, latest] of refreshLineage) {
-          if (latest.refreshToken === refreshToken) {
-            refreshLineage.set(ancestor, {
-              accessToken: data.access_token,
-              refreshToken: data.refresh_token,
-            });
-          }
-        }
-        refreshLineage.set(refreshToken, {
-          accessToken: data.access_token,
-          refreshToken: data.refresh_token,
-        });
-        logger.log('[Auth] Token refresh successful');
-        return true;
-      } else {
-        logger.warn('[Auth] Token refresh failed', response.status);
-        lastRefreshFailTime = Date.now();
-        lastFailedRefreshToken = refreshToken;
-        if (
-          isCredentialFailure(response.status) &&
-          localStorage.getItem('refresh_token') === refreshToken
-        ) {
-          clearAuthStorage('refresh_failed');
-        }
-        return false;
-      }
+      };
+      return typeof navigator !== 'undefined' && navigator.locks
+        ? await navigator.locks.request('zenstory-auth-refresh', refreshUnderLock)
+        : await refreshUnderLock();
     } catch (error) {
       logger.error('[Auth] Token refresh network error:', error);
       lastRefreshFailTime = Date.now();
@@ -512,14 +563,7 @@ export async function apiCall<T>(
       currentAccessToken === accessToken &&
       currentRefreshToken === refreshTokenAtRequest
     );
-    const rotatedSession = refreshTokenAtRequest
-      ? refreshLineage.get(refreshTokenAtRequest)
-      : undefined;
-    const belongsToRotatedSession = Boolean(
-      rotatedSession &&
-      currentAccessToken === rotatedSession.accessToken &&
-      currentRefreshToken === rotatedSession.refreshToken
-    );
+    const belongsToRotatedSession = resolveOwnedAuthSession(accessToken, refreshTokenAtRequest) !== null;
     if (!stillOwnsRequestSession && !belongsToRotatedSession) {
       throw new ApiError(401, 'Not authenticated');
     }

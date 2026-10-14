@@ -166,6 +166,8 @@ async def test_register_hashes_and_sends_mail_off_the_event_loop(client: AsyncCl
         "store_verification_code",
         "set_resend_cooldown",
         "reset_verification_attempts",
+        "delete_verification_code",
+        "delete_resend_cooldown",
     ):
         def recording_redis(*args, _name=name, **kwargs):
             seen[_name] = threading.get_ident()
@@ -187,6 +189,8 @@ async def test_register_hashes_and_sends_mail_off_the_event_loop(client: AsyncCl
         "store_verification_code",
         "set_resend_cooldown",
         "reset_verification_attempts",
+        "delete_verification_code",
+        "delete_resend_cooldown",
     }
     for name, thread_id in seen.items():
         assert thread_id != loop_thread, f"{name} ran on the event loop thread"

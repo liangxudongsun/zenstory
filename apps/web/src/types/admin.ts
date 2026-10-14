@@ -119,6 +119,8 @@ export interface DashboardStats {
   active_users: number;
   new_users_today: number;
   total_projects: number;
+  author_created_projects: number;
+  auto_initialized_projects: number;
   total_inspirations: number;
   pending_inspirations: number;
   /** Paid (non-free) subscriptions whose period has not ended. */
@@ -193,12 +195,23 @@ export interface UpgradeFunnelSource {
   conversion_rate_from_expose: number;
 }
 
+export interface UpgradeFunnelSurface {
+  source: string;
+  surface: string;
+  exposes: number;
+  exposed_users: number;
+  clicks: number;
+  clicking_users: number;
+  page_arrivals: number;
+}
+
 export interface UpgradeFunnelStats {
   window_days: number;
   period_start: string;
   period_end: string;
   totals: UpgradeFunnelTotals;
   sources: UpgradeFunnelSource[];
+  surfaces?: UpgradeFunnelSurface[];
 }
 
 // ==================== Plan Update ====================

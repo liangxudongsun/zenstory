@@ -432,10 +432,14 @@ for (const mobile of [false, true]) {
       mocks.getTree.mockResolvedValue({ tree: [node('book', 'Book', 'folder', [node('part', 'Part', 'folder', [leaf])])] });
       mountTree(mobile);
       await screen.findByText('Book');
+      vi.useFakeTimers();
       const input = screen.getByRole('searchbox');
       fireEvent.focus(input);
       fireEvent.change(input, { target: { value: 'Needle' } });
-      expect(await screen.findByText('Book > Part')).toBeInTheDocument();
+      // Flush the real search debounce and its desktop keyboard-listener effect
+      // before dispatching the single Enter interaction.
+      await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+      expect(screen.getByText('Book > Part')).toBeInTheDocument();
       fireEvent.keyDown(input, { key: 'Enter' });
       expect(mocks.select).toHaveBeenCalledWith({ id: 'leaf', type: 'draft', title: 'Needle chapter' });
     });

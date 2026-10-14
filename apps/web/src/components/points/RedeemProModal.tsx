@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import Modal from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { handleApiError } from '../../lib/errorHandler';
+import { useProMaterialDecompositionsLimit } from '../../hooks/useProMaterialDecompositionsLimit';
 import { CelebrationBurst } from '../subscription/CelebrationBurst';
 
 interface RedeemProModalProps {
@@ -17,6 +18,7 @@ interface RedeemProModalProps {
 
 export function RedeemProModal({ isOpen, onClose }: RedeemProModalProps) {
   const { t } = useTranslation(['points', 'common']);
+  const materialLimit = useProMaterialDecompositionsLimit(isOpen);
   const [selectedDays, setSelectedDays] = useState(7);
   // Days of Pro just added; set after a successful redemption so the author
   // sees what they got instead of the modal silently closing.
@@ -203,12 +205,14 @@ export function RedeemProModal({ isOpen, onClose }: RedeemProModalProps) {
                 </svg>
                 {t('benefit.unlimitedProjects', '项目数不限')}
               </li>
+              {materialLimit !== null && (
               <li className="flex items-center gap-1">
                 <svg className="w-3 h-3 text-[hsl(var(--success))]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
-                {t('benefit.materials', '每月 5 次素材拆解')}
+                {t('benefit.materials', '每月 {{limit}} 次素材拆解', { limit: materialLimit })}
               </li>
+              )}
             </ul>
           </div>
 

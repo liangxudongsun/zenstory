@@ -1,6 +1,6 @@
 import { StrictMode, useEffect, useState } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryRouter, RouterProvider, useNavigate, useParams } from 'react-router-dom'
 import { createInstance, type i18n } from 'i18next'
@@ -20,6 +20,7 @@ const bootstrap = vi.hoisted(() => {
 vi.mock('../../lib/analytics', () => ({ trackEvent: vi.fn(), identifyUser: vi.fn(), resetAnalytics: vi.fn() }))
 
 import { ChatPanel } from '../ChatPanel'
+import { toast } from '../../lib/toast'
 import { AuthProvider } from '../../contexts/AuthContext'
 import { ProjectProvider, useProject } from '../../contexts/ProjectContext'
 import { MobileLayoutProvider } from '../../contexts/MobileLayoutContext'
@@ -99,6 +100,7 @@ beforeEach(async () => {
     if (path === '/api/v1/projects') return json([project('a'), project('b')])
     if (/^\/api\/v1\/chat\/session\/[ab]\/recent$/.test(path)) return json(history(path.split('/')[5]))
     if (/^\/api\/v1\/chat\/session\/[ab]\/new$/.test(path)) return json({ id: 'new-session', project_id: path.split('/')[5] })
+    if (path === '/api/v1/workspace/first-work') return json({ status: 'ineligible', project_id: null, static_guidance: false })
     if (path === '/api/v1/agent/suggest') return json({ suggestions: [`${(body as { project_id: string }).project_id.toUpperCase()} OWN SUGGESTION`] })
     if (path === '/api/v1/subscription/quota') return json({ ai_conversations: { used: 0, limit: 100 }, plan: 'free' })
     if (path === '/api/v1/projects/progress') return json([])
@@ -126,7 +128,7 @@ beforeEach(async () => {
   })
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } } })
   translations = createInstance()
-  const resources = { chat: { panel: { newSession: 'New session', aiMemory: 'AI memory' }, input: { staticSuggestions: ['LOCAL FALLBACK', 'LOCAL FALLBACK TWO'] } }, common: { send: 'Send', cancel: 'Cancel', loading: 'Loading' }, settings: {}, dashboard: {}, home: {}, editor: {}, versions: {} }
+  const resources = { chat: { panel: { newSession: 'New session', creatingSession: 'Creating new chat', newSessionFailed: 'New chat could not be created', sessionRecoveryFailed: 'Current chat could not be synced', aiMemory: 'AI memory' }, input: { staticSuggestions: ['LOCAL FALLBACK', 'LOCAL FALLBACK TWO'] } }, common: { send: 'Send', cancel: 'Cancel', loading: 'Loading', retry: 'Retry' }, settings: {}, dashboard: {}, home: {}, editor: {}, versions: {} }
   await translations.init({ lng: 'en', fallbackLng: 'en', defaultNS: 'chat', resources: { en: resources } })
 })
 
@@ -158,6 +160,68 @@ describe.each([false, true])('actual mounted ChatPanel new session rootStrict=%s
     expect(requests.find(x => x.path.endsWith('/new'))?.query.title).toBe('New Chat'); expect(has('A OWN SUGGESTION')).toBe(true)
   })
 
+
+  it('deduplicates same-tick new-session clicks and shows pending feedback while retaining the draft', async () => {
+    mount(strict); await until(() => has('A HISTORY KEEP') && has('A OWN SUGGESTION'))
+    const session = gate({ id: 'a-new-session', project_id: 'a' }); const normal = route
+    route = (path, body) => path === '/api/v1/chat/session/a/new' ? session.promise : normal(path, body)
+    act(() => { fireEvent.click(newButton()); fireEvent.click(newButton()) })
+    await flush()
+    expect(requests.filter(request => request.path.endsWith('/a/new'))).toHaveLength(1)
+    expect(newButton()).toBeDisabled()
+    expect(screen.getByRole('status')).toHaveTextContent('Creating new chat')
+    fireEvent.change(screen.getByTestId('chat-input'), { target: { value: 'Keep this typed idea' } })
+    fireEvent.click(screen.getByTestId('send-button'))
+    expect(requests.filter(request => request.path === '/api/v1/agent/stream')).toHaveLength(0)
+    expect(screen.getByTestId('chat-input')).toHaveValue('Keep this typed idea')
+    session.settle(); await flush()
+    expect(newButton()).toBeEnabled()
+    expect(screen.getByTestId('chat-input')).toHaveValue('Keep this typed idea')
+  })
+
+  it('keeps a ready inspiration timer from consuming the idea after creation synchronously starts', async () => {
+    const idea = 'Owned dashboard idea stays safe'
+    localStorage.setItem('zenstory_inspiration_a', JSON.stringify({ content: idea, timestamp: Date.now() }))
+    const timers = vi.spyOn(globalThis, 'setTimeout')
+    mount(strict); await until(() => has('A HISTORY KEEP') && has('A OWN SUGGESTION'))
+    let timerIndex = -1
+    timers.mock.calls.forEach(([, delay], index) => { if (delay === 500) timerIndex = index })
+    expect(timerIndex).toBeGreaterThanOrEqual(0)
+    const callback = timers.mock.calls[timerIndex][0] as () => void
+    clearTimeout(timers.mock.results[timerIndex].value)
+    const session = gate({ id: 'a-new-session', project_id: 'a' }); const normal = route
+    route = (path, body) => path === '/api/v1/chat/session/a/new' ? session.promise : normal(path, body)
+    try {
+      // Ready timer tasks may run before passive-effect cleanup. Exercise the
+      // existing callback with the same-tick ref lock, without an intervening render.
+      act(() => { fireEvent.click(newButton()); callback() })
+      expect(localStorage.getItem('zenstory_inspiration_a')).not.toBeNull()
+      expect(requests.filter(request => request.path === '/api/v1/agent/stream')).toHaveLength(0)
+      session.settle(); await flush()
+      await act(async () => { await vi.advanceTimersByTimeAsync(500) }); await flush()
+      expect(requests.filter(request => request.path === '/api/v1/agent/stream')).toHaveLength(1)
+      expect(localStorage.getItem('zenstory_inspiration_a')).toBeNull()
+    } finally { session.settle(); timers.mockRestore(); await flush() }
+  })
+
+  it('reports a failed creation and reloads the server active history instead of keeping stale context', async () => {
+    mount(strict); await until(() => has('A HISTORY KEEP') && has('A OWN SUGGESTION'))
+    const error = vi.spyOn(toast, 'error').mockImplementation(() => {})
+    const normal = route
+    const recovery = gate([{ ...history('a')[0], session_id: 'a-committed-new', content: 'SERVER ACTIVE HISTORY' }])
+    route = (path, body) => path.endsWith('/a/new') ? Promise.resolve(json({}, 500)) : path.endsWith('/a/recent')
+      ? recovery.promise : normal(path, body)
+    try {
+      fireEvent.click(newButton()); await until(() => requests.filter(request => request.path.endsWith('/a/recent')).length === 2)
+      expect(error).not.toHaveBeenCalled()
+      recovery.settle(); await until(() => has('SERVER ACTIVE HISTORY'))
+      expect(has('A HISTORY KEEP')).toBe(false)
+      expect(error).toHaveBeenCalledTimes(1)
+      expect(error).toHaveBeenCalledWith('New chat could not be created')
+      expect(newButton()).toBeEnabled()
+    } finally { recovery.settle(); error.mockRestore() }
+  })
+
   it('retains real B history and B suggestions after pending A new session succeeds', async () => {
     mount(strict); await until(() => has('A HISTORY KEEP') && has('A OWN SUGGESTION'))
     const session = gate({ id: 'a-new-session', project_id: 'a' }); const normal = route; route = (path, body) => path === '/api/v1/chat/session/a/new' ? session.promise : normal(path, body)
@@ -165,6 +229,49 @@ describe.each([false, true])('actual mounted ChatPanel new session rootStrict=%s
     const before = suggestionRequests().length; snapshot('B real history before A completion'); session.settle(); await flush(); snapshot('A success after committed B')
     expect(router.state.location.pathname).toBe('/project/b'); expect(has('B HISTORY KEEP')).toBe(true); expect(has('B OWN SUGGESTION')).toBe(true)
     expect(has('A OWN SUGGESTION')).toBe(false); expect(suggestionRequests()).toHaveLength(before)
+  })
+
+  it('blocks sending after recovery read fails and retries only the read without losing the draft', async () => {
+    mount(strict); await until(() => has('A HISTORY KEEP') && has('A OWN SUGGESTION'))
+    const error = vi.spyOn(toast, 'error').mockImplementation(() => {})
+    onTestFinished(() => error.mockRestore())
+    const normal = route; let recover = false
+    route = (path, body) => path === '/api/v1/chat/session/a/new' ? Promise.resolve(json({}, 500))
+      : path === '/api/v1/chat/session/a/recent' ? Promise.resolve(recover ? json([]) : json({}, 503)) : normal(path, body)
+    fireEvent.click(newButton()); await until(() => has('Current chat could not be synced'))
+    expect(error).not.toHaveBeenCalled()
+    expect(has('A HISTORY KEEP')).toBe(false)
+    expect(has('panel.welcome')).toBe(false)
+    expect(has('panel.suggestions')).toBe(false)
+    fireEvent.change(screen.getByTestId('chat-input'), { target: { value: 'Safe editable recovery draft' } })
+    fireEvent.click(screen.getByTestId('send-button'))
+    expect(requests.filter(request => request.path === '/api/v1/agent/stream')).toHaveLength(0)
+    expect(screen.getByTestId('chat-input')).toHaveValue('Safe editable recovery draft')
+    recover = true
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' })); await flush()
+    expect(has('Current chat could not be synced')).toBe(false)
+    expect(error).not.toHaveBeenCalled()
+    expect(has('panel.welcome')).toBe(true)
+    expect(has('panel.suggestions')).toBe(true)
+    expect(screen.getByTestId('chat-input')).toHaveValue('Safe editable recovery draft')
+    expect(screen.getByTestId('send-button')).toBeEnabled()
+    expect(requests.filter(request => request.path.endsWith('/a/new'))).toHaveLength(1)
+    expect(requests.filter(request => request.path.endsWith('/a/recent'))).toHaveLength(3)
+  })
+
+  it('does not notify the current project when a previous project finishes failed-creation recovery', async () => {
+    mount(strict); await until(() => has('A HISTORY KEEP') && has('A OWN SUGGESTION'))
+    const error = vi.spyOn(toast, 'error').mockImplementation(() => {})
+    onTestFinished(() => error.mockRestore())
+    const recovery = gate(history('a')); const normal = route
+    route = (path, body) => path === '/api/v1/chat/session/a/new' ? Promise.resolve(json({}, 500))
+      : path === '/api/v1/chat/session/a/recent' ? recovery.promise : normal(path, body)
+    fireEvent.click(newButton()); await until(() => requests.filter(request => request.path.endsWith('/a/recent')).length === 2)
+    fireEvent.click(screen.getByText('Choose B')); await until(() => has('B HISTORY KEEP') && has('B OWN SUGGESTION'))
+    recovery.settle(); await flush()
+    expect(has('B HISTORY KEEP')).toBe(true)
+    expect(has('B OWN SUGGESTION')).toBe(true)
+    expect(error).not.toHaveBeenCalled()
   })
 
   it('retains current B suggestion presentation after pending A new session fails', async () => {
@@ -244,11 +351,11 @@ describe.each([false, true])('actual mounted ChatPanel new session rootStrict=%s
 
   it('control: failed current creation retains pending own history recovery', async () => {
     const oldHistory = gate(history('a')); const session = gate({}); const normal = route
-    route = (path, body) => path === '/api/v1/chat/session/a/recent' ? oldHistory.promise : path === '/api/v1/chat/session/a/new' ? session.promise : normal(path, body)
+    route = (path, body) => path === '/api/v1/chat/session/a/recent' ? oldHistory.promise.then(response => response.clone()) : path === '/api/v1/chat/session/a/new' ? session.promise : normal(path, body)
     mount(strict); await until(() => requests.some(x => x.path.endsWith('/a/recent')) && Boolean(screen.queryByTitle('New session')))
     fireEvent.click(newButton()); await flush(); session.settle(500); await flush(); snapshot('failed creation with own history pending')
     expect((screen.getByTestId('chat-input') as HTMLTextAreaElement).disabled).toBe(true)
-    oldHistory.settle(); await until(() => has('A HISTORY KEEP') && has('A OWN SUGGESTION')); snapshot('own history recovers after failed creation')
+    oldHistory.settle(); await until(() => has('A HISTORY KEEP') && has('LOCAL FALLBACK')); snapshot('own history recovers after failed creation')
     expect((screen.getByTestId('chat-input') as HTMLTextAreaElement).disabled).toBe(false)
     expect(requests.filter(x => x.path.endsWith('/a/new'))).toHaveLength(1)
   })

@@ -65,6 +65,49 @@ def create_plan(db_session: Session, name: str) -> SubscriptionPlan:
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("attempted_limit", [-1, 0, 1, 10])
+async def test_admin_cannot_change_the_canonical_free_daily_limit(client, db_session, attempted_limit):
+    admin = await create_user(db_session, "free_policy_admin", "free_policy_admin@example.com", is_superuser=True)
+    plan = create_plan(db_session, "free")
+    token = await login_user(client, admin.username)
+    original_features = dict(plan.features)
+    original_updated_at = plan.updated_at
+
+    response = await client.put(
+        f"/api/admin/plans/{plan.id}", headers=auth_headers(token),
+        json={"display_name": "must not be applied", "features": {"ai_conversations_per_day": attempted_limit}},
+    )
+
+    assert response.status_code == 422
+    assert "ai_conversations_per_day" in response.json()["error_detail"]
+    assert "3" in response.json()["error_detail"]
+    db_session.expire_all()
+    persisted = db_session.get(SubscriptionPlan, plan.id)
+    assert persisted.features == original_features
+    assert persisted.display_name == "基础版"
+    assert persisted.updated_at == original_updated_at
+    assert db_session.exec(select(AdminAuditLog).where(AdminAuditLog.resource_id == plan.id)).first() is None
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("features", [{"max_projects": 3}, {"max_projects": 3, "ai_conversations_per_day": 3}])
+async def test_admin_can_edit_other_free_features_and_persists_the_canonical_daily_limit(client, db_session, features):
+    admin = await create_user(db_session, "free_policy_save", "free_policy_save@example.com", is_superuser=True)
+    plan = create_plan(db_session, "free")
+    token = await login_user(client, admin.username)
+
+    response = await client.put(
+        f"/api/admin/plans/{plan.id}", headers=auth_headers(token),
+        json={"display_name": "免费", "features": features},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["features"] == {"max_projects": 3, "ai_conversations_per_day": 3}
+    db_session.expire_all()
+    assert db_session.get(SubscriptionPlan, plan.id).features["ai_conversations_per_day"] == 3
+
+
+@pytest.mark.integration
 async def test_admin_list_and_update_plan_creates_audit_log(
     client: AsyncClient,
     db_session: Session,

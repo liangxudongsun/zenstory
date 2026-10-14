@@ -1092,3 +1092,259 @@ async def test_stop_done_uses_confirmed_save_count_or_omits_pending_count(client
         db_session.expire_all()
         outcome = json.loads(db_session.get(ChatMessage, message_id).message_metadata)["stop_outcome"]
         assert outcome["written_files"] == expected
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("mode", ["refund", "save_later", "save_fails", "disconnect"])
+async def test_deadline_terminal_precedes_edge_even_when_cleanup_is_pending(client, db_session, monkeypatch, mode):
+    """Controlled cleanup crosses the simulated edge; terminal must already be delivered."""
+    from agent.core import steering
+    from models import File
+
+    _token, project, user = await _login_with_project(client, db_session)
+    monkeypatch.setattr(agent_api, "AGENT_RUN_WALL_CLOCK_TIMEOUT_S", 0.03)
+    monkeypatch.setattr(agent_api, "AGENT_SSE_HEARTBEAT_INTERVAL_S", 0.01)
+    monkeypatch.setattr(steering, "_redis_available", AsyncMock(return_value=False))
+    gate = asyncio.Event()
+    cleanup_entered = asyncio.Event()
+    terminal = asyncio.Event()
+    refund_finished = asyncio.Event()
+    chat_id = f"deadline-{uuid4()}"
+    lease_id = "run-before-edge"
+    placeholder = File(project_id=project.id, user_id=user.id, title="自造第五章", content="", file_type="draft")
+    db_session.add(placeholder)
+    db_session.commit()
+    has_body = mode in {"save_later", "save_fails"}
+
+    async def frames():
+        await steering.create_steering_queue_async(chat_id, user.id, run_id=lease_id, exclusive_run=True)
+        try:
+            yield _sse("session_started", {"session_id": chat_id})
+            if has_body:
+                yield _sse("file_created", {"file_id": placeholder.id, "title": placeholder.title})
+                yield _sse("file_content", {"file_id": placeholder.id, "chunk": _PROSE})
+            await asyncio.Event().wait()
+        finally:
+            cleanup_entered.set()
+            await gate.wait()
+            if mode == "save_later":
+                placeholder.content = _PROSE
+                db_session.add(placeholder)
+                db_session.commit()
+            await steering.cleanup_steering_queue_async(chat_id, run_id=lease_id)
+
+    captured = []
+    async def consume(response):
+        async for frame in response.body_iterator:
+            captured.append(frame)
+            if _frame_data(frame, "error"):
+                terminal.set()
+
+    async def refund(*_args, **_kwargs):
+        refund_finished.set()
+        return True
+
+    logs = []
+    original_log = agent_api.log_with_context
+    def capture_log(logger, level, message, **fields):
+        if message == "Agent stream billing evaluated":
+            logs.append(fields)
+        return original_log(logger, level, message, **fields)
+
+    with (
+        patch("api.agent.get_agent_service", return_value=_FakeService(frames, message_id=None)),
+        patch("api.agent.quota_service.reserve_ai_conversation", return_value=_CHARGED_PERIOD),
+        patch("api.agent._refund_quota", new=AsyncMock(side_effect=refund)) as refund_call,
+        patch("api.agent.log_with_context", new=capture_log),
+    ):
+        response = await _stream(db_session, user, project, None)
+        consumer = asyncio.create_task(consume(response))
+        try:
+            # A simulated absolute edge is reached while application cleanup is still held.
+            await asyncio.wait_for(terminal.wait(), timeout=0.3)
+            await cleanup_entered.wait()
+            assert not gate.is_set()
+            assert not consumer.done()
+            assert await steering.has_active_runs_async(chat_id)
+            with pytest.raises(steering.SteeringSessionBusyError):
+                await steering.create_steering_queue_async(chat_id, user.id, run_id="next", exclusive_run=True)
+            refund_call.assert_not_called()
+            assert db_session.get(File, placeholder.id).content == ""
+            first = "".join(captured)
+            assert _frame_data(first, "error")["code"] == "ERR_AGENT_RUN_TIMEOUT"
+            assert _frame_data(first, "done") is None
+            assert _frame_data(first, "quota_refunded") is None
+            assert "saved_output" not in first
+            if mode == "disconnect":
+                consumer.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await consumer
+                await asyncio.sleep(0)
+                refund_call.assert_not_called()
+                assert await steering.has_active_runs_async(chat_id)
+        finally:
+            gate.set()
+            if not consumer.done():
+                await asyncio.wait_for(consumer, timeout=1)
+            if mode == "disconnect":
+                await asyncio.wait_for(refund_finished.wait(), timeout=1)
+            assert not await steering.has_active_runs_async(chat_id)
+            await steering.cleanup_steering_queue_async(chat_id, run_id=lease_id)
+
+        text = "".join(captured)
+        assert text.count("event: error") == 1
+        assert _frame_data(text, "done") is None
+        if has_body:
+            refund_call.assert_not_called()
+            assert db_session.get(File, placeholder.id).content == (_PROSE if mode == "save_later" else "")
+        elif mode != "disconnect":
+            refund_call.assert_awaited_once()
+            assert text.index("event: error") < text.index("event: quota_refunded")
+        assert logs[-1]["deadline_exceeded"] is True
+        assert logs[-1]["billing_reason"] == "run_deadline_exceeded"
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("disconnect", [False, True])
+async def test_timeout_terminal_precedes_slow_refund_and_keeps_its_final_result(client, db_session, monkeypatch, disconnect):
+    _token, project, user = await _login_with_project(client, db_session)
+    monkeypatch.setattr(agent_api, "AGENT_RUN_WALL_CLOCK_TIMEOUT_S", 0.03)
+    monkeypatch.setattr(agent_api, "AGENT_SSE_HEARTBEAT_INTERVAL_S", 0.01)
+    gate, terminal, started, finished = (asyncio.Event() for _ in range(4))
+    captured, logs = [], []
+
+    async def frames():
+        yield _sse("session_started", {"session_id": "slow-refund"})
+        await asyncio.Event().wait()
+
+    async def refund(*_args, **_kwargs):
+        started.set()
+        await gate.wait()
+        finished.set()
+        return True
+
+    original_log = agent_api.log_with_context
+    def capture_log(logger, level, message, **fields):
+        if message == "Agent stream billing evaluated":
+            logs.append(fields)
+        return original_log(logger, level, message, **fields)
+
+    async def consume(response):
+        async for frame in response.body_iterator:
+            captured.append(frame)
+            if _frame_data(frame, "error"):
+                terminal.set()
+
+    with (
+        patch("api.agent.get_agent_service", return_value=_FakeService(frames)),
+        patch("api.agent.quota_service.reserve_ai_conversation", return_value=_CHARGED_PERIOD),
+        patch("api.agent._refund_quota", new=AsyncMock(side_effect=refund)) as refund_call,
+        patch("api.agent.log_with_context", new=capture_log),
+    ):
+        response = await _stream(db_session, user, project, None)
+        consumer = asyncio.create_task(consume(response))
+        try:
+            await asyncio.wait_for(terminal.wait(), 0.3)
+            await started.wait()
+            assert _frame_data("".join(captured), "quota_refunded") is None
+            assert not finished.is_set()
+            if disconnect:
+                consumer.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await consumer
+        finally:
+            gate.set()
+            if not consumer.done():
+                await asyncio.wait_for(consumer, 1)
+            await asyncio.wait_for(finished.wait(), 1)
+        refund_call.assert_awaited_once()
+        assert "".join(captured).count("event: error") == 1
+        if not disconnect:
+            assert _frame_data("".join(captured), "quota_refunded")["refunded"] is True
+        assert logs[-1]["billing_reason"] == "run_deadline_exceeded"
+        assert logs[-1]["client_disconnected"] is disconnect
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("terminal_kind", ["done", "error", "workflow_complete", "workflow_stopped"])
+@pytest.mark.parametrize("backlog", [0, 32])
+async def test_queued_terminal_cannot_suppress_delivered_deadline_terminal(client, db_session, monkeypatch, terminal_kind, backlog):
+    """Produced/queued is not delivered, including a terminal blocked by a full queue."""
+    _token, project, user = await _login_with_project(client, db_session)
+    monkeypatch.setattr(agent_api, "AGENT_RUN_WALL_CLOCK_TIMEOUT_S", 0.02)
+    gate, terminal_generated, cleanup_entered = (asyncio.Event() for _ in range(3))
+    payload = {"code": "ORIGINAL_ERROR", "error": "synthetic error"} if terminal_kind == "error" else {}
+    if terminal_kind == "workflow_stopped":
+        payload = {"reason": "synthetic_terminal_stop"}
+
+    async def frames():
+        try:
+            yield _sse("session_started", {"session_id": "queued-terminal"})
+            for _ in range(backlog):
+                yield _sse("thinking", {"text": "pending"})
+            terminal_generated.set()
+            yield _sse(terminal_kind, payload)
+            await asyncio.Event().wait()
+        finally:
+            cleanup_entered.set()
+            await gate.wait()
+
+    with (
+        patch("api.agent.get_agent_service", return_value=_FakeService(frames)),
+        patch("api.agent.quota_service.reserve_ai_conversation", return_value=_CHARGED_PERIOD),
+        patch("api.agent._refund_quota", new=AsyncMock(return_value=True)) as refund,
+    ):
+        response = await _stream(db_session, user, project, None)
+        iterator = response.body_iterator
+        delivered = [await anext(iterator)]
+        await asyncio.wait_for(terminal_generated.wait(), 0.2)
+        # Simulate consumer backpressure crossing the application deadline.
+        await asyncio.sleep(0.03)
+        next_frame = asyncio.create_task(anext(iterator))
+        try:
+            frame = await asyncio.wait_for(asyncio.shield(next_frame), 0.2)
+            delivered.append(frame)
+            assert _frame_data(frame, "error")["code"] == "ERR_AGENT_RUN_TIMEOUT"
+            await cleanup_entered.wait()
+            refund.assert_not_called()
+            assert not gate.is_set()
+        finally:
+            gate.set()
+            if not next_frame.done():
+                await asyncio.gather(next_frame, return_exceptions=True)
+            delivered.extend([frame async for frame in iterator])
+        text = "".join(delivered)
+        assert text.count("event: error") == 1
+        assert _frame_data(text, "done") is None
+        assert _frame_data(text, "workflow_complete") is None
+        assert _frame_data(text, "workflow_stopped") is None
+        refund.assert_awaited_once()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("terminal_kind", ["done", "error"])
+async def test_delivered_terminal_is_not_duplicated_after_consumer_deadline(client, db_session, monkeypatch, terminal_kind):
+    _token, project, user = await _login_with_project(client, db_session)
+    monkeypatch.setattr(agent_api, "AGENT_RUN_WALL_CLOCK_TIMEOUT_S", 0.02)
+    gate = asyncio.Event()
+    async def frames():
+        try:
+            yield _sse("session_started", {"session_id": "delivered-terminal"})
+            yield _sse(terminal_kind, {"code": "ORIGINAL_ERROR"} if terminal_kind == "error" else {})
+            await asyncio.Event().wait()
+        finally:
+            await gate.wait()
+    with (
+        patch("api.agent.get_agent_service", return_value=_FakeService(frames)),
+        patch("api.agent.quota_service.reserve_ai_conversation", return_value=_CHARGED_PERIOD),
+        patch("api.agent._refund_quota", new=AsyncMock(return_value=True)),
+    ):
+        response = await _stream(db_session, user, project, None)
+        iterator = response.body_iterator
+        delivered = [await anext(iterator), await anext(iterator)]
+        await asyncio.sleep(0.03)
+        gate.set()
+        delivered.extend([frame async for frame in iterator])
+        text = "".join(delivered)
+        assert text.count(f"event: {terminal_kind}") == 1
+        assert "ERR_AGENT_RUN_TIMEOUT" not in text

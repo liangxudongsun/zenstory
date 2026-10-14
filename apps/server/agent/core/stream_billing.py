@@ -121,6 +121,14 @@ def _parse_sse(frame: str) -> tuple[str, Any]:
         return event_type, None
 
 
+def _is_terminal_event(event_type: str, payload: dict[str, Any]) -> bool:
+    return (
+        event_type in _TERMINAL_EVENT_TYPES
+        or event_type == "error"
+        or (event_type == "workflow_stopped" and payload.get("reason") not in NON_TERMINAL_WORKFLOW_STOPPED_REASONS)
+    )
+
+
 def _visible_len(text: str) -> int:
     return sum(1 for ch in text if not ch.isspace())
 
@@ -129,6 +137,9 @@ def _visible_len(text: str) -> int:
 class StreamBillingTracker:
     saw_any_event: bool = False
     saw_terminal_event: bool = False
+    # Output accounting observes the producer before enqueue; this separate
+    # flag is set only immediately before the API yields a frame to its caller.
+    delivered_terminal_event: bool = False
     saw_error_event: bool = False
     error_refundable: bool | None = None
     # 本轮是否有实质产出（写入留下了正文，或真正的回复正文；见模块说明）。
@@ -154,6 +165,12 @@ class StreamBillingTracker:
     # parallel_task_start 帧里的子任务类型：(execution_id, task_id) -> task_type。
     _parallel_task_types: dict[tuple[str, str], str] = field(default_factory=dict, repr=False)
 
+    def observe_delivery(self, frame: Any) -> None:
+        if isinstance(frame, str):
+            event_type, data = _parse_sse(frame)
+            if _is_terminal_event(event_type, data if isinstance(data, dict) else {}):
+                self.delivered_terminal_event = True
+
     def observe(self, frame: Any) -> None:
         if not isinstance(frame, str):
             return
@@ -162,6 +179,8 @@ class StreamBillingTracker:
         if not event_type:
             return  # SSE 注释帧（心跳）等
         payload = data if isinstance(data, dict) else {}
+        if _is_terminal_event(event_type, payload):
+            self.saw_terminal_event = True
 
         if self._segment_chars > 0 and (
             event_type in _TERMINAL_EVENT_TYPES
@@ -175,16 +194,8 @@ class StreamBillingTracker:
 
         if event_type == "session_started" and isinstance(payload.get("session_id"), str):
             self.session_id = payload["session_id"]
-        elif event_type in _TERMINAL_EVENT_TYPES:
-            self.saw_terminal_event = True
-        elif event_type == "workflow_stopped":
-            # 只读请求拦下写交接的提示卡片也走 workflow_stopped，但它只是一条
-            # 说明：之后若异常中断，仍按失败处理。
-            if payload.get("reason") not in NON_TERMINAL_WORKFLOW_STOPPED_REASONS:
-                self.saw_terminal_event = True
         elif event_type == "error":
             self.saw_error_event = True
-            self.saw_terminal_event = True
             refundable = payload.get("refundable")
             if isinstance(refundable, bool) and self.error_refundable is not False:
                 self.error_refundable = refundable

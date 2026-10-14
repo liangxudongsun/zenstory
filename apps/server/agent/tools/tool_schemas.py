@@ -238,6 +238,7 @@ UPDATE_PROJECT_TOOL: dict[str, Any] = {
     "name": "update_project",
     "description": (
         "更新项目信息和任务计划。可同时更新项目状态（摘要、阶段、风格、备注）和任务列表。"
+        "同一时刻最多一个任务为 in_progress，其余未开始的任务标 pending。"
         "summary/current_phase/writing_style/notes 传值即整体替换该字段，不是追加："
         "新增内容时必须把现有内容与新条目合并后整段传入，否则原有内容会丢失。"
         "notes 只记作者定下的约定（附 author_quotes 作者原话）；你自己的推断或建议放 proposals。"
@@ -312,7 +313,7 @@ UPDATE_PROJECT_TOOL: dict[str, Any] = {
             },
             "tasks": {
                 "type": "array",
-                "description": "任务列表",
+                "description": "完整任务列表；同一时刻最多一个任务为 in_progress，其余未开始的任务标 pending",
                 "items": {
                     "type": "object",
                     "properties": {
@@ -322,7 +323,7 @@ UPDATE_PROJECT_TOOL: dict[str, Any] = {
                         },
                         "status": {
                             "type": "string",
-                            "description": "任务状态",
+                            "description": "任务状态；同一时刻最多一个任务为 in_progress，其余未开始的任务标 pending",
                             "enum": ["pending", "in_progress", "done"]
                         },
                         "phase_id": {

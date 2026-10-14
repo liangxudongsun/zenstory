@@ -122,6 +122,16 @@ describe("SubscriptionPlanManagement", () => {
     expect(mutateMock).not.toHaveBeenCalled();
   });
 
+  it.each(["null", "[]", "42"])("rejects a JSON value that is not a feature object: %s", (json) => {
+    useQueryMock.mockReturnValue({data: [plan]});
+    render(<SubscriptionPlanManagement />);
+    fireEvent.click(screen.getByRole("button", {name: "plans.edit"}));
+    fireEvent.change(screen.getByLabelText("plans.featuresDetail.jsonLabel"), {target: {value: json}});
+    fireEvent.click(screen.getByRole("button", {name: "plans.save"}));
+    expect(screen.getByText("plans.invalidJson")).toBeInTheDocument();
+    expect(mutateMock).not.toHaveBeenCalled();
+  });
+
   it("submits updated plan payload", () => {
     useQueryMock.mockReturnValue({
       data: [plan],
@@ -149,9 +159,42 @@ describe("SubscriptionPlanManagement", () => {
           ai_conversations_per_day: 100,
           max_projects: 10,
           custom_prompts: true,
+          inspiration_copies_monthly: -1,
         },
       },
     });
+  });
+
+  it("shows the free daily policy as read-only and keeps it out of the JSON editor", () => {
+    useQueryMock.mockReturnValue({data: [{...plan, name: "free", features: {ai_conversations_per_day: 10, max_projects: 3}, effective_features: {ai_conversations_per_day: 3}}]});
+    render(<SubscriptionPlanManagement />);
+    fireEvent.click(screen.getByRole("button", {name: "plans.edit"}));
+
+    expect(screen.getByRole("spinbutton", {name: "plans.featuresDetail.ai_conversations_per_day"})).toHaveAttribute("readonly");
+    expect(screen.getByText("plans.featuresDetail.freeDailyPolicy")).toBeInTheDocument();
+    expect(JSON.parse((screen.getByLabelText("plans.featuresDetail.jsonLabel") as HTMLTextAreaElement).value)).toEqual({max_projects: 3});
+    fireEvent.click(screen.getByRole("button", {name: "plans.save"}));
+    expect(mutateMock).toHaveBeenCalledWith(expect.objectContaining({data: expect.objectContaining({features: {max_projects: 3, ai_conversations_per_day: 3}})}));
+  });
+
+  it("keeps Pro's existing unlimited inspiration policy read-only", () => {
+    useQueryMock.mockReturnValue({data: [{...plan, features: {inspiration_copies_monthly: 100, max_projects: -1}}]});
+    render(<SubscriptionPlanManagement />);
+    fireEvent.click(screen.getByRole("button", {name: "plans.edit"}));
+    expect(screen.getByRole("textbox", {name: "plans.featuresDetail.inspiration_copies_monthly"})).toHaveAttribute("readonly");
+    expect(JSON.parse((screen.getByLabelText("plans.featuresDetail.jsonLabel") as HTMLTextAreaElement).value)).toEqual({max_projects: -1});
+    fireEvent.click(screen.getByRole("button", {name: "plans.save"}));
+    expect(mutateMock).toHaveBeenCalledWith(expect.objectContaining({data: expect.objectContaining({features: {max_projects: -1, inspiration_copies_monthly: -1}})}));
+  });
+
+  it("rejects a pasted free daily policy override before making a request", () => {
+    useQueryMock.mockReturnValue({data: [{...plan, name: "free", features: {max_projects: 3}}]});
+    render(<SubscriptionPlanManagement />);
+    fireEvent.click(screen.getByRole("button", {name: "plans.edit"}));
+    fireEvent.change(screen.getByLabelText("plans.featuresDetail.jsonLabel"), {target: {value: '{"ai_conversations_per_day": 10}'}});
+    fireEvent.click(screen.getByRole("button", {name: "plans.save"}));
+    expect(screen.getAllByText("plans.featuresDetail.freeDailyPolicy").length).toBeGreaterThan(0);
+    expect(mutateMock).not.toHaveBeenCalled();
   });
 
   it("shows the effective entitlements users get, not the raw stored keys", () => {

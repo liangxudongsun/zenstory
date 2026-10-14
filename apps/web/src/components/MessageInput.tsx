@@ -13,7 +13,7 @@
  *
  * @module components/MessageInput
  */
-import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback, useId } from "react";
 import type { KeyboardEvent } from "react";
 import { Send, X, Square, RefreshCw, FileText, Quote, Zap, Sparkles } from "lucide-react";
 import { VoiceInputButton } from "./VoiceInputButton";
@@ -163,6 +163,8 @@ const SwipeableSuggestionChip: React.FC<SwipeableSuggestionChipProps> = ({
  * Provides a rich chat input interface with suggestions, attachments, and selected skills.
  */
 interface MessageInputProps {
+  /** Focus after an explicit cross-panel action without changing or sending the draft. */
+  focusRequest?: number;
   /**
    * Callback invoked when the user submits a message.
    * @param message - The message text
@@ -294,6 +296,7 @@ interface MessageInputProps {
  */
 export const MessageInput: React.FC<MessageInputProps> = ({
   onSend,
+  focusRequest = 0,
   disabled = false,
   sendDisabled,
   onBlockedSend,
@@ -315,6 +318,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   onGenerationModeChange,
 }) => {
   const { t } = useTranslation(["chat", "common"]);
+  const inputLengthErrorId = useId();
   const { isMobile } = useMobileLayout();
   const textareaMinHeightPx = isMobile ? 44 : TEXTAREA_MIN_HEIGHT_PX;
   const effectiveSendDisabled = sendDisabled ?? disabled;
@@ -381,6 +385,15 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     }
   }, [externalDraft]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const lastFocusRequestRef = useRef(0);
+  useEffect(() => {
+    if (!focusRequest || focusRequest === lastFocusRequestRef.current || disabled) return;
+    const frame = requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      lastFocusRequestRef.current = focusRequest;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusRequest, disabled]);
   const isComposingRef = useRef(false);
   const { attachedMaterials, removeMaterial } = useMaterialAttachment();
   const { quotes, removeQuote } = useTextQuote();
@@ -947,7 +960,8 @@ export const MessageInput: React.FC<MessageInputProps> = ({
 
       {inputTooLong ? (
         <div
-          className="text-xs text-[hsl(var(--error))] px-1"
+          id={inputLengthErrorId}
+          className="shrink-0 px-1 text-xs text-[hsl(var(--error-text))]"
           role="alert"
           data-testid="chat-input-too-long"
         >
@@ -1005,6 +1019,8 @@ export const MessageInput: React.FC<MessageInputProps> = ({
         {/* data-testid: chat-input - Chat input textarea for chat interaction tests */}
         <textarea
           ref={textareaRef}
+          aria-invalid={inputTooLong || undefined}
+          aria-describedby={inputTooLong ? inputLengthErrorId : undefined}
           value={input}
           onChange={handleChange}
           onKeyDown={handleKeyDown}

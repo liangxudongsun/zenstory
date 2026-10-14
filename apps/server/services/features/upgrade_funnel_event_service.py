@@ -35,6 +35,7 @@ class UpgradeFunnelStats(TypedDict):
     period_end: str
     totals: dict[str, int]
     sources: list[UpgradeFunnelSourceStats]
+    surfaces: list[dict[str, str | int]]
 
 
 class UpgradeFunnelEventService:
@@ -110,20 +111,24 @@ class UpgradeFunnelEventService:
             select(
                 UpgradeFunnelEvent.source,
                 UpgradeFunnelEvent.action,
+                UpgradeFunnelEvent.surface,
                 func.count(UpgradeFunnelEvent.id),
+                func.count(func.distinct(UpgradeFunnelEvent.user_id)),
             ).where(
                 UpgradeFunnelEvent.occurred_at >= period_start,
                 UpgradeFunnelEvent.occurred_at <= period_end,
             ).group_by(
                 UpgradeFunnelEvent.source,
                 UpgradeFunnelEvent.action,
+                UpgradeFunnelEvent.surface,
             )
         ).all()
 
         totals: dict[str, int] = {"expose": 0, "click": 0, "conversion": 0}
         source_map: dict[str, dict[str, int]] = {}
 
-        for source, action, count_raw in grouped_rows:
+        surface_map: dict[tuple[str, str], dict] = {}
+        for source, action, surface, count_raw, users_raw in grouped_rows:
             count = int(count_raw or 0)
             if action not in totals:
                 continue
@@ -134,6 +139,18 @@ class UpgradeFunnelEventService:
                 {"expose": 0, "click": 0, "conversion": 0},
             )
             slot[action] += count
+            row = surface_map.setdefault((source, surface), {
+                "source": source, "surface": surface, "exposes": 0, "exposed_users": 0,
+                "clicks": 0, "clicking_users": 0, "page_arrivals": 0,
+            })
+            if action == "expose":
+                row["exposes"] = count
+                row["exposed_users"] = int(users_raw or 0)
+            elif action == "click":
+                row["clicks"] = count
+                row["clicking_users"] = int(users_raw or 0)
+            else:
+                row["page_arrivals"] = count
 
         source_stats: list[UpgradeFunnelSourceStats] = []
         for source, counts in source_map.items():
@@ -168,6 +185,7 @@ class UpgradeFunnelEventService:
             period_end=period_end.isoformat(),
             totals=totals,
             sources=source_stats,
+            surfaces=[surface_map[key] for key in sorted(surface_map)],
         )
 
 

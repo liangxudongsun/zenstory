@@ -404,6 +404,44 @@ class TestExportDraftsToTxt:
 
         assert exported == "第一章\n\n"
 
+    @pytest.mark.parametrize("file_type", ["draft", "script"])
+    @pytest.mark.parametrize("content", ["", " \n\u3000\t"])
+    def test_export_omits_unwritten_first_work_file(
+        self, db_session: Session, test_project, create_draft_file, file_type, content,
+    ):
+        starter = create_draft_file("未书写的初始稿", content)
+        starter.file_type = file_type
+        starter.set_metadata({"creation_source": "first_work"})
+        db_session.add(starter)
+        db_session.commit()
+        create_draft_file("第一章", "作者完成的正文。", order=1)
+
+        exported = export_drafts_to_txt(db_session, test_project.id, title="作品名")
+
+        assert exported == "作品名\n\n第一章\n\n作者完成的正文。"
+        assert db_session.get(File, starter.id).is_deleted is False
+        assert len(get_sorted_drafts(db_session, test_project.id)) == 2
+
+    def test_export_of_only_unwritten_first_work_file_is_empty(
+        self, db_session: Session, test_project, create_draft_file,
+    ):
+        starter = create_draft_file("初始稿", "")
+        starter.set_metadata({"creation_source": "first_work"})
+        db_session.add(starter)
+        db_session.commit()
+
+        assert export_drafts_to_txt(db_session, test_project.id, title="作品名") == ""
+
+    def test_export_preserves_written_first_work_file(
+        self, db_session: Session, test_project, create_draft_file,
+    ):
+        starter = create_draft_file("初始稿", "\u3000\u3000作者写下的开头。\n")
+        starter.set_metadata({"creation_source": "first_work"})
+        db_session.add(starter)
+        db_session.commit()
+
+        assert export_drafts_to_txt(db_session, test_project.id) == "初始稿\n\n\u3000\u3000作者写下的开头。"
+
     def test_export_handles_special_characters(self, db_session: Session, test_project, test_user, create_draft_file):
         """Test exporting content with special characters."""
         create_draft_file("第一章", "包含引号\"和单引号'的内容。\n还有换行符。", order=1)

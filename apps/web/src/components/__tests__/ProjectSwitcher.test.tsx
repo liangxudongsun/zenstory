@@ -109,7 +109,7 @@ describe('ProjectSwitcher', () => {
     expect(screen.getAllByText('Beta').length).toBeGreaterThan(0)
 
     fireEvent.click(screen.getByText('Beta'))
-    expect(switchProject).toHaveBeenCalledWith('project-2')
+    expect(switchProject).not.toHaveBeenCalled()
     expect(mockNavigate).toHaveBeenCalledWith('/project/project-2')
   })
 
