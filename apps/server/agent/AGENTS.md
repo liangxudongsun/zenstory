@@ -206,8 +206,11 @@ quality_reviewer）。审查最多 `MAX_REVIEW_ROUNDS` 轮，返修稿不再自�
 
 - 每个 `/agent/stream` 恰好以一个终止帧结束（`done` / `workflow_complete` / 终止性 `workflow_stopped` / `error`）；逃逸异常先补发 error 帧。
   错误码与固定文案在 `core/stream_errors.py`。[terminal-frame][n-terminal]、[error-and-refund][n-refund]
-- 计费只看实际产出（`core/stream_billing.py`）：没有实质产出的失败、作者停止、断线退还额度，退还落库后补发 `quota_refunded`；思考、
-  读文件、只建空文件不算产出。结算只做一次。[error-and-refund][n-refund]、[stop-output-definition][n-output]
+- 计费规则以 `core/stream_billing.py` 模块 docstring 为准：作者停止 / 断线 / 墙钟超时时，本轮没有实质产出（墙钟超时还要求结束时不在写
+  回复）则退还；失控停止（no_progress / 模型调用上限 / 工具轮数耗尽）且没有任何写入成功则退还；正常结束计费；出错时 error 帧
+  `refundable: false`（如工具失败熔断）、已有产出或正在写回复则计费，其余退还。「实质产出」只有写入留下正文，或一段回复正文达到
+  `PROSE_MIN_CHARS`；思考、读文件、只建空文件、过渡旁白都不算。退还落库后补发 `quota_refunded`，结算只做一次。
+  [error-and-refund][n-refund]、[stop-output-definition][n-output]
 - 作者停止走 `POST /agent/stop` → `SSEStreamPump.request_stop()`，连接上补发 `workflow_stopped(user_stopped)` 与 `done`；停止 / 断线 / 超时
   的取消路径会把进行中的 `<file>` 捕获补存，并由 `core/round_outcome.py` 写终态、退还时移除本轮空白占位文件。
   [graceful-stop][n-stop]、[abort-flushes-capture][n-flush]、[stop-output-definition][n-output]
