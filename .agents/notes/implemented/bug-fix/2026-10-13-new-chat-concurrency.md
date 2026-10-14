@@ -25,3 +25,5 @@ PostgreSQL 的新建/获取、Agent requested-id 解析、MessageManager 无 ses
 客户端同步双击与失败后活动历史恢复回归先失败后通过；StrictMode 与普通挂载共 28 个真实 ChatPanel 生命周期案例通过，含失败读重试只 GET、输入保留与旧项目响应隔离。受影响前端回归 203 项通过。独占本地 PostgreSQL 17 临时库以部分唯一索引和真实 SQL 读交错先复现九种 409/UniqueViolation，修复后 13 种组合通过，含 requested-id 新建/重新激活与显式旧 session 消息在途保存；不调用模型。SQLite/API/Agent/MessageManager 44 项已有回归通过。CI 的独立串行 PostgreSQL lane 纳入并发测试，默认未配置显式测试库时跳过。完整 typecheck/build、受影响 ESLint/Ruff 与 token/i18n 检查通过。
 
 补充 owning-helper 回归使用独立临时 SQLite 文件和真实部分唯一索引，通过新 Session 证明换新已提交、旧会话已归档、原消息原样保留；worker suite 13 项通过。该覆盖不替代前述 13 项真实 PostgreSQL 并发证明。
+
+最后检查补充就绪 timer 竞态：500ms 的旧灵感回调可能早于 passive effect 清理执行，原实现先消费 localStorage，再被创建 ref 锁挡住。普通与 StrictMode 两项回归先红，回调在消费原 key 前复核当前项目/创建/停止/恢复/send ref，未就绪则保留 key 并在状态变化后重新调度。创建成功后的附属建议失败不转为创建失败、不重读历史；新增单测验证该边界。最终受影响前端 206 项通过，完整 build:typecheck 与 ESLint 通过。

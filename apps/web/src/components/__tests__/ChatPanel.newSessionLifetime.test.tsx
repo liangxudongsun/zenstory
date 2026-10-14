@@ -178,6 +178,31 @@ describe.each([false, true])('actual mounted ChatPanel new session rootStrict=%s
     expect(screen.getByTestId('chat-input')).toHaveValue('Keep this typed idea')
   })
 
+  it('keeps a ready inspiration timer from consuming the idea after creation synchronously starts', async () => {
+    const idea = 'Owned dashboard idea stays safe'
+    localStorage.setItem('zenstory_inspiration_a', JSON.stringify({ content: idea, timestamp: Date.now() }))
+    const timers = vi.spyOn(globalThis, 'setTimeout')
+    mount(strict); await until(() => has('A HISTORY KEEP') && has('A OWN SUGGESTION'))
+    let timerIndex = -1
+    timers.mock.calls.forEach(([, delay], index) => { if (delay === 500) timerIndex = index })
+    expect(timerIndex).toBeGreaterThanOrEqual(0)
+    const callback = timers.mock.calls[timerIndex][0] as () => void
+    clearTimeout(timers.mock.results[timerIndex].value)
+    const session = gate({ id: 'a-new-session', project_id: 'a' }); const normal = route
+    route = (path, body) => path === '/api/v1/chat/session/a/new' ? session.promise : normal(path, body)
+    try {
+      // Ready timer tasks may run before passive-effect cleanup. Exercise the
+      // existing callback with the same-tick ref lock, without an intervening render.
+      act(() => { fireEvent.click(newButton()); callback() })
+      expect(localStorage.getItem('zenstory_inspiration_a')).not.toBeNull()
+      expect(requests.filter(request => request.path === '/api/v1/agent/stream')).toHaveLength(0)
+      session.settle(); await flush()
+      await act(async () => { await vi.advanceTimersByTimeAsync(500) }); await flush()
+      expect(requests.filter(request => request.path === '/api/v1/agent/stream')).toHaveLength(1)
+      expect(localStorage.getItem('zenstory_inspiration_a')).toBeNull()
+    } finally { session.settle(); timers.mockRestore(); await flush() }
+  })
+
   it('reports a failed creation and reloads the server active history instead of keeping stale context', async () => {
     mount(strict); await until(() => has('A HISTORY KEEP') && has('A OWN SUGGESTION'))
     const error = vi.spyOn(toast, 'error').mockImplementation(() => {})

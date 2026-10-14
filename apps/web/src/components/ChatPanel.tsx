@@ -1896,6 +1896,9 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
           }
           inspirationSendTimerRef.current = setTimeout(() => {
             inspirationSendTimerRef.current = null;
+            // A ready task can precede effect cleanup. Keep its durable idea
+            // until the owning chat is ready; the state change reschedules it.
+            if (currentProjectIdRef.current !== projectIdForSend || creatingSessionRef.current !== null || newChatAfterStopRef.current || sessionRecoveryBlockedRef.current || sendLockRef.current) return;
             inspirationProcessedRef.current.add(projectIdForSend);
             localStorage.removeItem(inspirationKey);
             void handleSendMessage(idea, undefined, { entry: "dashboard_idea" });
