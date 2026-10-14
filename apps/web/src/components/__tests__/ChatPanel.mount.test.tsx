@@ -1605,7 +1605,7 @@ describe('ChatPanel mount smoke', () => {
       render(<ChatPanel />)
 
       const dialog = await screen.findByRole('dialog')
-      within(dialog).getByRole('button', { name: '升级专业版' }).click()
+      fireEvent.click(await within(dialog).findByRole('button', { name: '升级专业版' }))
       expect(assignMock).toHaveBeenCalledWith('/dashboard/billing?source=chat_quota_blocked')
     } finally {
       Object.defineProperty(window, 'location', {
