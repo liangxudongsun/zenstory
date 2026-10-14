@@ -294,9 +294,9 @@ describe('BillingPage', () => {
     }
     render(<BillingPage />)
 
-    expect(screen.getByTestId('billing-usage-ai_conversations').className).toContain('text-[hsl(var(--error))]')
+    expect(screen.getByTestId('billing-usage-ai_conversations').className).toContain('text-[hsl(var(--error-text))]')
     expect(screen.getByTestId('billing-usage-bar-ai_conversations').className).toContain('bg-[hsl(var(--error))]')
-    expect(screen.getByTestId('billing-usage-inspiration_copies').className).toContain('text-[hsl(var(--warning))]')
+    expect(screen.getByTestId('billing-usage-inspiration_copies').className).toContain('text-[hsl(var(--warning-text))]')
     expect(screen.getByTestId('billing-usage-bar-inspiration_copies').className).toContain('bg-[hsl(var(--warning))]')
   })
 

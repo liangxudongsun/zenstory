@@ -338,9 +338,9 @@ export default function BillingPage() {
               const isUsedUp = isLimited && Boolean(metric && metric.used >= metric.limit);
               const isWarning = isLimited && !isUsedUp && progress >= 80;
               const usageTextClass = isUsedUp
-                ? "text-[hsl(var(--error))]"
+                ? "text-[hsl(var(--error-text))]"
                 : isWarning
-                ? "text-[hsl(var(--warning))]"
+                ? "text-[hsl(var(--warning-text))]"
                 : "text-[hsl(var(--text-primary))]";
               const usageBarClass = isUsedUp
                 ? "bg-[hsl(var(--error))]"
