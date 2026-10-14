@@ -145,6 +145,9 @@ interface ToolResultCardProps {
    */
   onUndo?: (target: FileEditUndoTarget) => void;
 
+  /** Open the exact file from a successful create/update result in the current project. */
+  onOpenFile?: (fileId: string, fileType: string, title: string) => void;
+
   /**
    * Callback to apply the response content.
    * Shown as primary action button for type='response'.
@@ -544,6 +547,7 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
   isPending,
   interrupted,
   onUndo,
+  onOpenFile,
   onApply,
   onRetry,
   onCopy,
@@ -654,6 +658,17 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
 
     // Handle success cases by tool type
     const data = (result?.data || result) as Record<string, unknown>;
+    const fileId = typeof data?.id === 'string' ? data.id.trim() : '';
+    const canOpenFile = !!onOpenFile && !!fileId && !isPending && !interrupted;
+    const fileTitle = (title: string, fileType: string, label = title) => canOpenFile ? (
+      <button
+        type="button"
+        onClick={() => onOpenFile?.(fileId, fileType, title)}
+        className="min-h-11 md:min-h-0 min-w-0 max-w-full break-words rounded text-left underline decoration-[hsl(var(--border-color))] underline-offset-2 hover:text-[hsl(var(--accent-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-primary))]"
+      >
+        {label}
+      </button>
+    ) : <span className="min-w-0 break-words">{label}</span>;
     
     // create_file success
     if (toolName === 'create_file' && data) {
@@ -671,7 +686,7 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
             </span>
             <span className="flex basis-full min-w-0 items-start gap-1 pl-6 text-sm text-[hsl(var(--text-primary))]">
               <span className="shrink-0">{typeInfo.icon}</span>
-              <span className="min-w-0 break-words">{title}</span>
+              {fileTitle(title, fileType)}
             </span>
             {wordCount > 0 && (
               <span className="text-xs text-[hsl(var(--text-secondary))] ml-auto">
@@ -686,20 +701,21 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
     // update_file success
     if (toolName === 'update_file' && data) {
       const title = data.title as string || t('chat:fileDefault');
+      const fileType = data.file_type as string || '';
       const wordCount = typeof data.content === 'string' ? countWords(data.content) : 0;
       
       return (
         <div className="bg-[hsl(var(--result-bg))] border border-[hsl(var(--result-border))] rounded-lg px-3 py-2">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-[hsl(var(--success-text))]" />
-            <span className="text-sm text-[hsl(var(--success-text))]">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-[hsl(var(--success-text))]" />
+            <span className="shrink-0 text-sm text-[hsl(var(--success-text))]">
               {t('chat:tool.updated')}
             </span>
-            <span className="text-sm text-[hsl(var(--text-primary))]">
-              {quote(title)}
+            <span className="basis-full min-w-0 pl-6 text-sm text-[hsl(var(--text-primary))]">
+              {fileTitle(title, fileType, quote(title))}
             </span>
             {wordCount > 0 && (
-              <span className="text-xs text-[hsl(var(--text-secondary))] ml-auto">
+              <span className="shrink-0 text-xs text-[hsl(var(--text-secondary))] ml-auto">
                 {formatWordCount(wordCount, t)}
               </span>
             )}

@@ -24,11 +24,13 @@ const mockQuota = vi.hoisted(() => ({
 
 const mockProjectState = vi.hoisted(() => ({
   currentProjectId: 'project-1' as string | null,
+  selectedItem: null as { id: string; type: string; title: string } | null,
   currentProject: { id: 'project-1', name: '外卖小哥看见倒计时' } as { id: string; name: string } | null,
   refreshProjects: vi.fn(async () => {}),
   refreshProject: vi.fn(async (_projectId: string) => {}),
   triggerFileTreeRefresh: vi.fn(),
   triggerEditorRefresh: vi.fn(),
+  setSelectedItem: vi.fn(),
 }))
 
 const mockStartStream = vi.hoisted(() => vi.fn())
@@ -90,10 +92,10 @@ vi.mock('../../contexts/ProjectContext', () => ({
     currentProject: mockProjectState.currentProject,
     refreshProjects: mockProjectState.refreshProjects,
     refreshProject: mockProjectState.refreshProject,
-    selectedItem: null,
+    selectedItem: mockProjectState.selectedItem,
     triggerFileTreeRefresh: mockProjectState.triggerFileTreeRefresh,
     triggerEditorRefresh: mockProjectState.triggerEditorRefresh,
-    setSelectedItem: vi.fn(),
+    setSelectedItem: mockProjectState.setSelectedItem,
     appendFileContent: vi.fn(),
     finishFileStreaming: vi.fn(),
     startFileStreaming: vi.fn(),
@@ -114,8 +116,9 @@ vi.mock('../../lib/subscriptionApi', () => ({
   },
 }))
 
+const mockLayout = vi.hoisted(() => ({ isMobile: false, switchToEditor: vi.fn() }))
 vi.mock('../../contexts/MobileLayoutContext', () => ({
-  useMobileLayout: () => ({ isMobile: false }),
+  useMobileLayout: () => mockLayout,
 }))
 
 const mockAttachments = vi.hoisted(() => ({ fileIds: [] as string[] }))
@@ -330,6 +333,8 @@ describe('ChatPanel mount smoke', () => {
     localStorage.removeItem('zenstory_inspiration_project-1')
     localStorage.removeItem('zenstory_next_step_dismissed_project-1')
     mockQuota.value = { ai_conversations: { used: 2, limit: 10, reset_at: null } }
+    mockProjectState.currentProjectId = 'project-1'
+    mockProjectState.selectedItem = null
     mockProjectState.currentProject = { id: 'project-1', name: '外卖小哥看见倒计时' }
     mockDraft.draft = ''
     mockDraft.saveDraft.mockReturnValue(true)
@@ -338,7 +343,6 @@ describe('ChatPanel mount smoke', () => {
     mockGetProgress.mockReset()
     mockGetProgress.mockResolvedValue([])
   })
-
 
   it.each(['project-1', null])('asks before navigation with a memory-only draft even when current project is %s', async activeProject => {
     const previousProject = mockProjectState.currentProjectId
@@ -358,6 +362,66 @@ describe('ChatPanel mount smoke', () => {
       view.unmount()
       mockProjectState.currentProjectId = previousProject
     }
+  })
+
+  it.each([false, true])('opens the exact file using existing selection while streaming (mobile=%s)', async isMobile => {
+    mockLayout.isMobile = isMobile
+    mockAgentStreamState.isStreaming = true
+    mockDraft.draft = 'Keep my chat draft'
+    try {
+      render(<ChatPanel />)
+      await waitFor(() => expect(mockMessageList).toHaveBeenCalled())
+      const props = mockMessageList.mock.calls.at(-1)?.[0] as { onOpenFile?: (id: string, fileType: string, title: string) => void }
+      expect(props.onOpenFile).toBeTypeOf('function')
+      const previousScrolls = mockScrollToBottom.mock.calls.length
+      act(() => props.onOpenFile?.('exact-file', 'script', 'My script'))
+      expect(mockProjectState.setSelectedItem).toHaveBeenCalledWith({ id: 'exact-file', type: 'script', title: 'My script' })
+      expect(mockLayout.switchToEditor).toHaveBeenCalledTimes(isMobile ? 1 : 0)
+      expect(mockStartStream).not.toHaveBeenCalled()
+      expect(mockStop).not.toHaveBeenCalled()
+      expect(mockDraft.clearDraft).not.toHaveBeenCalled()
+      expect(mockDraft.draft).toBe('Keep my chat draft')
+      expect(mockScrollToBottom).toHaveBeenCalledTimes(previousScrolls)
+    } finally { mockLayout.isMobile = false }
+  })
+
+  it('keeps the existing selection object when opening the same file', async () => {
+    mockAgentStreamState.isStreaming = true
+    mockProjectState.selectedItem = { id: 'already-open', type: 'draft', title: 'Unsaved title' }
+    render(<ChatPanel />)
+    await waitFor(() => expect(mockMessageList).toHaveBeenCalled())
+    const props = mockMessageList.mock.calls.at(-1)?.[0] as { onOpenFile?: (id: string, fileType: string, title: string) => void }
+    act(() => props.onOpenFile?.('already-open', 'draft', 'Older server title'))
+    expect(mockProjectState.setSelectedItem).not.toHaveBeenCalled()
+  })
+
+  it('preserves directory selection instead of treating it as an editable draft', async () => {
+    mockAgentStreamState.isStreaming = true
+    render(<ChatPanel />)
+    await waitFor(() => expect(mockMessageList).toHaveBeenCalled())
+    const props = mockMessageList.mock.calls.at(-1)?.[0] as { onOpenFile?: (id: string, fileType: string, title: string) => void }
+    act(() => props.onOpenFile?.('folder-1', 'folder', 'Drafts'))
+    expect(mockProjectState.setSelectedItem).toHaveBeenCalledWith({ id: 'folder-1', type: 'folder', title: 'Drafts' })
+  })
+
+  it('rejects an old title callback after switching projects', async () => {
+    mockAgentStreamState.isStreaming = true
+    const { rerender } = render(<ChatPanel />)
+    await waitFor(() => expect(mockMessageList).toHaveBeenCalled())
+    const props = mockMessageList.mock.calls.at(-1)?.[0] as { onOpenFile?: (id: string, fileType: string, title: string) => void }
+    mockProjectState.currentProjectId = 'project-2'
+    mockProjectState.currentProject = { id: 'project-2', name: 'Another project' }
+    rerender(<QueryClientProvider client={testQueryClient}><ChatPanel /></QueryClientProvider>)
+    act(() => props.onOpenFile?.('old-file', 'draft', 'Old project file'))
+    expect(mockProjectState.setSelectedItem).not.toHaveBeenCalled()
+  })
+
+  it('does not expose file opening without a confirmed current project', async () => {
+    mockProjectState.currentProject = null
+    mockAgentStreamState.isStreaming = true
+    render(<ChatPanel />)
+    await waitFor(() => expect(mockMessageList).toHaveBeenCalled())
+    expect((mockMessageList.mock.calls.at(-1)?.[0] as { onOpenFile?: unknown }).onOpenFile).toBeUndefined()
   })
 
   it('mounts without runtime initialization errors', async () => {
@@ -1852,6 +1916,8 @@ describe('ChatPanel new-author flow', () => {
     localStorage.removeItem('zenstory_suggestions_cache_project-1')
     localStorage.removeItem('zenstory_inspiration_project-1')
     mockQuota.value = { ai_conversations: { used: 2, limit: 10, reset_at: null } }
+    mockProjectState.currentProjectId = 'project-1'
+    mockProjectState.selectedItem = null
     mockProjectState.currentProject = { id: 'project-1', name: '外卖小哥看见倒计时' }
     mockDraft.draft = ''
     mockDraft.saveDraft.mockReturnValue(true)

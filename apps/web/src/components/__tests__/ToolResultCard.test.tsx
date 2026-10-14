@@ -179,6 +179,37 @@ describe('ToolResultCard', () => {
   })
 
   describe('Tool Result (success state)', () => {
+    it.each(['create_file', 'update_file'])('opens the successful %s title with pointer and keyboard', async toolName => {
+      const user = userEvent.setup()
+      const onOpenFile = vi.fn()
+      render(<ToolResultCard type="tool_result" toolName={toolName}
+        result={{ data: { id: 'file-1', title: 'A long chapter title', file_type: 'draft' } }}
+        onOpenFile={onOpenFile} />)
+      const title = screen.getByRole('button', { name: /A long chapter title/ })
+      await user.click(title)
+      await user.keyboard('{Enter} ')
+      expect(onOpenFile.mock.calls).toEqual(Array(3).fill(['file-1', 'draft', 'A long chapter title']))
+    })
+
+    it.each([undefined, '', '  ', 7])('keeps a title without a reliable ID as text (%s)', id => {
+      render(<ToolResultCard type="tool_result" toolName="create_file"
+        result={{ data: { id, title: 'Older record' } }} onOpenFile={vi.fn()} />)
+      expect(screen.getByText('Older record')).toBeInTheDocument()
+      expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    })
+
+    it.each([
+      { type: 'tool_call' as const, isPending: true },
+      { type: 'tool_call' as const, interrupted: true },
+      { type: 'tool_result' as const, error: 'failed' },
+      { type: 'tool_result' as const, isPending: true },
+      { type: 'tool_result' as const, interrupted: true },
+    ])('does not open a failed or unfinished result (%j)', props => {
+      render(<ToolResultCard {...props} toolName="create_file"
+        result={{ id: 'file-1', title: 'Unfinished' }} onOpenFile={vi.fn()} />)
+      expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    })
+
     it('renders create_file success', () => {
       render(
         <ToolResultCard
