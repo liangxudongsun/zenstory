@@ -326,6 +326,9 @@ async def test_google_oauth_callback_bootstraps_subscription_and_quota(
         select(User).where(User.email == "oauth_bootstrap@example.com")
     ).first()
     assert user is not None
+    from models import WorkspaceOnboarding
+
+    assert db_session.get(WorkspaceOnboarding, user.id).status == "pending"
 
     subscription = db_session.exec(
         select(UserSubscription).where(UserSubscription.user_id == user.id)

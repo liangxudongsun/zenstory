@@ -178,6 +178,7 @@ def db_session():
         cleanup_session.exec(Custom("DELETE FROM user_feedback"))
         cleanup_session.exec(Custom("DELETE FROM refresh_token_record"))
         cleanup_session.exec(Custom("DELETE FROM user_persona_profile"))
+        cleanup_session.exec(Custom("DELETE FROM workspace_onboarding"))
         cleanup_session.exec(Custom("DELETE FROM project"))
         cleanup_session.exec(Custom("DELETE FROM system_prompt_config"))
         cleanup_session.exec(Custom("DELETE FROM user"))

@@ -17,7 +17,7 @@ from config.datetime_utils import utcnow
 from core.error_codes import ErrorCode
 from database import get_session
 from main import app
-from models import User, UserPersonaProfile
+from models import User, UserPersonaProfile, WorkspaceOnboarding
 from services.core.auth_service import create_access_token
 
 HANDLERS = {
@@ -64,6 +64,7 @@ def persona_worker_probe(tmp_path, monkeypatch, record_property):
     try:
         User.__table__.create(engine)
         UserPersonaProfile.__table__.create(engine)
+        WorkspaceOnboarding.__table__.create(engine)
         with Session(engine) as seed:
             for name, user_id in ids.items():
                 seed.add(User(

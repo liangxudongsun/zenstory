@@ -12,7 +12,7 @@ from sqlmodel import Session, func, select
 from config.datetime_utils import beijing_date, beijing_day_bounds, utcnow
 from config.feature_flags import is_inspirations_enabled
 from database import get_session
-from models import Inspiration, Project, UpgradeFunnelEvent, User
+from models import Inspiration, Project, UpgradeFunnelEvent, User, WorkspaceOnboarding
 from models.points import CheckInRecord
 from models.referral import InviteCode, Referral
 from models.subscription import SubscriptionHistory, SubscriptionPlan, UserSubscription
@@ -108,7 +108,9 @@ def get_dashboard_stats(
     ).one()
 
     # Total projects
-    total_projects = session.exec(select(func.count()).select_from(Project)).one()
+    total_projects = session.exec(select(func.count()).select_from(Project).where(
+        ~Project.id.in_(select(WorkspaceOnboarding.project_id).where(WorkspaceOnboarding.project_id.is_not(None)))
+    )).one()
 
     total_inspirations = 0
     pending_inspirations = 0

@@ -73,22 +73,10 @@ def create_project_with_default_folders(
                 detail=f"Project limit reached ({existing_count}/{max_projects}). Please upgrade your plan.",
             )
 
-        session.add(project)
-        session.flush()  # 先拿到 project.id，文件夹 id 依赖它
+        folders = stage_project_with_default_folders(session, project, lang)
+        from services.first_work_service import consume_for_author_project
 
-        folders: list[File] = []
-        for folder_config in get_folders_for_type(project.project_type, lang):
-            folder = File(
-                id=f"{project.id}-{folder_config['id']}",
-                project_id=project.id,
-                title=folder_config["title"],
-                file_type=folder_config["file_type"],
-                order=folder_config["order"],
-                parent_id=None,
-            )
-            session.add(folder)
-            folders.append(folder)
-
+        consume_for_author_project(session, project.owner_id)
         session.commit()
     except Exception:
         session.rollback()
@@ -116,4 +104,24 @@ def create_project_with_default_folders(
             error=str(e),
             error_type=type(e).__name__,
         )
+    return folders
+
+
+def stage_project_with_default_folders(session: Session, project: Project, lang: str = _DEFAULT_LANG) -> list[File]:
+    """Stage the existing template, leaving the owning transaction uncommitted."""
+    session.add(project)
+    session.flush()  # 先拿到 project.id，文件夹 id 依赖它
+
+    folders: list[File] = []
+    for folder_config in get_folders_for_type(project.project_type, lang):
+        folder = File(
+            id=f"{project.id}-{folder_config['id']}",
+            project_id=project.id,
+            title=folder_config["title"],
+            file_type=folder_config["file_type"],
+            order=folder_config["order"],
+            parent_id=None,
+        )
+        session.add(folder)
+        folders.append(folder)
     return folders

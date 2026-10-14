@@ -109,6 +109,7 @@ from .upgrade_funnel_event import (
     UpgradeFunnelEvent,
 )
 from .user_added_skill import UserAddedSkill
+from .workspace_onboarding import WorkspaceOnboarding
 from .writing_stats import (
     WritingStats,
     WritingStreak,
@@ -119,6 +120,7 @@ __all__ = [
     "AICostReservation",
     # Entities
     "User",
+    "WorkspaceOnboarding",
     "Project",
     "AgentArtifactLedger",
     "Snapshot",

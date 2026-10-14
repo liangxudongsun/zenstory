@@ -43,6 +43,7 @@ from api.payments import router as payments_router
 from api.points import router as points_router
 from api.persona import router as persona_router
 from api.projects import router as projects_router
+from api.workspace_onboarding import router as workspace_onboarding_router
 from api.public_skills import router as public_skills_router
 from api.referral import router as referral_router
 from api.skills import router as skills_router
@@ -181,6 +182,7 @@ app.include_router(materials_router)
 app.include_router(admin_router)
 app.include_router(referral_router)
 app.include_router(persona_router)
+app.include_router(workspace_onboarding_router)
 app.include_router(subscription_router)
 app.include_router(payments_router)
 app.include_router(points_router)
