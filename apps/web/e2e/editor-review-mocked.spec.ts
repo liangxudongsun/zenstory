@@ -107,6 +107,7 @@ async function fixture(page: Page, content = '你好 world\n\n第二段 story', 
     if (method === 'POST' && url.pathname.endsWith('/stats/record')) return fulfill({ success: true });
     if (method === 'POST' && url.pathname === '/api/v1/editor/natural-polish') return fulfill({ text: 'A polished local story.' });
     if (method === 'GET' && url.pathname === '/api/v1/projects') return fulfill(responsiveProjects);
+    if (method === 'GET' && url.pathname === '/api/v1/project-templates') return fulfill({});
     if (method === 'GET' && /^\/api\/v1\/projects\/[^/]+$/.test(url.pathname)) return fulfill(responsiveProjects.find(p => p.id === url.pathname.split('/').at(-1)));
     // Reuse only auxiliary GET fakes from the existing safe responsive fixture.
     if (method === 'GET' && url.pathname === '/api/v1/workspace/first-work') return route.fallback();
@@ -210,16 +211,35 @@ test('chunk refresh draft waits for an explicit comparison before replacing newe
   await page.waitForTimeout(3200);
   expect(puts(f), 'restoring after comparison must not auto-PUT').toHaveLength(0);
 
-  await textarea(page).fill('Recovered local body edited after restore');
+  await page.getByTestId('header-logo-button').click();
+  await expect(page).toHaveURL('/dashboard');
+  expect(puts(f), 'leaving after restore must retain the draft locally without a PUT').toHaveLength(0);
+  await page.goBack();
+  await expect(textarea(page)).toHaveValue('Recovered local body before refresh');
+  await expect(page.getByRole('status').filter({ hasText: 'was restored' })).toBeVisible();
+  expect(puts(f)).toHaveLength(0);
+
+  await selectFile(page, 'Chapter Beta');
+  await expect(textarea(page)).toHaveValue('Recovered local body before refresh');
+  await expect(page.getByText('Save your changes before switching files.', { exact: true })).toBeVisible();
+  expect(puts(f)).toHaveLength(0);
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => puts(f).length).toBe(1);
-  expect(puts(f)[0].body).toMatchObject({
+  expect(puts(f)[0].body).toMatchObject({ content: 'Recovered local body before refresh', base_updated_at: token0 });
+  await selectFile(page, 'Chapter Beta');
+  await expect(titleInput(page)).toHaveValue('Chapter Beta');
+  await selectFile(page, 'Recovered chapter title');
+
+  await textarea(page).fill('Recovered local body edited after restore');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect.poll(() => puts(f).length).toBe(2);
+  expect(puts(f)[1].body).toMatchObject({
     title: 'Recovered chapter title',
     content: 'Recovered local body edited after restore',
-    base_updated_at: token0,
+    base_updated_at: '2026-10-06T10:00:01.000Z',
   });
   await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), recoveryKey)).toBeNull();
-  f.observations = { comparedBeforeRestore: true, noAutomaticPut: true, clearedAfterEditedSave: true };
+  f.observations = { comparedBeforeRestore: true, noAutomaticPut: true, retainedWithoutPutOnLeave: true, explicitSavePermitsFileSwitch: true, clearedAfterEditedSave: true };
 });
 
 test('ordinary reload within autosave debounce restores the latest local draft', async ({ page }) => {
@@ -232,15 +252,20 @@ test('ordinary reload within autosave debounce restores the latest local draft',
   // network completion is not a safety boundary. Make that request fail so
   // this test proves recovery comes from the synchronous local snapshot.
   f.abortPut = true;
+  const beforeReloadRequestCount = f.requests.length;
 
   await page.reload();
 
   await expect(titleInput(page)).toHaveValue('Title typed before reload');
   await expect(textarea(page)).toHaveValue('Body typed immediately before reload');
   await expect(page.getByRole('status').filter({ hasText: 'was restored' })).toBeVisible();
-  expect(puts(f), 'unload flush was aborted; recovery must use the local snapshot').toHaveLength(1);
+  const reloadFileGetIndex = f.requests.findIndex((request, index) =>
+    index >= beforeReloadRequestCount && request.method === 'GET' && request.path === '/api/v1/files/A');
+  expect(reloadFileGetIndex, 'the reloaded editor must read its server baseline').toBeGreaterThanOrEqual(beforeReloadRequestCount);
+  expect(f.requests.slice(reloadFileGetIndex).filter(request => request.method === 'PUT'),
+    'the recovered draft must not auto-PUT after the reloaded server baseline is read').toHaveLength(0);
   expect(f.files.A).toMatchObject({ title: 'Chapter Alpha', content: '你好 world\n\n第二段 story' });
-  f.observations = { ordinaryReloadRecoveredBeforeDebounce: true, unloadPutAborted: true };
+  f.observations = { ordinaryReloadRecoveredBeforeDebounce: true, unloadPutCount: puts(f).length, serverUnchanged: true };
 });
 
 test('file history restore confirmation opens above the history modal and completes the restore', async ({ page }) => {

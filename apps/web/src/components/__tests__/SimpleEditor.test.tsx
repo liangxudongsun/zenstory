@@ -362,6 +362,87 @@ describe('SimpleEditor', () => {
     });
     await act(async () => vi.advanceTimersByTimeAsync(3000));
     expect(onSave).toHaveBeenCalledOnce();
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      content: 'Recovered body edited again',
+      baseUpdatedAt: 'server-v1',
+    }));
+  });
+
+  it.each([false, true])('keeps a restored draft local on unmount without saving it (pagehide: %s)', async (pagehide) => {
+    const onSave = vi.fn().mockResolvedValue({ outcome: 'saved', updatedAt: 'server-v3' });
+    const { unmount } = render(
+      <SimpleEditor
+        userId="user-1"
+        projectId="project-1"
+        fileId="file-1"
+        baseUpdatedAt="newer-server-v2"
+        title="Recovered chapter"
+        content="Recovered body chosen after comparing the newer server version"
+        recoveredDraft={{
+          capturedAt: '2026-10-07T08:00:00.000Z',
+          serverTitle: 'Newer server chapter',
+          serverContent: 'Newer server body',
+        }}
+        onTitleChange={vi.fn()}
+        onContentChange={vi.fn()}
+        onSave={onSave}
+        onFlushReady={vi.fn()}
+      />,
+    );
+
+    if (pagehide) window.dispatchEvent(new Event('pagehide'));
+    unmount();
+    await act(async () => Promise.resolve());
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(readEditorDraftSnapshot(localStorage, {
+      userId: 'user-1',
+      projectId: 'project-1',
+      fileId: 'file-1',
+    })).toMatchObject({
+      title: 'Recovered chapter',
+      content: 'Recovered body chosen after comparing the newer server version',
+      baseUpdatedAt: 'newer-server-v2',
+      reason: 'page-exit',
+    });
+  });
+
+  it('does not report a restored draft as server-saved on flush but still permits explicit save', async () => {
+    const onSave = vi.fn().mockResolvedValue({ outcome: 'saved', updatedAt: 'server-v3' });
+    const onFlushReady = vi.fn();
+    render(
+      <SimpleEditor
+        userId="user-1"
+        projectId="project-1"
+        fileId="file-1"
+        baseUpdatedAt="newer-server-v2"
+        title="Recovered chapter"
+        content="Recovered body"
+        recoveredDraft={{
+          capturedAt: '2026-10-07T08:00:00.000Z',
+          serverTitle: 'Newer server chapter',
+          serverContent: 'Newer server body',
+        }}
+        onTitleChange={vi.fn()}
+        onContentChange={vi.fn()}
+        onSave={onSave}
+        onFlushReady={onFlushReady}
+      />,
+    );
+
+    await act(async () => {
+      expect(await onFlushReady.mock.calls.at(-1)?.[0]()).toBe('failed');
+    });
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByText('editor:unsaved')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'editor:save' }));
+    await waitFor(() => expect(screen.queryByText('editor:unsaved')).not.toBeInTheDocument());
+    expect(onSave).toHaveBeenCalledOnce();
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      content: 'Recovered body',
+      baseUpdatedAt: 'newer-server-v2',
+    }));
   });
 
   it('returns to a clean server baseline when a recovered draft is discarded', () => {
