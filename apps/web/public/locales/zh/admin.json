@@ -501,8 +501,7 @@
       "materials_library_access": "素材库",
       "effectiveHint": "这里显示用户实际获得、系统实际限制的权益；编辑框中是存储的原始配置，未生效的键不会显示。",
       "freeDailyPolicy": "免费版每日 AI 消息固定为 {{count}} 条，此处不可修改；调整此策略需要发布代码。",
-      "proInspirationPolicy": "Pro 灵感复用不限次数，此处不可修改；调整此策略需要发布代码。",
-      "legacyFeaturesHint": "未执行的历史配置已停用，保存时会移除；不会据此新增权益或限制。"
+      "proInspirationPolicy": "Pro 灵感复用不限次数，此处不可修改；调整此策略需要发布代码。"
     }
   },
   "points": {

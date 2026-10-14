@@ -460,7 +460,6 @@ export const SubscriptionPlanManagement: React.FC = () => {
                   {t("plans.featuresDetail.jsonLabel")}
                 </label>
                 <textarea id="admin-plans-featuresDetail-jsonLabel"
-                  aria-describedby="admin-plans-legacy-feature-hint"
                   value={editFormData.featuresJson}
                   onChange={(e) => handleJsonChange(e.target.value)}
                   rows={10}
@@ -471,9 +470,6 @@ export const SubscriptionPlanManagement: React.FC = () => {
                   }`}
                   placeholder={t("plans.featuresDetail.jsonPlaceholder")}
                 />
-                <p id="admin-plans-legacy-feature-hint" className="mt-1 text-sm text-[hsl(var(--text-secondary))]">
-                  {t("plans.featuresDetail.legacyFeaturesHint")}
-                </p>
                 {jsonError && (
                   <p className="mt-1 text-sm text-[hsl(var(--error-text))] flex items-center gap-1">
                     <AlertTriangle size={14} />

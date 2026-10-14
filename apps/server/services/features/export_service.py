@@ -228,7 +228,14 @@ def export_drafts_to_txt(
         include_outline=include_outline,
     )
 
-    drafts = get_sorted_drafts(session, project_id)
+    # The first-work starter is an editing entry point, not an unwritten
+    # chapter in the deliverable. Keep ordinary empty files and every written
+    # starter; this affects only export and never deletes the source file.
+    drafts = [
+        draft for draft in get_sorted_drafts(session, project_id)
+        if (draft.content or "").strip()
+        or draft.get_metadata().get("creation_source") != "first_work"
+    ]
     outlines = get_sorted_outlines(session, project_id) if include_outline else []
 
     if not drafts and not outlines:

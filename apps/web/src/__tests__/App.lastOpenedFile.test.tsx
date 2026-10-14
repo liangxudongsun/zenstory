@@ -1,4 +1,4 @@
-import { render, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -35,7 +35,15 @@ vi.mock("react-helmet-async", () => ({
 }));
 vi.mock("../components/Toast", () => ({ ToastContainer: () => null }));
 vi.mock("../components/PageLoader", () => ({ PageLoader: () => <div>Page Loader</div> }));
-vi.mock("../components/Layout", () => ({ Layout: () => <div>Layout</div> }));
+vi.mock("../components/Layout", async () => {
+  const { useLocation } = await import("react-router-dom");
+  return {
+    Layout: () => {
+      const location = useLocation();
+      return <output data-testid="editor-location">{location.pathname}{location.search}{location.hash}</output>;
+    },
+  };
+});
 vi.mock("../components/sidebar/Sidebar", () => ({ Sidebar: () => null }));
 vi.mock("../components/Editor", () => ({ Editor: () => null }));
 vi.mock("../components/ChatPanel", () => ({ ChatPanel: () => null }));
@@ -160,6 +168,42 @@ describe("ProjectEditor restores the last opened file", () => {
     await flush();
     expect(state.fileGet).toHaveBeenCalledTimes(1);
     expect(state.fileGet).not.toHaveBeenCalledWith("file-old");
+  });
+
+  it("consumes the opened file link after the author chooses another file, so refresh keeps that choice", async () => {
+    state.fileGet.mockResolvedValue({
+      id: "starter-draft", title: "Draft", file_type: "draft", project_id: "project-1",
+    });
+    const view = renderAppAt("/project/project-1?file=starter-draft&lang=en#writing");
+    await waitFor(() => expect(state.project.setSelectedItem).toHaveBeenCalledWith({
+      id: "starter-draft", title: "Draft", type: "draft",
+    }));
+
+    state.project.selectedItem = { id: "starter-draft", title: "Draft", type: "draft" };
+    view.rerender(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
+    expect(screen.getByTestId("editor-location")).toHaveTextContent("?file=starter-draft&lang=en#writing");
+
+    state.project.selectedItem = { id: "chapter-1", title: "Chapter 1", type: "draft" };
+    view.rerender(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
+    await waitFor(() => expect(screen.getByTestId("editor-location")).toHaveTextContent(
+      "/project/project-1?lang=en#writing",
+    ));
+    const refreshedPath = screen.getByTestId("editor-location").textContent!;
+    expect(getLastOpenedFile("user-1", "project-1")).toBe("chapter-1");
+    expect(state.fileGet).toHaveBeenCalledTimes(1);
+    view.unmount();
+
+    state.project.selectedItem = null;
+    state.project.setSelectedItem.mockClear();
+    state.fileGet.mockReset().mockResolvedValue({
+      id: "chapter-1", title: "Chapter 1", file_type: "draft", project_id: "project-1",
+    });
+    renderAppAt(refreshedPath);
+    await waitFor(() => expect(state.project.setSelectedItem).toHaveBeenCalledWith({
+      id: "chapter-1", title: "Chapter 1", type: "draft",
+    }));
+    expect(state.fileGet).toHaveBeenCalledWith("chapter-1");
+    expect(state.fileGet).not.toHaveBeenCalledWith("starter-draft");
   });
 
   it("forgets a remembered file that now belongs to another project", async () => {

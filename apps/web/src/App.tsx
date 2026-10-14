@@ -322,7 +322,16 @@ function ProjectEditor() {
   React.useEffect(() => {
     if (!userId || !projectId || !isRouteProjectActive || !selectedFileId) return;
     setLastOpenedFile(userId, projectId, selectedFileId);
-  }, [isRouteProjectActive, projectId, selectedFileId, userId]);
+
+    // A file link chooses the entry file once. After the author opens another
+    // file, refresh should restore that choice rather than the old entry link.
+    const searchParams = new URLSearchParams(location.search);
+    const linkedFileId = searchParams.get("file");
+    if (linkedFileId && selectedFromQueryRef.current === linkedFileId && selectedFileId !== linkedFileId) {
+      searchParams.delete("file");
+      navigate({ pathname: location.pathname, search: searchParams.toString(), hash: location.hash }, { replace: true });
+    }
+  }, [isRouteProjectActive, location.hash, location.pathname, location.search, navigate, projectId, selectedFileId, userId]);
 
   // Reopen the last file when the project is entered without a ?file= link and
   // nothing is selected yet. The id is re-validated: it may have been deleted

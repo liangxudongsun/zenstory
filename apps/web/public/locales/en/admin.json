@@ -501,8 +501,7 @@
       "materials_library_access": "Materials Library",
       "effectiveHint": "Shows the entitlements users actually get and are held to. The edit box holds the stored configuration; keys that have no effect are not shown.",
       "freeDailyPolicy": "Free includes {{count}} AI messages per day. This policy is read-only here and requires a code release to change.",
-      "proInspirationPolicy": "Pro includes unlimited inspiration copies. This policy is read-only here and requires a code release to change.",
-      "legacyFeaturesHint": "Unimplemented legacy settings are deprecated and removed on save. They grant no benefits and impose no limits."
+      "proInspirationPolicy": "Pro includes unlimited inspiration copies. This policy is read-only here and requires a code release to change."
     }
   },
   "points": {
