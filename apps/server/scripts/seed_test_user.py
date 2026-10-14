@@ -255,7 +255,6 @@ def main():
                 # Access is an explicit entitlement; material quotas never imply it.
                 # The regular E2E user exercises the materials library.
                 "materials_library_access": True,
-                "material_uploads": 5,
                 "material_decompositions": 5,
                 "custom_skills": 3,
                 "inspiration_copies_monthly": 10,
@@ -270,10 +269,9 @@ def main():
                 "ai_conversations_per_day": -1,
                 "max_projects": 8,
                 "materials_library_access": True,
-                "material_uploads": -1,
                 "material_decompositions": -1,
                 "custom_skills": -1,
-                "inspiration_copies_monthly": 100,
+                "inspiration_copies_monthly": -1,
                 "export_formats": ["txt", "md"],
             },
         )

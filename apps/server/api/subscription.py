@@ -69,11 +69,11 @@ class SubscriptionCatalogEntitlementsResponse(BaseModel):
     # Deprecated, never advertised: these historical catalog fields were
     # estimates derived from the real daily conversation limit, not runtime
     # quotas. Keep fixed neutral values for cached web bundles only.
-    writing_credits_monthly: int = 0
-    agent_runs_monthly: int = 0
+    writing_credits_monthly: int = Field(default=0, deprecated=True, description="Legacy compatibility only; no runtime quota")
+    agent_runs_monthly: int = Field(default=0, deprecated=True, description="Legacy compatibility only; no runtime quota")
     active_projects_limit: int = 0
     materials_library_access: bool = False
-    material_uploads_monthly: int = 0
+    material_uploads_monthly: int = Field(default=0, deprecated=True, description="Uploads use material decompositions; no separate upload quota")
     material_decompositions_monthly: int = 0
     custom_skills_limit: int = 0
     inspiration_copies_monthly: int = 0
@@ -82,8 +82,8 @@ class SubscriptionCatalogEntitlementsResponse(BaseModel):
     # implemented. Kept as fixed neutral values only so web bundles cached from
     # before 2026-10 (which format these fields unconditionally) do not crash;
     # remove once those bundles are gone.
-    context_tokens_limit: int = 0
-    priority_queue_level: Literal["standard"] = "standard"
+    context_tokens_limit: int = Field(default=0, deprecated=True, description="Legacy compatibility only; not a plan entitlement")
+    priority_queue_level: Literal["standard"] = Field(default="standard", deprecated=True, description="Legacy compatibility only; no priority queue")
 
 
 class SubscriptionCatalogPlanResponse(BaseModel):
@@ -123,7 +123,7 @@ class MaterialTrialResponse(BaseModel):
 class QuotaResponse(BaseModel):
     ai_conversations: QuotaMetricResponse
     projects: QuotaMetricResponse
-    material_uploads: QuotaMetricResponse
+    material_uploads: QuotaMetricResponse = Field(deprecated=True, description="Legacy neutral compatibility field; uploads use material_decompositions")
     material_decompositions: QuotaMetricResponse
     skill_creates: QuotaMetricResponse
     inspiration_copies: QuotaMetricResponse
@@ -222,7 +222,7 @@ def _normalize_plan_features_for_response(
     features: dict[str, Any] | None,
     plan_name: str | None = "free",
 ) -> dict[str, Any]:
-    normalized = dict(features or {})
+    normalized = {}
     for key, fallback in DEFAULT_FREE_PLAN_FEATURES.items():
         normalized[key] = resolve_plan_feature(plan_name, features, key, fallback)
     normalized["export_formats"] = normalize_export_formats(normalized["export_formats"])
@@ -251,7 +251,7 @@ def _normalize_plan_entitlements(plan_name: str, features: dict | None) -> dict[
         "agent_runs_monthly": 0,
         "active_projects_limit": limit("max_projects"),
         "materials_library_access": materials_library_access,
-        "material_uploads_monthly": limit("material_uploads"),
+        "material_uploads_monthly": 0,
         "material_decompositions_monthly": limit("material_decompositions"),
         "custom_skills_limit": limit("custom_skills"),
         "inspiration_copies_monthly": limit("inspiration_copies_monthly"),
@@ -411,9 +411,7 @@ def get_quota(session: Session = Depends(get_session), current_user: User = Depe
             reset_at=None,
         ),
         material_uploads=QuotaMetricResponse(
-            used=quota_snapshot["material_uploads"]["used"],
-            limit=quota_snapshot["material_uploads"]["limit"],
-            reset_at=quota_snapshot["material_uploads"]["reset_at"],
+            used=0, limit=0, reset_at=None,
         ),
         material_decompositions=QuotaMetricResponse(
             used=quota_snapshot["material_decompositions"]["used"],

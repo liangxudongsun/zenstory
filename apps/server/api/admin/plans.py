@@ -17,7 +17,7 @@ from models import User
 from models.subscription import SubscriptionPlan
 from services.admin_audit_service import admin_audit_service
 from services.core.auth_service import get_current_superuser
-from services.subscription.defaults import DEFAULT_FREE_PLAN_FEATURES, DEFAULT_FREE_PLAN_NAME
+from services.subscription.defaults import FIXED_PLAN_FEATURES
 from utils.logger import get_logger, log_with_context
 
 from .schemas import AdminPlanResponse, PlanUpdateRequest
@@ -84,17 +84,18 @@ def update_plan(
 
     features = None
     if request.features is not None:
+        if any(getattr(request.features, key) is None for key in request.features.model_fields_set):
+            raise APIException(error_code=ErrorCode.VALIDATION_ERROR, status_code=422)
         features = request.features.model_dump(exclude_unset=True)
         if any(value is None for value in features.values()):
             raise APIException(error_code=ErrorCode.VALIDATION_ERROR, status_code=422)
-        if plan.name == DEFAULT_FREE_PLAN_NAME:
-            daily_limit = DEFAULT_FREE_PLAN_FEATURES["ai_conversations_per_day"]
-            if features.get("ai_conversations_per_day", daily_limit) != daily_limit:
+        for key, fixed_limit in FIXED_PLAN_FEATURES.get(plan.name, {}).items():
+            if features.get(key, fixed_limit) != fixed_limit:
                 raise APIException(
                     error_code=ErrorCode.VALIDATION_ERROR, status_code=422,
-                    detail=f"ai_conversations_per_day 免费版固定为 {daily_limit} 条；该策略须通过代码发布调整。",
+                    detail=f"{key} 套餐 {plan.name} 固定为 {fixed_limit}；该策略须通过代码发布调整。",
                 )
-            features["ai_conversations_per_day"] = daily_limit
+            features[key] = fixed_limit
 
     # Store old values for audit log
     old_value = {

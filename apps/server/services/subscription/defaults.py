@@ -11,17 +11,13 @@ DEFAULT_FREE_PLAN_PRICE_YEARLY_CENTS = 0
 
 DEFAULT_FREE_PLAN_FEATURES: dict[str, Any] = {
     "ai_conversations_per_day": 3,
-    "context_window_tokens": 4096,
     "file_versions_per_file": 10,
     "max_projects": 3,
     "export_formats": ["txt"],
-    "custom_prompts": False,
     "materials_library_access": False,
-    "material_uploads": 0,
     "material_decompositions": 0,
     "custom_skills": 3,
     "inspiration_copies_monthly": 10,
-    "priority_support": False,
 }
 
 # What a paid Pro plan grants when its stored features omit a key. Production Pro
@@ -29,16 +25,20 @@ DEFAULT_FREE_PLAN_FEATURES: dict[str, Any] = {
 # missing key silently resolved to the free-tier limit.
 DEFAULT_PRO_PLAN_FEATURES: dict[str, Any] = {
     "ai_conversations_per_day": -1,
-    "context_window_tokens": 16384,
     "file_versions_per_file": 100,
     "max_projects": -1,
     "export_formats": ["txt"],
-    "custom_prompts": True,
     "materials_library_access": True,
-    "material_uploads": 5,
     "material_decompositions": 5,
     "custom_skills": 20,
-    "inspiration_copies_monthly": 100,
+    "inspiration_copies_monthly": -1,
+}
+
+# These policies describe existing runtime behavior even for historical rows.
+# Admin edits cannot silently override either policy.
+FIXED_PLAN_FEATURES: dict[str, dict[str, int]] = {
+    DEFAULT_FREE_PLAN_NAME: {"ai_conversations_per_day": DEFAULT_FREE_PLAN_FEATURES["ai_conversations_per_day"]},
+    "pro": {"inspiration_copies_monthly": -1},
 }
 
 PLAN_FEATURE_DEFAULTS: dict[str, dict[str, Any]] = {
@@ -80,8 +80,9 @@ def resolve_plan_feature(
     plan_name: str | None, features: dict[str, Any] | None, key: str, fallback: Any = 0
 ) -> Any:
     """Resolve runtime rights; the free daily policy is fixed by the code release."""
-    if plan_name == DEFAULT_FREE_PLAN_NAME and key == "ai_conversations_per_day":
-        return DEFAULT_FREE_PLAN_FEATURES[key]
+    fixed = FIXED_PLAN_FEATURES.get(plan_name or "", {})
+    if key in fixed:
+        return fixed[key]
     value = (features or {}).get(key)
     if value is not None:
         return value

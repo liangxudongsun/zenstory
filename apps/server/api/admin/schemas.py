@@ -173,26 +173,26 @@ class SubscriptionFeatures(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
     ai_conversations_per_day: QuotaLimit | None = None
-    context_window_tokens: QuotaLimit | None = None
+    context_window_tokens: QuotaLimit | None = Field(default=None, exclude=True, deprecated=True)
     file_versions_per_file: QuotaLimit | None = None
     max_projects: QuotaLimit | None = None
-    material_uploads: QuotaLimit | None = None
+    material_uploads: QuotaLimit | None = Field(default=None, exclude=True, deprecated=True)
     material_decompositions: QuotaLimit | None = None
-    writing_credits_monthly: QuotaLimit | None = None
-    agent_runs_monthly: QuotaLimit | None = None
-    active_projects_limit: QuotaLimit | None = None
-    context_tokens_limit: QuotaLimit | None = None
-    material_uploads_monthly: QuotaLimit | None = None
-    material_decompositions_monthly: QuotaLimit | None = None
+    writing_credits_monthly: QuotaLimit | None = Field(default=None, exclude=True, deprecated=True)
+    agent_runs_monthly: QuotaLimit | None = Field(default=None, exclude=True, deprecated=True)
+    active_projects_limit: QuotaLimit | None = Field(default=None, exclude=True, deprecated=True)
+    context_tokens_limit: QuotaLimit | None = Field(default=None, exclude=True, deprecated=True)
+    material_uploads_monthly: QuotaLimit | None = Field(default=None, exclude=True, deprecated=True)
+    material_decompositions_monthly: QuotaLimit | None = Field(default=None, exclude=True, deprecated=True)
     custom_skills: QuotaLimit | None = None
-    custom_skills_limit: QuotaLimit | None = None
-    skill_creates_monthly: QuotaLimit | None = None
+    custom_skills_limit: QuotaLimit | None = Field(default=None, exclude=True, deprecated=True)
+    skill_creates_monthly: QuotaLimit | None = Field(default=None, exclude=True, deprecated=True)
     inspiration_copies_monthly: QuotaLimit | None = None
     export_formats: list[str] | None = None
-    custom_prompts: bool | None = None
+    custom_prompts: bool | None = Field(default=None, exclude=True, deprecated=True)
     materials_library_access: bool | None = None
-    priority_support: bool | None = None
-    priority_queue_level: Literal["standard", "priority"] | None = None
+    priority_support: bool | None = Field(default=None, exclude=True, deprecated=True)
+    priority_queue_level: Literal["standard", "priority"] | None = Field(default=None, exclude=True, deprecated=True)
 
     @field_validator("export_formats")
     @classmethod
