@@ -203,7 +203,10 @@ class ProjectOperations:
                 in_progress_count += 1
 
         if in_progress_count > 1:
-            raise ValueError("Invalid task plan: at most one in_progress task is allowed")
+            raise ValueError(
+                f"同时有 {in_progress_count} 个任务为 in_progress，只能保留一个；"
+                "其余未开始的任务改为 pending 后，重新提交完整 tasks。"
+            )
 
         historical_tasks = previous_tasks or []
         done_phase_keys: set[str] = set()
