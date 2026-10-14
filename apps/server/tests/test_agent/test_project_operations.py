@@ -99,7 +99,10 @@ def test_execute_update_plan_rejects_multiple_in_progress(monkeypatch):
 
     assert result["status"] == "ignored"
     assert result["reason"] == "validation_rejected"
-    assert "at most one in_progress" in result["error"]
+    assert "2 个任务为 in_progress" in result["error"]
+    assert "只能保留一个" in result["error"]
+    assert "pending" in result["error"]
+    assert "完整 tasks" in result["error"]
     service.save_tasks.assert_not_called()
 
 
@@ -221,3 +224,15 @@ def test_execute_update_plan_returns_error_when_save_fails(monkeypatch):
     assert result["reason"] == "internal_error"
     assert "Failed to save tasks to Redis" in result["error"]
     service.save_tasks.assert_called_once()
+
+
+def test_update_project_schema_explains_single_active_task():
+    tasks_schema = UPDATE_PROJECT_TOOL["input_schema"]["properties"]["tasks"]
+    for description in (
+        UPDATE_PROJECT_TOOL["description"],
+        tasks_schema["description"],
+        tasks_schema["items"]["properties"]["status"]["description"],
+    ):
+        assert "最多一个" in description
+        assert "in_progress" in description
+        assert "pending" in description

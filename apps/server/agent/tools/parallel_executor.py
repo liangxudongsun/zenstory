@@ -70,6 +70,9 @@ Maximum 5 parallel tasks per call — extra tasks are NOT executed. Split into
 multiple calls instead of sending more than 5. Files you already read in this
 run are still in context: do not read them again.
 
+Every task requires an explicit type from the enum; a missing or invalid type
+rejects the entire batch before any task runs.
+
 Task param conventions:
 - query_files: params are exactly the standalone tool's params
   (e.g. {"id": "<file_id>"} for full content, {"query": "...", "response_mode": "summary"}).
@@ -454,6 +457,25 @@ async def execute_parallel(
     from agent.core.progress_channel import emit_progress
     from agent.tools.mcp_tools import ToolContext
 
+    # Validate the complete request before truncating or dispatching any task.
+    # A malformed later task must not leave an earlier write partially applied.
+    for index, task in enumerate(tasks):
+        task_type = task.get("type") if isinstance(task, dict) else None
+        if not isinstance(task_type, str) or task_type not in PARALLEL_TASK_TYPES:
+            reason = (
+                "缺少必填字段 type"
+                if isinstance(task, dict) and "type" not in task
+                else "type 必须是合法的任务类型字符串"
+            )
+            logger.warning("parallel_execute validation rejected at tasks[%s]: %s", index, reason)
+            return _make_error(
+                f"tasks[{index}]（第 {index + 1} 项）{reason}。"
+                f"合法取值：{', '.join(PARALLEL_TASK_TYPES)}。"
+                '示例：{"type": "edit_file", "description": "修改第二段", '
+                '"params": {"id": "<file_id>", "edits": [...]}}。'
+                "本批任务均未执行；请修正后重新提交。"
+            )
+
     # Check if there's a pending empty file - parallel execution not allowed
     if ToolContext.has_pending_empty_file():
         pending = ToolContext.get_pending_empty_file()
@@ -472,7 +494,7 @@ async def execute_parallel(
     dropped_tasks = [
         {
             "index": index,
-            "type": t.get("type", "unknown") if isinstance(t, dict) else "unknown",
+            "type": t["type"],
             "description": t.get("description", "") if isinstance(t, dict) else "",
         }
         for index, t in enumerate(tasks[MAX_PARALLEL_TASKS:], start=MAX_PARALLEL_TASKS)
@@ -483,12 +505,11 @@ async def execute_parallel(
         )
 
     # Create SubagentTask objects
-    # Use .get() defensively — LLM may omit optional-ish fields despite
-    # the schema marking them required.
+    # The explicit task type is validated above; preserve defaults for other fields.
     subagent_tasks = [
         SubagentTask(
             id=f"{execution_id}-{i}",
-            task_type=t.get("type", "unknown"),
+            task_type=t["type"],
             description=t.get("description", ""),
             parameters=t.get("params", {}),
         )

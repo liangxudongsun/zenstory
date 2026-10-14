@@ -440,21 +440,47 @@ class TestExecuteParallel:
         finally:
             ToolContext.clear_context()
 
-    async def test_execute_unknown_task_type(self):
-        """Test execution with unknown task type."""
-        from agent.tools.mcp_tools import ToolContext
+    @pytest.mark.parametrize("invalid_task", [
+        {"description": "修改第二段", "params": {"edits": []}},
+        {"type": "unknown_type", "description": "X", "params": {}},
+        {"type": ["edit_file"], "params": {}},
+        None,
+    ])
+    async def test_invalid_task_type_rejects_whole_batch_before_dispatch(self, invalid_task):
+        """Even a valid first task must not run when another task has no valid type."""
+        tasks = [
+            {"type": "query_files", "description": "Read", "params": {}},
+            invalid_task,
+        ]
+        with (
+            patch("agent.tools.parallel_executor.handle_query_files", return_value=_make_result({"status": "success"})) as handler,
+            patch("agent.core.progress_channel.emit_progress") as progress,
+            patch("agent.tools.parallel_executor.logger") as log,
+        ):
+            parsed = json.loads((await execute_parallel(tasks))["content"][0]["text"])
 
-        ToolContext.set_context(None, "user1", "proj-1", "sess-1")
-        try:
-            result = await execute_parallel([{"type": "unknown_type", "description": "X", "params": {}}])
+        assert parsed["status"] == "error"
+        assert "tasks[1]" in parsed["error"]
+        assert "type" in parsed["error"]
+        assert all(task_type in parsed["error"] for task_type in PARALLEL_TASK_TYPES)
+        assert '"type": "edit_file"' in parsed["error"]
+        if isinstance(invalid_task, dict) and "type" not in invalid_task:
+            assert "缺少必填字段" in parsed["error"]
+        handler.assert_not_called()
+        progress.assert_not_called()
+        log.warning.assert_called_once()
+        log.error.assert_not_called()
 
-            text = result["content"][0]["text"]
-            parsed = json.loads(text)
-            # Task should fail but execution should complete
-            assert parsed["status"] == "success"
-            assert parsed["data"]["any_failed"] is True
-        finally:
-            ToolContext.clear_context()
+    async def test_invalid_type_beyond_limit_still_rejects_whole_batch(self):
+        tasks = [
+            {"type": "query_files", "description": "Read", "params": {}}
+            for _ in range(MAX_PARALLEL_TASKS)
+        ] + [{"params": {}}]
+        with patch("agent.tools.parallel_executor.handle_query_files", return_value=_make_result({"status": "success"})) as handler:
+            parsed = json.loads((await execute_parallel(tasks))["content"][0]["text"])
+        assert parsed["status"] == "error"
+        assert f"tasks[{MAX_PARALLEL_TASKS}]" in parsed["error"]
+        handler.assert_not_called()
 
     async def test_execute_marks_failed_on_error_payload(self):
         """Test tasks are marked failed when MCP payload reports status=error."""
