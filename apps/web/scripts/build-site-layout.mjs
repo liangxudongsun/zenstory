@@ -78,8 +78,8 @@ export const vercelConfig = {
       rewrite(`/${name}`,`/_site/${name}`,`${siteHosts}|.*\\.vercel\\.app`),
     ]),
     // Existing static docs/project/legal pages are found before these fallbacks.
-    // Unknown apex/reserved-namespace URLs must remain genuine platform 404s.
-    rewrite('/:path((?!api(?:/|$)|_app(?:/|$)|_site(?:/|$)|org-home(?:/|$)).*)','/_app/index.html',`${appHosts}|.*\\.vercel\\.app`),
+    // Missing Vite assets and unknown apex/reserved URLs must remain platform 404s.
+    rewrite('/:path((?!api(?:/|$)|assets(?:/|$)|_app(?:/|$)|_site(?:/|$)|org-home(?:/|$)).*)','/_app/index.html',`${appHosts}|.*\\.vercel\\.app`),
   ],
 }
 
