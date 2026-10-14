@@ -105,6 +105,7 @@ async def test_subscription_catalog_contract_supports_billing_page_entitlements(
         "writing_credits_monthly": 0,
         "agent_runs_monthly": 0,
         "active_projects_limit": 6,
+        "file_versions_per_file": 100,
         "materials_library_access": True,
         "material_uploads_monthly": 12,
         "material_decompositions_monthly": 8,
