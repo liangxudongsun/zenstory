@@ -681,18 +681,18 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
         <div className="bg-[hsl(var(--result-bg))] border border-[hsl(var(--result-border))] rounded-lg px-3 py-2">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <CheckCircle2 className="w-4 h-4 shrink-0 text-[hsl(var(--success-text))]" />
-            <span className="shrink-0 text-sm text-[hsl(var(--success-text))]">
+            <span className="min-w-0 flex-1 text-sm text-[hsl(var(--success-text))]">
               {t('chat:tool.created', { type: typeInfo.label })}
             </span>
+            {wordCount > 0 && (
+              <span className="shrink-0 text-xs text-[hsl(var(--text-secondary))] ml-auto">
+                {formatWordCount(wordCount, t)}
+              </span>
+            )}
             <span className="flex basis-full min-w-0 items-start gap-1 pl-6 text-sm text-[hsl(var(--text-primary))]">
               <span className="shrink-0">{typeInfo.icon}</span>
               {fileTitle(title, fileType)}
             </span>
-            {wordCount > 0 && (
-              <span className="text-xs text-[hsl(var(--text-secondary))] ml-auto">
-                {formatWordCount(wordCount, t)}
-              </span>
-            )}
           </div>
         </div>
       );
@@ -708,17 +708,17 @@ const ToolResultCardComponent: React.FC<ToolResultCardProps> = ({
         <div className="bg-[hsl(var(--result-bg))] border border-[hsl(var(--result-border))] rounded-lg px-3 py-2">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <CheckCircle2 className="w-4 h-4 shrink-0 text-[hsl(var(--success-text))]" />
-            <span className="shrink-0 text-sm text-[hsl(var(--success-text))]">
+            <span className="min-w-0 flex-1 text-sm text-[hsl(var(--success-text))]">
               {t('chat:tool.updated')}
-            </span>
-            <span className="basis-full min-w-0 pl-6 text-sm text-[hsl(var(--text-primary))]">
-              {fileTitle(title, fileType, quote(title))}
             </span>
             {wordCount > 0 && (
               <span className="shrink-0 text-xs text-[hsl(var(--text-secondary))] ml-auto">
                 {formatWordCount(wordCount, t)}
               </span>
             )}
+            <span className="basis-full min-w-0 pl-6 text-sm text-[hsl(var(--text-primary))]">
+              {fileTitle(title, fileType, quote(title))}
+            </span>
           </div>
         </div>
       );
