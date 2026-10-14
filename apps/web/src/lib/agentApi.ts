@@ -916,16 +916,16 @@ export function streamAgentRequest(
  * @param projectId - Project ID
  * @param recentMessages - Optional recent conversation messages
  * @param count - Number of suggestions to generate (default 3, max 5)
- * @returns Promise with array of suggestion strings
+ * @returns Suggestion strings (including a valid empty list), or null when unavailable
  */
 export async function fetchSuggestions(
   projectId: string,
   recentMessages?: Array<{ role: string; content: string }>,
   count: number = 3,
-): Promise<string[]> {
+): Promise<string[] | null> {
   const entryAccess = getAccessToken();
   const entryRefresh = localStorage.getItem("refresh_token");
-  const doFetch = async (accessToken: string | null = entryAccess, isRetry = false): Promise<string[]> => {
+  const doFetch = async (accessToken: string | null = entryAccess, isRetry = false): Promise<string[] | null> => {
     try {
       const language = localStorage.getItem("zenstory-language") || "zh";
 
@@ -956,25 +956,27 @@ export async function fetchSuggestions(
             return doFetch(ownedSession.accessToken, true);
           }
         }
-        return [];
+        return null;
       }
 
-      // 429：小时限流或每日上限已满。建议只是锦上添花，静默退回空列表，
+      // 429：小时限流或每日上限已满。建议只是锦上添花，静默退回失败标记，
       // 不记错误、不打扰用户（调用方会显示本地兜底建议）。
       if (response.status === 429) {
-        return [];
+        return null;
       }
 
       if (!response.ok) {
         logger.error("Failed to fetch suggestions:", response.status);
-        return [];
+        return null;
       }
 
       const data = await response.json();
-      return data.suggestions || [];
+      return Array.isArray(data.suggestions) && data.suggestions.every((s: unknown) => typeof s === "string")
+        ? data.suggestions.slice(0, 3)
+        : null;
     } catch (error) {
       logger.error("Failed to fetch suggestions:", error);
-      return [];
+      return null;
     }
   };
 

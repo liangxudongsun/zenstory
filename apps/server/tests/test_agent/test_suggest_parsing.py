@@ -16,13 +16,18 @@ def test_coerce_suggestions_accepts_object():
     assert SuggestService._coerce_suggestions({"suggestions": ["x"]}) == ["x"]
 
 
+def test_coerce_suggestions_accepts_explicit_empty_results():
+    assert SuggestService._coerce_suggestions([]) == []
+    assert SuggestService._coerce_suggestions({"suggestions": []}) == []
+
+
 def test_coerce_suggestions_object_missing_key():
-    assert SuggestService._coerce_suggestions({"other": 1}) == []
+    assert SuggestService._coerce_suggestions({"other": 1}) is None
 
 
 def test_coerce_suggestions_ignores_non_json_types():
-    assert SuggestService._coerce_suggestions("nope") == []
-    assert SuggestService._coerce_suggestions(None) == []
+    assert SuggestService._coerce_suggestions("nope") is None
+    assert SuggestService._coerce_suggestions(None) is None
 
 
 def test_extract_json_blob_prefers_object():

@@ -234,6 +234,8 @@ vi.mock('../../lib/api', () => ({
 }))
 
 type MockMessageInputProps = {
+  aiSuggestions?: string[]
+  suggestionDisplayState?: string
   onGenerationModeChange?: (mode: 'fast' | 'quality') => void
   onSend: (message: string, selectedSkillIds: string[]) => void | Promise<void>
   disabled?: boolean
@@ -1645,6 +1647,45 @@ describe('ChatPanel mount smoke', () => {
     expect(vi.mocked(fetchSuggestions)).not.toHaveBeenCalled()
   })
 
+  it('keeps an intentional empty result ready, clears old chips and caches it', async () => {
+    vi.mocked(fetchSuggestions).mockResolvedValueOnce([])
+    render(<ChatPanel />)
+    await waitFor(() => expect(lastMessageInputProps().suggestionDisplayState).toBe('ready'))
+    expect(lastMessageInputProps().aiSuggestions).toEqual([])
+    expect(JSON.parse(localStorage.getItem('zenstory_suggestions_cache_project-1')!).suggestions).toEqual([])
+  })
+
+  it('replaces timeout fallback with a late valid empty result', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      let finish!: (suggestions: string[]) => void
+      vi.mocked(fetchSuggestions).mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+      render(<ChatPanel />)
+      await waitFor(() => expect(vi.mocked(fetchSuggestions)).toHaveBeenCalled())
+      await act(async () => { vi.advanceTimersByTime(1600) })
+      expect(lastMessageInputProps().suggestionDisplayState).toBe('fallback')
+      await act(async () => { finish([]) })
+      expect(lastMessageInputProps().suggestionDisplayState).toBe('ready')
+      expect(lastMessageInputProps().aiSuggestions).toEqual([])
+    } finally { vi.useRealTimers() }
+  })
+
+  it('reuses a cached empty successful result without refetching', async () => {
+    localStorage.setItem('zenstory_suggestions_cache_project-1',
+      JSON.stringify({ suggestions: [], updatedAt: Date.now() }))
+    render(<ChatPanel />)
+    await waitFor(() => expect(lastMessageInputProps().suggestionDisplayState).toBe('ready'))
+    expect(lastMessageInputProps().aiSuggestions).toEqual([])
+    expect(vi.mocked(fetchSuggestions)).not.toHaveBeenCalled()
+  })
+
+  it('uses local fallback only when the suggestion request fails', async () => {
+    vi.mocked(fetchSuggestions).mockResolvedValueOnce(null)
+    render(<ChatPanel />)
+    await waitFor(() => expect(lastMessageInputProps().suggestionDisplayState).toBe('fallback'))
+    expect(localStorage.getItem('zenstory_suggestions_cache_project-1')).toBeNull()
+  })
+
   it('does not poll suggestions while the user is idle', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     try {
@@ -1697,6 +1738,8 @@ describe('ChatPanel mount smoke', () => {
       })
 
       expect(vi.mocked(fetchSuggestions)).toHaveBeenCalledTimes(1)
+      expect(lastMessageInputProps().aiSuggestions).toEqual([])
+      expect(lastMessageInputProps().suggestionDisplayState).toBe('ready')
     } finally {
       vi.useRealTimers()
     }

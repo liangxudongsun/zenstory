@@ -667,6 +667,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
    * 直接跳过，不重复打 /suggest。
    */
   const lastAutoSuggestionKeyRef = useRef<string | null>(null);
+  const lastAutoSuggestionStateRef = useRef<"ready" | "fallback">("ready");
 
   // Keep messagesRef in sync
   useEffect(() => {
@@ -743,21 +744,21 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     return `${SUGGESTION_CACHE_KEY_PREFIX}${projectId}`;
   }, []);
 
-  const readCachedSuggestions = useCallback((projectId: string): string[] => {
+  const readCachedSuggestions = useCallback((projectId: string): string[] | null => {
     try {
       const raw = localStorage.getItem(getSuggestionCacheKey(projectId));
-      if (!raw) return [];
+      if (!raw) return null;
       const parsed = JSON.parse(raw) as SuggestionCachePayload;
       if (!Array.isArray(parsed.suggestions) || typeof parsed.updatedAt !== "number") {
-        return [];
+        return null;
       }
       if (Date.now() - parsed.updatedAt > SUGGESTION_CACHE_TTL_MS) {
         localStorage.removeItem(getSuggestionCacheKey(projectId));
-        return [];
+        return null;
       }
       return parsed.suggestions.filter((s): s is string => typeof s === "string" && Boolean(s.trim())).slice(0, 3);
     } catch {
-      return [];
+      return null;
     }
   }, [getSuggestionCacheKey]);
 
@@ -777,15 +778,15 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     projectId: string,
     sourceMessages: Message[],
     options?: { allowFallback?: boolean }
-  ): Promise<string[]> => {
+  ): Promise<string[] | null> => {
     const suggestions = await fetchSuggestions(projectId, toRecentMessages(sourceMessages), 3);
 
     // Ignore stale responses from previous projects/requests.
     if (currentProjectIdRef.current !== projectId) {
-      return [];
+      return null;
     }
 
-    if (suggestions.length > 0) {
+    if (suggestions !== null) {
       setAiSuggestions(suggestions);
       setSuggestionDisplayState("ready");
       writeSuggestionCache(projectId, suggestions);
@@ -795,7 +796,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     if (options?.allowFallback && aiSuggestionsRef.current.length === 0) {
       setSuggestionDisplayState("fallback");
     }
-    return [];
+    return null;
   }, [setAiSuggestions, toRecentMessages, writeSuggestionCache]);
 
   const requestInitialSuggestions = useCallback(async (
@@ -806,7 +807,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     const requestSeq = suggestionRequestSeqRef.current;
     const cached = readCachedSuggestions(projectId);
 
-    if (cached.length > 0) {
+    if (cached !== null) {
       // 有缓存就直接用，不再后台刷新：打开/切换项目不该凭空多打一次 /suggest。
       // 下一轮对话结束后会按新上下文自动刷新一次。
       setAiSuggestions(cached);
@@ -819,8 +820,8 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
 
     const firstResult = await Promise.race([
       fetchPromise.then((suggestions) => ({ timedOut: false, suggestions })),
-      new Promise<{ timedOut: true; suggestions: string[] }>((resolve) => {
-        setTimeout(() => resolve({ timedOut: true, suggestions: [] }), SUGGESTION_INITIAL_TIMEOUT_MS);
+      new Promise<{ timedOut: true; suggestions: null }>((resolve) => {
+        setTimeout(() => resolve({ timedOut: true, suggestions: null }), SUGGESTION_INITIAL_TIMEOUT_MS);
       }),
     ]);
 
@@ -836,13 +837,13 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
       if (currentProjectIdRef.current !== projectId || requestSeq !== suggestionRequestSeqRef.current) {
         return;
       }
-      if (eventual.length === 0 && aiSuggestionsRef.current.length === 0) {
+      if (eventual === null && aiSuggestionsRef.current.length === 0) {
         setSuggestionDisplayState("fallback");
       }
       return;
     }
 
-    if (firstResult.suggestions.length === 0 && aiSuggestionsRef.current.length === 0) {
+    if (firstResult.suggestions === null && aiSuggestionsRef.current.length === 0) {
       setSuggestionDisplayState("fallback");
     }
   }, [fetchAndApplySuggestions, readCachedSuggestions, setAiSuggestions]);
@@ -1057,22 +1058,23 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
         const lastMessage = currentMessages[currentMessages.length - 1];
         const suggestionKey = `${currentProjectId}:${currentMessages.length}:${lastMessage?.id ?? ""}`;
         if (lastAutoSuggestionKeyRef.current === suggestionKey) {
-          if (aiSuggestionsRef.current.length > 0) {
-            setSuggestionDisplayState("ready");
-          } else {
-            setSuggestionDisplayState("fallback");
-          }
+          setSuggestionDisplayState(lastAutoSuggestionStateRef.current);
           return;
         }
         lastAutoSuggestionKeyRef.current = suggestionKey;
         try {
-          await fetchAndApplySuggestions(currentProjectId, currentMessages, { allowFallback: true });
+          const result = await fetchAndApplySuggestions(currentProjectId, currentMessages, { allowFallback: true });
+          if (currentProjectIdRef.current !== currentProjectId || lastAutoSuggestionKeyRef.current !== suggestionKey) return;
+          const displayState = result === null && aiSuggestionsRef.current.length === 0 ? "fallback" : "ready";
+          lastAutoSuggestionStateRef.current = displayState;
+          setSuggestionDisplayState(displayState);
         } catch (error) {
+          if (currentProjectIdRef.current !== currentProjectId || lastAutoSuggestionKeyRef.current !== suggestionKey) return;
           // Silent failure - suggestion is non-critical
           logger.error("Failed to fetch suggestions:", error);
-          if (aiSuggestionsRef.current.length === 0) {
-            setSuggestionDisplayState("fallback");
-          }
+          const displayState = aiSuggestionsRef.current.length === 0 ? "fallback" : "ready";
+          lastAutoSuggestionStateRef.current = displayState;
+          setSuggestionDisplayState(displayState);
         }
       }
     }, 1500);

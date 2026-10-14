@@ -619,7 +619,8 @@ async def test_agent_stream_invalid_project(client: AsyncClient, db_session: Ses
 
 
 @pytest.mark.integration
-async def test_agent_suggest_success(client: AsyncClient, db_session: Session):
+@pytest.mark.parametrize("suggestions", [["继续写第二章", "补充角色动机", "设计剧情反转"], []])
+async def test_agent_suggest_success(client: AsyncClient, db_session: Session, suggestions):
     """Test suggest endpoint returns generated suggestions."""
     user = User(
         username="agent_user10",
@@ -645,7 +646,7 @@ async def test_agent_suggest_success(client: AsyncClient, db_session: Session):
     with patch("agent.suggest_service.get_suggest_service") as mock_get_suggest_service:
         mock_service = mock_get_suggest_service.return_value
         mock_service.generate_suggestions = AsyncMock(
-            return_value=["继续写第二章", "补充角色动机", "设计剧情反转"]
+            return_value=suggestions
         )
 
         response = await client.post(
@@ -659,7 +660,7 @@ async def test_agent_suggest_success(client: AsyncClient, db_session: Session):
         )
 
     assert response.status_code == 200
-    assert response.json()["suggestions"] == ["继续写第二章", "补充角色动机", "设计剧情反转"]
+    assert response.json()["suggestions"] == suggestions
 
 
 @pytest.mark.integration

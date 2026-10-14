@@ -141,6 +141,7 @@ class SuggestService:
         Returns:
             List of suggestion strings
         """
+        count = min(count, DEFAULT_SUGGESTION_COUNT)
         if self.llm is None:
             return self._get_fallback_suggestions(count, language)
 
@@ -238,7 +239,7 @@ class SuggestService:
             # Step 6: Parse and validate suggestions
             suggestions = self._parse_json_suggestions(result)
 
-            if not suggestions:
+            if suggestions is None:
                 log_with_context(
                     logger,
                     logging.WARNING,
@@ -247,15 +248,6 @@ class SuggestService:
                     falling_back=True,
                 )
                 return self._get_fallback_suggestions(count, language)
-
-            # Step 7: Ensure we return exactly count suggestions
-            if len(suggestions) < count:
-                fallbacks = [
-                    fallback
-                    for fallback in self._get_fallback_suggestions(count + len(suggestions), language)
-                    if fallback not in suggestions
-                ]
-                suggestions.extend(fallbacks[: count - len(suggestions)])
 
             return suggestions[:count]
 
@@ -412,14 +404,14 @@ class SuggestService:
         ]
 
     @staticmethod
-    def _coerce_suggestions(data: Any) -> list:
+    def _coerce_suggestions(data: Any) -> list | None:
         """Extract the suggestion list from either an object or a bare array."""
         if isinstance(data, list):
             return data
         if isinstance(data, dict):
-            got = data.get("suggestions", [])
-            return got if isinstance(got, list) else []
-        return []
+            got = data.get("suggestions")
+            return got if isinstance(got, list) else None
+        return None
 
     @staticmethod
     def _extract_json_blob(response: str) -> str | None:
@@ -440,7 +432,7 @@ class SuggestService:
 
         return None
 
-    def _parse_json_suggestions(self, response: str) -> list[str]:
+    def _parse_json_suggestions(self, response: str) -> list[str] | None:
         """
         Parse suggestions from LLM JSON response with repair.
 
@@ -448,10 +440,10 @@ class SuggestService:
             response: Raw LLM response text
 
         Returns:
-            List of parsed suggestions (empty if parsing fails)
+            List of parsed suggestions (empty is valid); None on parse/validation failure
         """
         if not response or not response.strip():
-            return []
+            return None
 
         # Try standard JSON parsing first
         try:
@@ -464,7 +456,7 @@ class SuggestService:
                 data = json.loads(json_str)
                 suggestions = self._coerce_suggestions(data)
                 valid = self._validate_suggestions(suggestions)
-                if valid:
+                if suggestions is not None and (not suggestions or valid):
                     log_with_context(
                         logger,
                         logging.INFO,
@@ -488,7 +480,7 @@ class SuggestService:
             data = json.loads(repaired)
             suggestions = self._coerce_suggestions(data)
             valid = self._validate_suggestions(suggestions)
-            if valid:
+            if suggestions is not None and (not suggestions or valid):
                 log_with_context(
                     logger,
                     logging.INFO,
@@ -504,7 +496,7 @@ class SuggestService:
                 error=str(e),
             )
 
-        return []
+        return None
 
     def _validate_suggestions(self, suggestions: Any) -> list[str]:
         """
