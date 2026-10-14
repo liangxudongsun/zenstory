@@ -54,6 +54,15 @@ async def correct_registration_email(
         if not sent:
             session.rollback()
             raise APIException(error_code=ErrorCode.AUTH_RESEND_FAILED, status_code=503)
+        if old_email != corrected:
+            try:
+                # Retain the old unique address reservation until its code is
+                # gone; a subsequent registration must write only after this.
+                await verification_service.clear_registration_verification(old_email)
+            except Exception:
+                session.rollback()
+                log_with_context(logger, 30, "Registration address invalidation unavailable")
+                raise APIException(error_code=ErrorCode.AUTH_RESEND_FAILED, status_code=503) from None
         session.commit()
     except InvalidRecipientError:
         session.rollback()
@@ -62,12 +71,4 @@ async def correct_registration_email(
         session.rollback()
         raise APIException(error_code=ErrorCode.AUTH_EMAIL_EXISTS, status_code=400) from None
 
-    if old_email != corrected:
-        # The database now binds this account only to the corrected address.
-        # Old codes cannot verify it even if Redis cleanup is unavailable.
-        try:
-            await asyncio.to_thread(verification_service.delete_verification_code, old_email)
-            await asyncio.to_thread(verification_service.delete_resend_cooldown, old_email)
-        except Exception:
-            log_with_context(logger, 30, "Old registration code cleanup unavailable after address correction", user_id=user.id)
     return corrected

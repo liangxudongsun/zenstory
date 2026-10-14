@@ -7,6 +7,8 @@ Tests user registration and login endpoints:
 - POST /api/auth/refresh
 """
 
+from unittest.mock import AsyncMock
+
 import pytest
 from httpx import AsyncClient
 from jose import jwt
@@ -22,6 +24,7 @@ def _set_invite_code_optional_for_legacy_auth_tests(monkeypatch):
     Keep existing registration tests behavior stable unless a test overrides it.
     """
     monkeypatch.setenv("AUTH_REGISTER_INVITE_CODE_OPTIONAL", "true")
+    monkeypatch.setattr("api.auth.clear_registration_verification", AsyncMock())
 
 
 @pytest.mark.integration

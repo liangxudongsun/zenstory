@@ -122,3 +122,78 @@ def test_old_verification_and_address_correction_share_a_real_account_gate(monke
         event.remove(engine, "after_cursor_execute", after)
         SQLModel.metadata.drop_all(engine, tables=[RefreshTokenRecord.__table__, User.__table__])
         engine.dispose()
+
+
+def test_old_address_remains_reserved_until_its_code_is_invalidated(monkeypatch):
+    from services.features.registration_recovery_service import correct_registration_email
+
+    url = os.environ["ZENSTORY_TEST_POSTGRES_URL"]
+    assert database.is_postgres and url == os.environ["DATABASE_URL"]
+    engine = create_engine(url, connect_args={"options": "-c lock_timeout=12000 -c statement_timeout=15000"})
+    SQLModel.metadata.create_all(engine, tables=[User.__table__])
+    with Session(engine) as session:
+        session.add(User(username="recovery-original", email="old@example.com", email_verified=False,
+                         hashed_password=hash_password("OwnedPassword1!")))
+        session.commit()
+    cleaning, release, claiming = threading.Event(), threading.Event(), threading.Event()
+    pids = {}
+    codes = {"old@example.com": "original-code"}
+
+    async def send_code(email, **_kwargs):
+        codes[email] = "corrected-code"
+        return True, None
+
+    def delete_code(email):
+        assert email == "old@example.com"
+        cleaning.set()
+        assert release.wait(10), "cleanup gate was not released"
+        codes.pop(email, None)
+        return True
+
+    def correct():
+        with Session(engine) as session:
+            pids["correct"] = session.connection().execute(text("SELECT pg_backend_pid()")).scalar_one()
+            return asyncio.run(correct_registration_email(session, email="old@example.com",
+                password="OwnedPassword1!", new_email="new@example.com", language="en"))
+
+    def claim():
+        with Session(engine) as session:
+            pids["claim"] = session.connection().execute(text("SELECT pg_backend_pid()")).scalar_one()
+            session.add(User(username="subsequent-registration", email="old@example.com",
+                             hashed_password="unused", email_verified=False))
+            claiming.set()
+            session.flush()
+            codes["old@example.com"] = "subsequent-registration-code"
+            session.commit()
+
+    monkeypatch.setattr(verification_service, "send_verification_code", send_code)
+    monkeypatch.setattr(verification_service, "delete_verification_code", delete_code)
+    monkeypatch.setattr(verification_service, "delete_resend_cooldown", MagicMock())
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            correction = executor.submit(correct)
+            assert cleaning.wait(5)
+            claimant = executor.submit(claim)
+            try:
+                assert claiming.wait(5)
+                deadline = time.monotonic() + 5
+                blocked = False
+                while time.monotonic() < deadline and not claimant.done():
+                    with engine.connect() as observer:
+                        row = observer.execute(text("SELECT wait_event_type, pg_blocking_pids(pid) FROM pg_stat_activity WHERE pid=:pid"), {"pid": pids["claim"]}).one()
+                    if row[0] == "Lock" and pids["correct"] in row[1]:
+                        blocked = True
+                        break
+                    time.sleep(0.02)
+                assert blocked, "old address was released before its verification code was invalidated"
+            finally:
+                release.set()
+            assert correction.result(10) == "new@example.com"
+            claimant.result(10)
+        assert codes["old@example.com"] == "subsequent-registration-code"
+        with Session(engine) as session:
+            assert {user.email for user in session.exec(select(User)).all()} == {"old@example.com", "new@example.com"}
+    finally:
+        release.set()
+        SQLModel.metadata.drop_all(engine, tables=[User.__table__])
+        engine.dispose()

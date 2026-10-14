@@ -51,6 +51,15 @@ def generate_verification_code(length: int = VERIFICATION_CODE_LENGTH) -> str:
     return code
 
 
+async def clear_registration_verification(email: str) -> None:
+    """Invalidate an address before its uncommitted owner can be replaced."""
+    email = normalize_email_identity(email)
+    if not await asyncio.to_thread(delete_verification_code, email):
+        raise ConnectionError("Verification code invalidation unavailable")
+    if not await asyncio.to_thread(delete_resend_cooldown, email):
+        raise ConnectionError("Verification cooldown invalidation unavailable")
+
+
 async def send_verification_code(email: str, language: str = "zh") -> tuple[bool, str | None]:
     """
     Generate and send a verification code to the user's email.
@@ -103,8 +112,9 @@ async def send_verification_code(email: str, language: str = "zh") -> tuple[bool
         try:
             await asyncio.to_thread(delete_verification_code, email)
             await asyncio.to_thread(delete_resend_cooldown, email)
-        finally:
-            raise
+        except Exception:
+            log_with_context(logger, 30, "Rejected registration recipient cleanup unavailable")
+        raise
     except Exception as e:
         log_with_context(
             logger,

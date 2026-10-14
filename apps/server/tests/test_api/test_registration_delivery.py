@@ -179,10 +179,71 @@ async def test_recovery_password_attempts_are_rate_limited(client, db_session, d
     delivery.assert_not_called()
 
 
-async def test_successful_correction_is_not_reported_failed_if_old_redis_cleanup_is_down(client, db_session, delivery):
+async def test_failed_old_code_cleanup_keeps_address_reserved_and_allows_recovery_retry(client, db_session, delivery):
     user_id = seed_stuck_user(db_session)
     verification_service.delete_verification_code.side_effect = ConnectionError("Redis unavailable")
     response = await recover(client)
-    assert response.status_code == 200
+    assert response.status_code == 503
     db_session.expire_all()
-    assert db_session.get(User, user_id).email == "corrected@example.com"
+    assert db_session.get(User, user_id).email == "writer@example.c0m"
+    verification_service.delete_verification_code.side_effect = None
+    assert (await recover(client)).status_code == 200
+
+
+@pytest.mark.parametrize("cleanup", ["delete_verification_code", "delete_resend_cooldown"])
+@pytest.mark.parametrize("operation", ["register", "resend", "recover"])
+async def test_permanent_recipient_error_survives_redis_cleanup_failure(client, db_session, delivery, cleanup, operation):
+    if operation == "resend":
+        assert (await register(client)).status_code == 200
+    elif operation == "recover":
+        seed_stuck_user(db_session)
+    prior_calls = delivery.call_count
+
+    def fail_after_provider(*_args):
+        if delivery.call_count > prior_calls:
+            raise ConnectionError("Redis unavailable")
+        return True
+
+    getattr(verification_service, cleanup).side_effect = fail_after_provider
+    delivery.side_effect = invalid_recipient()
+    if operation == "register":
+        response = await register(client)
+    elif operation == "resend":
+        response = await client.post("/api/auth/resend-verification", json={"email": "writer@example.com"})
+    else:
+        response = await recover(client)
+    assert response.status_code == 400
+    assert response.json()["error_code"] == "ERR_AUTH_EMAIL_UNDELIVERABLE"
+    assert delivery.call_count == prior_calls + 1
+    db_session.expire_all()
+    users = db_session.exec(select(User)).all()
+    if operation == "register":
+        assert users == []
+        getattr(verification_service, cleanup).side_effect = None
+        delivery.side_effect = None
+        assert (await register(client, "corrected@example.com")).status_code == 200
+    elif operation == "recover":
+        assert users[0].email == "writer@example.c0m"
+    else:
+        assert users[0].email == "writer@example.com"
+
+
+async def test_new_registration_replaces_orphaned_code_before_cooldown_check(client, delivery, monkeypatch):
+    codes, cooldowns = {"writer@example.com": "orphaned-code"}, {"writer@example.com"}
+    monkeypatch.setattr(verification_service, "delete_verification_code", lambda email: codes.pop(email, None) is not None)
+    monkeypatch.setattr(verification_service, "delete_resend_cooldown", lambda email: bool(cooldowns.discard(email) is None))
+    monkeypatch.setattr(verification_service, "check_resend_cooldown", lambda email, _ttl: email in cooldowns)
+    monkeypatch.setattr(verification_service, "store_verification_code", lambda email, code, _ttl: bool(codes.update({email: code}) is None))
+    response = await register(client)
+    assert response.status_code == 200 and response.json()["verification_sent"] is True
+    assert codes["writer@example.com"] != "orphaned-code"
+    delivery.assert_called_once()
+
+
+@pytest.mark.parametrize("cleanup", ["delete_verification_code", "delete_resend_cooldown"])
+async def test_new_registration_fails_closed_when_orphan_invalidation_is_unavailable(client, db_session, delivery, cleanup):
+    getattr(verification_service, cleanup).return_value = False
+    response = await register(client)
+    assert response.status_code == 503
+    assert db_session.exec(select(User)).all() == []
+    delivery.assert_not_called()

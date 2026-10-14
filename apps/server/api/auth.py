@@ -47,6 +47,7 @@ from services.features import password_reset_service
 from services.features.activation_event_service import activation_event_service
 from services.features.referral_service import create_referral as create_referral_service
 from services.features.registration_recovery_service import correct_registration_email
+from services.features.verification_service import clear_registration_verification
 from services.infra.email_client import InvalidRecipientError
 from services.subscription.subscription_service import subscription_service
 from utils.email_identity import email_identity_matches, normalize_email_identity, validate_registration_email
@@ -557,6 +558,13 @@ async def register(
     # Reserve uniqueness before sending, but keep a rejected recipient out of
     # the database and avoid committing any referral/subscription side effects.
     await asyncio.to_thread(session.flush)
+    try:
+        # An abandoned correction may have left code/cooldown under this address.
+        # Keep the unique reservation until no former owner code can verify it.
+        await clear_registration_verification(normalized_email)
+    except Exception:
+        session.rollback()
+        raise APIException(error_code=ErrorCode.AUTH_RESEND_FAILED, status_code=503) from None
     try:
         success, error = await send_verification_code(normalized_email, language=request.language or "zh")
     except InvalidRecipientError:
