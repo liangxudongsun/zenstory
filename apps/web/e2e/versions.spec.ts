@@ -844,7 +844,7 @@ test.describe('Version History - Error Handling', () => {
       await page.waitForSelector('text=/历史版本|版本历史|Version History/', { timeout: 3000 })
 
       // Should show empty state or single version
-      const emptyState = page.getByText(/还没有保留的历史版本|no retained versions yet/i)
+      const emptyState = page.getByText(/还没有历史版本|no versions yet/i)
       const versionItems = page.locator('[class*="p-3"][class*="hover:bg"]')
 
       // Either empty state or at least the initial version should be shown
