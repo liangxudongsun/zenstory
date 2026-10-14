@@ -90,6 +90,10 @@ async def run_streaming_agent(
     if scope_directive:
         system_prompt = f"{system_prompt}\n\n## 本轮用户范围约束 [最高优先级]\n\n{scope_directive}"
 
+    length_requirements = str(state.get("length_requirements_directive") or "").strip()
+    if agent_type == "writer" and length_requirements:
+        system_prompt = f"{system_prompt}\n\n{length_requirements}"
+
     # 快速模式（前端「更快出结果」）：WRITER_PROMPT 的送审规则在这一轮不适用。
     # writing_graph 也会丢弃 writer → quality_reviewer 的交接，这里先让模型知道，
     # 免得它白白调用一次 handoff_to_agent。

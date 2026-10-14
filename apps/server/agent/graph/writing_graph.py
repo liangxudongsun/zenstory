@@ -982,11 +982,16 @@ def _format_body_word_counts(counts: list[tuple[str, int]] | None) -> str:
     return f"\n\n{BODY_WORD_COUNT_HEADER}\n{lines}\n{_BODY_WORD_COUNT_NOTE}"
 
 
-def _format_length_requirements(items: list[str] | None) -> str:
+def _format_length_requirements(items: list[str] | None, *, before_writing: bool = False) -> str:
     if not items:
         return ""
     lines = "\n".join(f"- {item}" for item in items)
-    return f"\n\n{LENGTH_REQUIREMENT_HEADER}\n{lines}\n{_LENGTH_REQUIREMENT_NOTE}"
+    note = (
+        "以上是作者原话与来源（后说的为准）；先区分全篇目标、单章目标和本轮范围再开写。"
+        "本轮未明确改变的历史要求仍适用；只写指定范围，逐章写够后用实际工具字数核对。"
+        if before_writing else _LENGTH_REQUIREMENT_NOTE
+    )
+    return f"\n\n{LENGTH_REQUIREMENT_HEADER}\n{lines}\n{note}"
 
 
 def _tool_result_failed(result: Any) -> bool:
@@ -1478,6 +1483,24 @@ async def run_writing_workflow_streaming(
                 preview=msg["content"][:50],
             )
 
+    length_requirement_inputs: tuple[str, ...] | None = None
+    length_requirements: list[str] | None = None
+
+    async def _current_length_requirements() -> list[str] | None:
+        # Collect once before the first writer, reuse for review/rework. New author
+        # steering invalidates the snapshot; the source helper keeps chronological quotes.
+        nonlocal length_requirement_inputs, length_requirements
+        author_inputs = tuple(ToolContext.get_author_messages())
+        if author_inputs != length_requirement_inputs:
+            length_requirement_inputs = author_inputs
+            reads = await _bounded_review_reads({
+                "length_requirements": lambda: find_length_requirements(
+                    _collect_length_requirement_sources()
+                ),
+            })
+            length_requirements = reads.get("length_requirements")
+        return length_requirements
+
     iteration = 0
     current_agent_type: str | None = None
     handoff_context: str = ""
@@ -1914,6 +1937,13 @@ async def run_writing_workflow_streaming(
                 modified_state["scope_directive"] = agent_scope_directive
             else:
                 modified_state.pop("scope_directive", None)
+
+            if current_agent_type == "writer":
+                modified_state["length_requirements_directive"] = _format_length_requirements(
+                    await _current_length_requirements(), before_writing=True
+                )
+            else:
+                modified_state.pop("length_requirements_directive", None)
 
             agent_message_started = False
             mid_run_steering_seen = False
@@ -2737,9 +2767,6 @@ async def run_writing_workflow_streaming(
                 review_reads = await _bounded_review_reads(
                     {
                         "body_word_counts": functools.partial(_collect_body_word_counts, written_ids),
-                        "length_requirements": lambda: find_length_requirements(
-                            _collect_length_requirement_sources()
-                        ),
                     }
                 )
                 body_counts = review_reads["body_word_counts"]
@@ -2747,7 +2774,7 @@ async def run_writing_workflow_streaming(
                     # 落库读取超时：按本 run 写入记下的最新全文字数（建文件后又扩写过的取改后字数）。
                     body_counts = latest_file_word_counts(writer_body_writes)
                 handoff_context += _format_body_word_counts(body_counts)
-                handoff_context += _format_length_requirements(review_reads["length_requirements"])
+                handoff_context += _format_length_requirements(await _current_length_requirements())
                 if chat_hold_started:
                     handoff_context += f"\n\n{WRITER_CHAT_SUPERSEDED_NOTE}"
                     # writer 最后在问作者：图手里有这几句，原样交给审稿人，不靠它从历史里转述。
