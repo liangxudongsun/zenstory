@@ -13,7 +13,7 @@
  *
  * @module components/MessageInput
  */
-import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback, useId } from "react";
 import type { KeyboardEvent } from "react";
 import { Send, X, Square, RefreshCw, FileText, Quote, Zap, Sparkles } from "lucide-react";
 import { VoiceInputButton } from "./VoiceInputButton";
@@ -315,6 +315,7 @@ export const MessageInput: React.FC<MessageInputProps> = ({
   onGenerationModeChange,
 }) => {
   const { t } = useTranslation(["chat", "common"]);
+  const inputLengthErrorId = useId();
   const { isMobile } = useMobileLayout();
   const textareaMinHeightPx = isMobile ? 44 : TEXTAREA_MIN_HEIGHT_PX;
   const effectiveSendDisabled = sendDisabled ?? disabled;
@@ -947,7 +948,8 @@ export const MessageInput: React.FC<MessageInputProps> = ({
 
       {inputTooLong ? (
         <div
-          className="text-xs text-[hsl(var(--error))] px-1"
+          id={inputLengthErrorId}
+          className="shrink-0 px-1 text-xs text-[hsl(var(--error-text))]"
           role="alert"
           data-testid="chat-input-too-long"
         >
@@ -1005,6 +1007,8 @@ export const MessageInput: React.FC<MessageInputProps> = ({
         {/* data-testid: chat-input - Chat input textarea for chat interaction tests */}
         <textarea
           ref={textareaRef}
+          aria-invalid={inputTooLong || undefined}
+          aria-describedby={inputTooLong ? inputLengthErrorId : undefined}
           value={input}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
