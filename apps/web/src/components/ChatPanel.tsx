@@ -1962,7 +1962,6 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     } catch (err) {
       logger.error("Failed to create new session:", err);
       if (!ownsRequest()) return;
-      toast.error(t("chat:panel.newSessionFailed"));
       currentAgentSessionIdRef.current = null;
       reset();
       clearStreamItems();
@@ -1970,7 +1969,10 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
       setSuggestionDisplayState("fallback");
       // A failed response may follow a committed creation. Read the actual
       // active history; never replay the POST or guess that the old chat won.
-      await loadChatHistory(projectId, true);
+      const recoveredMessages = await loadChatHistory(projectId, true);
+      if (recoveredMessages !== null && ownsRequest()) {
+        toast.error(t("chat:panel.newSessionFailed"));
+      }
     } finally {
       if (ownsRequest() && creatingSessionRef.current === requestSeq) {
         creatingSessionRef.current = null;

@@ -44,7 +44,7 @@
     "roundSavedFilesJoiner": ", ",
     "roundSavedFilesMore": "{{files}} and {{rest}} more",
     "creatingSession": "Creating new chat",
-    "newSessionFailed": "Could not create a new chat. Syncing the current chat.",
+    "newSessionFailed": "Couldn't create a new chat. Please try again.",
     "sessionRecoveryFailed": "Couldn't load this chat. Please try again."
   },
   "input": {

@@ -1,6 +1,6 @@
 import { StrictMode, useEffect, useState } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryRouter, RouterProvider, useNavigate, useParams } from 'react-router-dom'
 import { createInstance, type i18n } from 'i18next'
@@ -207,14 +207,18 @@ describe.each([false, true])('actual mounted ChatPanel new session rootStrict=%s
     mount(strict); await until(() => has('A HISTORY KEEP') && has('A OWN SUGGESTION'))
     const error = vi.spyOn(toast, 'error').mockImplementation(() => {})
     const normal = route
+    const recovery = gate([{ ...history('a')[0], session_id: 'a-committed-new', content: 'SERVER ACTIVE HISTORY' }])
     route = (path, body) => path.endsWith('/a/new') ? Promise.resolve(json({}, 500)) : path.endsWith('/a/recent')
-      ? Promise.resolve(json([{ ...history('a')[0], session_id: 'a-committed-new', content: 'SERVER ACTIVE HISTORY' }])) : normal(path, body)
+      ? recovery.promise : normal(path, body)
     try {
-      fireEvent.click(newButton()); await until(() => has('SERVER ACTIVE HISTORY'))
+      fireEvent.click(newButton()); await until(() => requests.filter(request => request.path.endsWith('/a/recent')).length === 2)
+      expect(error).not.toHaveBeenCalled()
+      recovery.settle(); await until(() => has('SERVER ACTIVE HISTORY'))
       expect(has('A HISTORY KEEP')).toBe(false)
+      expect(error).toHaveBeenCalledTimes(1)
       expect(error).toHaveBeenCalledWith('New chat could not be created')
       expect(newButton()).toBeEnabled()
-    } finally { error.mockRestore() }
+    } finally { recovery.settle(); error.mockRestore() }
   })
 
   it('retains real B history and B suggestions after pending A new session succeeds', async () => {
@@ -228,10 +232,13 @@ describe.each([false, true])('actual mounted ChatPanel new session rootStrict=%s
 
   it('blocks sending after recovery read fails and retries only the read without losing the draft', async () => {
     mount(strict); await until(() => has('A HISTORY KEEP') && has('A OWN SUGGESTION'))
+    const error = vi.spyOn(toast, 'error').mockImplementation(() => {})
+    onTestFinished(() => error.mockRestore())
     const normal = route; let recover = false
     route = (path, body) => path === '/api/v1/chat/session/a/new' ? Promise.resolve(json({}, 500))
       : path === '/api/v1/chat/session/a/recent' ? Promise.resolve(recover ? json([]) : json({}, 503)) : normal(path, body)
     fireEvent.click(newButton()); await until(() => has('Current chat could not be synced'))
+    expect(error).not.toHaveBeenCalled()
     expect(has('A HISTORY KEEP')).toBe(false)
     expect(has('panel.welcome')).toBe(false)
     expect(has('panel.suggestions')).toBe(false)
@@ -242,12 +249,28 @@ describe.each([false, true])('actual mounted ChatPanel new session rootStrict=%s
     recover = true
     fireEvent.click(screen.getByRole('button', { name: 'Retry' })); await flush()
     expect(has('Current chat could not be synced')).toBe(false)
+    expect(error).not.toHaveBeenCalled()
     expect(has('panel.welcome')).toBe(true)
     expect(has('panel.suggestions')).toBe(true)
     expect(screen.getByTestId('chat-input')).toHaveValue('Safe editable recovery draft')
     expect(screen.getByTestId('send-button')).toBeEnabled()
     expect(requests.filter(request => request.path.endsWith('/a/new'))).toHaveLength(1)
     expect(requests.filter(request => request.path.endsWith('/a/recent'))).toHaveLength(3)
+  })
+
+  it('does not notify the current project when a previous project finishes failed-creation recovery', async () => {
+    mount(strict); await until(() => has('A HISTORY KEEP') && has('A OWN SUGGESTION'))
+    const error = vi.spyOn(toast, 'error').mockImplementation(() => {})
+    onTestFinished(() => error.mockRestore())
+    const recovery = gate(history('a')); const normal = route
+    route = (path, body) => path === '/api/v1/chat/session/a/new' ? Promise.resolve(json({}, 500))
+      : path === '/api/v1/chat/session/a/recent' ? recovery.promise : normal(path, body)
+    fireEvent.click(newButton()); await until(() => requests.filter(request => request.path.endsWith('/a/recent')).length === 2)
+    fireEvent.click(screen.getByText('Choose B')); await until(() => has('B HISTORY KEEP') && has('B OWN SUGGESTION'))
+    recovery.settle(); await flush()
+    expect(has('B HISTORY KEEP')).toBe(true)
+    expect(has('B OWN SUGGESTION')).toBe(true)
+    expect(error).not.toHaveBeenCalled()
   })
 
   it('retains current B suggestion presentation after pending A new session fails', async () => {

@@ -10,6 +10,8 @@
 
 当前项目的历史恢复失败时只显示既有错误与重试入口，不同时显示欢迎空态和示例输入；读取恢复为空对话后才显示欢迎空态。错误文案只说明对话加载失败与重试，不重复发送限制或承诺草稿已保存。
 
+创建失败后的只读恢复完成前不发创建失败 toast；恢复成功且请求仍属于当前项目时提示一次，恢复失败只保留历史加载错误与重试，旧项目的恢复结果不弹到新项目。
+
 PostgreSQL 的新建/获取、Agent requested-id 解析、MessageManager 无 session-id 兜底共用 user+project 事务 advisory lock，在活动会话读写之前取得，提交或回滚后释放；不新增 Session，不代替 owning helper 的事务提交。SQLite 不增加锁或改变既有提前提交。审计全部 ChatSession 构造点；Loader 与建议服务只读取/修复旧数据，不创建会话。
 
 ## Alternatives considered
