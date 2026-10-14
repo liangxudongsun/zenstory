@@ -8,6 +8,8 @@
 
 前端用同步 ref 加可见 pending 状态拦截重复点击，创建完成前暂停发送，保留可继续编辑的草稿。创建失败时提示并只读重新加载当前活动会话历史，读失败则显示重试并暂停发送，不自动重试创建或模型请求。继续保留项目切换、卸载和中途停止的请求代际保护。
 
+当前项目的历史恢复失败时只显示既有错误与重试入口，不同时显示欢迎空态和示例输入；读取恢复为空对话后才显示欢迎空态。错误文案只说明对话加载失败与重试，不重复发送限制或承诺草稿已保存。
+
 PostgreSQL 的新建/获取、Agent requested-id 解析、MessageManager 无 session-id 兜底共用 user+project 事务 advisory lock，在活动会话读写之前取得，提交或回滚后释放；不新增 Session，不代替 owning helper 的事务提交。SQLite 不增加锁或改变既有提前提交。审计全部 ChatSession 构造点；Loader 与建议服务只读取/修复旧数据，不创建会话。
 
 ## Alternatives considered
