@@ -8,6 +8,7 @@ import { fileApi } from "../../lib/api";
 import { toast } from "../../lib/toast";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { findAncestorFolderIds } from "../../lib/lastOpenedFile";
+import { notifyFileRemoved } from "../../lib/fileRemovalEvents";
 import { FOLDER_TYPE_MAP } from "../../lib/folderTypeMap";
 import type { FileTreeNode, TreeNodeType } from "../../types";
 import { useFileSearch } from "../../hooks/useFileSearch";
@@ -72,6 +73,10 @@ export const FileTreePane: React.FC = () => {
   const loadRequestIdRef = useRef(0);
   const loadAbortControllerRef = useRef<AbortController | null>(null);
   const activeProjectIdRef = useRef(currentProjectId);
+  const selectedItemRef = useRef(selectedItem);
+  const treeRef = useRef(tree);
+  selectedItemRef.current = selectedItem;
+  treeRef.current = tree;
 
   const isAbortError = useCallback((error: unknown): boolean => {
     return (
@@ -104,6 +109,8 @@ export const FileTreePane: React.FC = () => {
   const loadData = useCallback(async (showLoading = false) => {
     // A mutation started in a previous project may finish after navigation.
     if (!currentProjectId || currentProjectId !== activeProjectIdRef.current) return;
+    const selectedAtRequest = selectedItemRef.current;
+    const previousTree = treeRef.current;
     const requestId = ++loadRequestIdRef.current;
     loadAbortControllerRef.current?.abort();
     const abortController = new AbortController();
@@ -121,6 +128,12 @@ export const FileTreePane: React.FC = () => {
         return;
       }
       setTree(response.tree || []);
+      if (selectedAtRequest && selectedItemRef.current?.id === selectedAtRequest.id
+        && findAncestorFolderIds(previousTree, selectedAtRequest.id) !== null
+        && findAncestorFolderIds(response.tree || [], selectedAtRequest.id) === null) {
+        notifyFileRemoved(currentProjectId, selectedAtRequest.id);
+        if (selectedItemRef.current?.id === selectedAtRequest.id) setSelectedItem(null);
+      }
 
       // Auto-expand root folders
       const rootFolderIds = (response.tree || [])
@@ -142,7 +155,7 @@ export const FileTreePane: React.FC = () => {
         setIsInitialLoad(false);
       }
     }
-  }, [currentProjectId, isAbortError]);
+  }, [currentProjectId, isAbortError, setSelectedItem]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -358,7 +371,7 @@ export const FileTreePane: React.FC = () => {
   };
 
   const handleConfirmDelete = async () => {
-    if (!pendingDelete || pendingDelete.projectId !== currentProjectId || deletingFile) return;
+    if (!currentProjectId || !pendingDelete || pendingDelete.projectId !== currentProjectId || deletingFile) return;
     const fileId = pendingDelete.id;
     setDeletingFile(true);
 
@@ -366,8 +379,9 @@ export const FileTreePane: React.FC = () => {
       await fileApi.delete(fileId);
 
       if (currentProjectId !== activeProjectIdRef.current) return;
-      // Clear selection if deleted item was selected
-      if (selectedItem?.id === fileId) {
+      notifyFileRemoved(currentProjectId, fileId);
+      // A folder's selected descendant is corrected by the successful tree refresh.
+      if (selectedItemRef.current?.id === fileId) {
         setSelectedItem(null);
       }
 

@@ -1,4 +1,6 @@
 import React from 'react'
+import { BrowserRouter, Link } from 'react-router-dom'
+import { setUnprotectedDeletedDraft } from '../../lib/fileRemovalEvents'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, render as rtlRender, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -16,6 +18,7 @@ const mockQuota = vi.hoisted(() => ({
 }))
 
 const mockProjectState = vi.hoisted(() => ({
+  currentProjectId: 'project-1' as string | null,
   currentProject: { id: 'project-1', name: '外卖小哥看见倒计时' } as { id: string; name: string } | null,
   refreshProjects: vi.fn(async () => {}),
   refreshProject: vi.fn(async (_projectId: string) => {}),
@@ -78,7 +81,7 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('../../contexts/ProjectContext', () => ({
   useProject: () => ({
-    currentProjectId: 'project-1',
+    currentProjectId: mockProjectState.currentProjectId,
     currentProject: mockProjectState.currentProject,
     refreshProjects: mockProjectState.refreshProjects,
     refreshProject: mockProjectState.refreshProject,
@@ -327,6 +330,27 @@ describe('ChatPanel mount smoke', () => {
     // 进度 mock 每个用例重置，避免中途失败的用例把排队的返回值留给下一个。
     mockGetProgress.mockReset()
     mockGetProgress.mockResolvedValue([])
+  })
+
+
+  it.each(['project-1', null])('asks before navigation with a memory-only draft even when current project is %s', async activeProject => {
+    const previousProject = mockProjectState.currentProjectId
+    mockProjectState.currentProjectId = activeProject
+    const originalPath = window.location.pathname
+    setUnprotectedDeletedDraft('previous-project-with-memory-draft', true)
+    const view = render(<BrowserRouter><Link to="/protected-draft-leave">leave-project</Link><ChatPanel /></BrowserRouter>)
+    try {
+      fireEvent.click(screen.getByText('leave-project'))
+      expect(await screen.findByRole('dialog')).toHaveTextContent('editor:deletedFile.leaveMessage')
+      expect(window.location.pathname).toBe(originalPath)
+      fireEvent.click(screen.getByTestId('leave-dialog-stay'))
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(window.location.pathname).toBe(originalPath)
+    } finally {
+      act(() => setUnprotectedDeletedDraft('previous-project-with-memory-draft', false))
+      view.unmount()
+      mockProjectState.currentProjectId = previousProject
+    }
   })
 
   it('mounts without runtime initialization errors', async () => {

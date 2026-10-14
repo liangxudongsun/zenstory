@@ -97,7 +97,6 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = () => {
     currentProject,
     currentProjectId,
     loading,
-    switchProject,
     createProject,
     updateProject,
     deleteProject,
@@ -166,9 +165,9 @@ export const ProjectSwitcher: React.FC<ProjectSwitcherProps> = () => {
    */
   const handleSelectProject = (projectId: string) => {
     if (editingProjectId) return; // Don't switch while editing
-    switchProject(projectId);
     setIsOpen(false);
-    // Navigate to the new project URL
+    // The route updates ProjectContext after navigation is confirmed. Mutating
+    // it here would discard the current editor before the leave guard runs.
     navigate(`/project/${projectId}`);
   };
 

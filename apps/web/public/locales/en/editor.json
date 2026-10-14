@@ -1,5 +1,16 @@
 {
   "naturalPolishTooLong": "Select up to 6000 characters at a time. Split longer text into sections.",
+  "deletedFile": {
+    "leaveTitle": "This draft has no backup yet",
+    "leaveMessage": "Some text is only on this page and may be lost if you leave. Stay here to download a copy first.",
+    "leaveMessageWhileGenerating": "Some text is only on this page and may be lost if you leave. The current generation will also stop. Download a copy first.",
+    "message": "This file has been deleted",
+    "recovery": "Unsaved draft from deleted file “{{title}}”",
+    "saved": "Your unsaved text is kept on this device. View it or download a copy.",
+    "storageFailed": "This draft could not be saved on this device. Download a copy before leaving.",
+    "draft": "Draft from deleted file",
+    "download": "Download draft"
+  },
   "header": {
     "appName": "ZenStory",
     "goDashboard": "Back to dashboard",

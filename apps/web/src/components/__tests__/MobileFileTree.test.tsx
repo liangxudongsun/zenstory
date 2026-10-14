@@ -29,7 +29,7 @@ const {
   mockToastError: vi.fn(),
   mockDelete: vi.fn(),
   mockAttachmentLimit: { value: false },
-  mockSelected: { value: null as { id: string; type: string; title: string } | null },
+  mockSelected: { version: 0, value: null as { id: string; type: string; title: string } | null },
 }));
 
 vi.mock('react-i18next', () => ({
@@ -43,7 +43,7 @@ vi.mock('../../contexts/ProjectContext', () => ({
     currentProjectId: 'project-1',
     selectedItem: mockSelected.value,
     setSelectedItem: mockSetSelectedItem,
-    fileTreeVersion: 0,
+    fileTreeVersion: mockSelected.version,
   }),
 }));
 
@@ -120,6 +120,7 @@ describe('MobileFileTree', () => {
     vi.clearAllMocks();
     mockAttachmentLimit.value = false;
     mockSelected.value = null;
+    mockSelected.version = 0;
     mockAddMaterial.mockReturnValue(true);
   });
 
@@ -323,4 +324,26 @@ describe('MobileFileTree', () => {
 
     expect(await screen.findByText('第九章')).toBeInTheDocument();
   });
+  it('keeps a selected survivor on a successful mobile tree refresh', async () => {
+    mockSelected.value = { id: 'mobile-survivor', type: 'draft', title: 'Survivor' };
+    mockGetTree.mockResolvedValue({ tree: [{ id: 'mobile-survivor', title: 'Survivor', file_type: 'draft', children: [] }] });
+    const view = render(<MobileFileTree />);
+    await screen.findByText('Survivor');
+    mockSelected.version = 1;
+    view.rerender(<MobileFileTree className="refreshed" />);
+    await waitFor(() => expect(mockGetTree).toHaveBeenCalledTimes(2));
+    expect(mockSetSelectedItem).not.toHaveBeenCalled();
+  });
+
+  it('clears a selected descendant when a fresh mobile tree loses its folder', async () => {
+    mockSelected.value = { id: 'draft-1', type: 'draft', title: 'Draft' };
+    mockGetTree.mockResolvedValue({ tree: [{ id: 'folder', title: 'Folder', file_type: 'folder', children: [{ id: 'draft-1', title: 'Draft', file_type: 'draft', children: [] }] }] });
+    const view = render(<MobileFileTree />);
+    await screen.findByText('Folder');
+    mockGetTree.mockResolvedValue({ tree: [] });
+    mockSelected.version = 1;
+    view.rerender(<MobileFileTree className="after-refresh" />);
+    await waitFor(() => expect(mockSetSelectedItem).toHaveBeenCalledWith(null));
+  });
+
 });

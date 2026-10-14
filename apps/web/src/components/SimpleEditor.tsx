@@ -26,6 +26,7 @@ import {
   writeEditorDraftSnapshot,
 } from "../lib/editorDraftRecovery";
 import { trackEditorSave } from "../lib/editorSaveTracker";
+import { isFileRemoved } from "../lib/fileRemovalEvents";
 
 const isNearBottom = (el: HTMLElement, thresholdPx = 32) => {
   return el.scrollHeight - el.scrollTop - el.clientHeight < thresholdPx;
@@ -832,6 +833,7 @@ export const SimpleEditor = ({
 
   // Handle save
   const handleSave = async (providedSubmission?: SaveSubmission): Promise<SaveOutcome> => {
+    if (isFileRemoved(draftScopeRef.current.projectId, providedSubmission?.fileId ?? draftRef.current.fileId)) return "failed";
     if ((!dirtyRef.current && !providedSubmission) || isNaturalPolishRunning || isAiEditing || showVersionHistory) {
       return "failed";
     }
@@ -855,6 +857,7 @@ export const SimpleEditor = ({
     pendingSaveCountRef.current += 1;
     if (isMountedRef.current) setIsSaving(true);
     const execute = async (): Promise<SaveOutcome> => {
+      if (isFileRemoved(draftScopeRef.current.projectId, draft.fileId)) return "failed";
       // A preceding successful save advances this baseline. Resolve it only
       // when this immutable draft reaches the front of the serialized queue.
       const isCurrentFile = latestFileIdRef.current === draft.fileId;
@@ -958,6 +961,9 @@ export const SimpleEditor = ({
     });
     return () => {
       onFlushReady(null);
+      // Editor has already synchronously retained the deleted file's draft.
+      // Never PUT it, or overwrite that recovery snapshot during unmount.
+      if (isFileRemoved(draftScopeRef.current.projectId, draftRef.current.fileId)) return;
       // 对比开着时，留下的应是「现在完成对比会保存的内容」（基于服务端新版本和它的令牌），
       // 而不是作者在旧版本上的整篇草稿：恢复那份草稿会把 AI 的新版本改回去。
       const reviewDraft = isReviewModeRef.current ? reviewLeaveDraftRef.current?.() ?? null : null;

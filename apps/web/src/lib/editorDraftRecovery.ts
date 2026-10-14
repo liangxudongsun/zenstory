@@ -15,7 +15,9 @@ export interface EditorDraftSnapshot extends EditorDraftScope {
   content: string;
   baseUpdatedAt?: string;
   capturedAt: string;
-  reason: "chunk-reload" | "page-exit";
+  reason: "chunk-reload" | "page-exit" | "file-deleted";
+  /** An unanswered conflict remains a separate copy beside newer edits. */
+  recoveryDraft?: Pick<EditorDraftSnapshot, "title" | "content" | "baseUpdatedAt" | "capturedAt">;
 }
 
 interface DraftStorage {
@@ -50,6 +52,7 @@ export function createEditorDraftSnapshot(
     baseUpdatedAt?: string;
     capturedAt?: string;
     reason?: EditorDraftSnapshot["reason"];
+    recoveryDraft?: EditorDraftSnapshot["recoveryDraft"];
   },
 ): EditorDraftSnapshot {
   return {
@@ -62,6 +65,7 @@ export function createEditorDraftSnapshot(
     baseUpdatedAt: draft.baseUpdatedAt,
     capturedAt: draft.capturedAt ?? new Date().toISOString(),
     reason: draft.reason ?? "chunk-reload",
+    ...(draft.recoveryDraft ? { recoveryDraft: draft.recoveryDraft } : {}),
   };
 }
 
@@ -75,8 +79,15 @@ function isSnapshotForScope(value: unknown, scope: EditorDraftScope): value is E
     && typeof snapshot.title === "string"
     && typeof snapshot.content === "string"
     && (snapshot.baseUpdatedAt === undefined || typeof snapshot.baseUpdatedAt === "string")
+    && (snapshot.recoveryDraft === undefined || (
+      snapshot.recoveryDraft !== null && typeof snapshot.recoveryDraft === "object"
+      && typeof snapshot.recoveryDraft.title === "string"
+      && typeof snapshot.recoveryDraft.content === "string"
+      && typeof snapshot.recoveryDraft.capturedAt === "string"
+      && (snapshot.recoveryDraft.baseUpdatedAt === undefined || typeof snapshot.recoveryDraft.baseUpdatedAt === "string")
+    ))
     && typeof snapshot.capturedAt === "string"
-    && (snapshot.reason === "chunk-reload" || snapshot.reason === "page-exit");
+    && (snapshot.reason === "chunk-reload" || snapshot.reason === "page-exit" || snapshot.reason === "file-deleted");
 }
 
 export function writeEditorDraftSnapshot(
@@ -141,4 +152,22 @@ export function resolveEditorDraftRecovery(
     return "recover";
   }
   return "conflict";
+}
+
+/** Deleted files cannot be reopened from the tree, so their drafts have a project recovery entry. */
+export function readDeletedEditorDraftSnapshots(
+  storage: Storage, scope: Pick<EditorDraftScope, "userId" | "projectId">,
+): EditorDraftSnapshot[] {
+  const drafts: EditorDraftSnapshot[] = [];
+  const prefix = `${EDITOR_DRAFT_RECOVERY_PREFIX}:${encodeKeyPart(scope.userId)}:${encodeKeyPart(scope.projectId)}:`;
+  try {
+    const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index));
+    for (const key of keys) {
+      if (!key?.startsWith(prefix)) continue;
+      const fileId = decodeURIComponent(key.slice(prefix.length));
+      const snapshot = readEditorDraftSnapshot(storage, { ...scope, fileId });
+      if (snapshot?.reason === "file-deleted") drafts.push(snapshot);
+    }
+  } catch { /* Unavailable storage never prevents editing or claims protection. */ }
+  return drafts;
 }
