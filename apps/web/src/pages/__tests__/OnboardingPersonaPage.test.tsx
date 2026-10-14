@@ -116,6 +116,7 @@ describe("OnboardingPersonaPage", () => {
     mockDashboardOnboardingFlags.todayActionPlanEnabled = false;
     mockDashboardOnboardingFlags.firstDayActivationGuideEnabled = false;
     localStorage.removeItem(PREFERRED_PROJECT_TYPE_STORAGE_KEY);
+    localStorage.removeItem(`${PREFERRED_PROJECT_TYPE_STORAGE_KEY}:${mockUser.id}`);
     mockGetPersonaOnboardingData.mockReturnValue(null);
     mockGetState.mockResolvedValue({ profile: null });
     mockSave.mockImplementation(async (payload) => ({
@@ -403,7 +404,7 @@ describe("OnboardingPersonaPage", () => {
       skipped: false,
     });
     // The first matching identity wins.
-    expect(getPreferredProjectType()).toBe("screenplay");
+    expect(getPreferredProjectType(mockUser?.id)).toBe("screenplay");
 
     // Shipped copy exists in both locales.
     expect(zhOnboarding.persona.options.short_story.title).toBe("短篇作者");
@@ -414,29 +415,29 @@ describe("OnboardingPersonaPage", () => {
   });
 
   it("keeps a fresher landing-page type choice instead of overwriting it", async () => {
-    setPreferredProjectType("novel");
+    setPreferredProjectType("novel", mockUser?.id);
     renderPage();
 
     fireEvent.click(screen.getByRole("button", { name: /short_story/i }));
     fireEvent.click(screen.getByRole("button", { name: "保存并进入工作台" }));
 
     await waitFor(() => expect(mockNavigate).toHaveBeenCalled());
-    expect(getPreferredProjectType()).toBe("novel");
+    expect(getPreferredProjectType(mockUser?.id)).toBe("novel");
   });
 
   it("does not record a project type for other identities or when skipping", async () => {
     const { unmount } = renderPage();
-    fireEvent.click(screen.getByRole("button", { name: /serial/i }));
+    fireEvent.click(screen.getByRole("button", { name: /explorer/i }));
     fireEvent.click(screen.getByRole("button", { name: "保存并进入工作台" }));
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledTimes(1));
-    expect(getPreferredProjectType()).toBeNull();
+    expect(getPreferredProjectType(mockUser?.id)).toBeNull();
     unmount();
 
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: /short_story/i }));
     fireEvent.click(screen.getByRole("button", { name: "跳过" }));
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledTimes(2));
-    expect(getPreferredProjectType()).toBeNull();
+    expect(getPreferredProjectType(mockUser?.id)).toBeNull();
   });
 
   it("retries once with only the older identities when an older server rejects the new ids", async () => {
@@ -452,7 +453,7 @@ describe("OnboardingPersonaPage", () => {
     expect(mockSave.mock.calls[0][0].selected_personas).toEqual(["short_story", "serial"]);
     expect(mockSave.mock.calls[1][0]).toMatchObject({ selected_personas: ["serial"], skipped: false });
     expect(mockToastError).not.toHaveBeenCalled();
-    expect(getPreferredProjectType()).toBe("short");
+    expect(getPreferredProjectType(mockUser?.id)).toBe("short");
   });
 
   it("falls back to a skipped profile when only new identities were picked and the server is older", async () => {
@@ -465,7 +466,7 @@ describe("OnboardingPersonaPage", () => {
     await waitFor(() => expect(mockNavigate).toHaveBeenCalled());
     expect(mockSave).toHaveBeenCalledTimes(2);
     expect(mockSave.mock.calls[1][0]).toMatchObject({ selected_personas: [], skipped: true });
-    expect(getPreferredProjectType()).toBe("screenplay");
+    expect(getPreferredProjectType(mockUser?.id)).toBe("screenplay");
   });
 
   it("does not retry validation errors when no new identity was sent, and retries at most once", async () => {
@@ -485,6 +486,6 @@ describe("OnboardingPersonaPage", () => {
     await waitFor(() => expect(mockToastError).toHaveBeenCalledTimes(2));
     expect(mockSave).toHaveBeenCalledTimes(2);
     expect(mockNavigate).not.toHaveBeenCalled();
-    expect(getPreferredProjectType()).toBeNull();
+    expect(getPreferredProjectType(mockUser?.id)).toBeNull();
   });
 });

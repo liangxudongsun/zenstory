@@ -434,7 +434,7 @@ export default function HomePage() {
                 aria-busy={isOpening}
                 onClick={() => {
                   // Remember the type first so the dashboard opens on it after sign-up.
-                  setPreferredProjectType(item.type);
+                  setPreferredProjectType(item.type, user?.id);
                   setOpeningProjectType(item.type);
                   handleGetStarted();
                 }}

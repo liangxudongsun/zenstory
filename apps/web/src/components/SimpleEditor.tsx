@@ -960,6 +960,7 @@ export const SimpleEditor = ({
     if (!onFlushReady) return;
     onFlushReady(async () => {
       if (!dirtyRef.current) return "saved";
+      if (suppressRecoveredAutoSaveRef.current) return "failed";
       return handleSaveRef.current();
     });
     return () => {
@@ -987,8 +988,8 @@ export const SimpleEditor = ({
           reason: "page-exit",
         }));
       };
-      // 对比审阅打开时，草稿的令牌一定是旧的：不发注定 409 的请求。
-      if (isReviewModeRef.current) {
+      // 对比审阅或恢复后尚未编辑/保存的草稿只留本地，不在退出时自动写回。
+      if (isReviewModeRef.current || suppressRecoveredAutoSaveRef.current) {
         keepDraftLocally();
         return;
       }

@@ -2,9 +2,10 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockNavigate, mockLanguage, mockAuthConfig } = vi.hoisted(() => ({
+const { mockNavigate, mockLanguage, mockAuthConfig, mockAuthState } = vi.hoisted(() => ({
   mockNavigate: vi.fn(),
   mockLanguage: { value: "en-US" },
+  mockAuthState: { user: null as { id: string } | null },
   mockAuthConfig: {
     registrationEnabled: true,
   },
@@ -33,7 +34,7 @@ vi.mock("react-i18next", () => ({
 
 vi.mock("../../contexts/AuthContext", () => ({
   useAuth: () => ({
-    user: null,
+    user: mockAuthState.user,
   }),
 }));
 
@@ -53,6 +54,7 @@ import HomePage from "../HomePage";
 import {
   PREFERRED_PROJECT_TYPE_STORAGE_KEY,
   getPreferredProjectType,
+  setPreferredProjectType,
 } from "../../lib/preferredProjectType";
 
 const setupMatchMedia = (reducedMotion: boolean) => {
@@ -76,6 +78,8 @@ describe("HomePage reduced-motion carousel behavior", () => {
     vi.clearAllMocks();
     mockLanguage.value = "en-US";
     mockAuthConfig.registrationEnabled = true;
+    mockAuthState.user = null;
+    localStorage.clear();
     mockedNow = 0;
     vi.spyOn(Date, "now").mockImplementation(() => mockedNow);
   });
@@ -249,6 +253,20 @@ describe("HomePage reduced-motion carousel behavior", () => {
 
     const novelCard = screen.getByRole("button", { name: /home:projectTypes\.novel\.name/ });
     expect(novelCard.className).toContain("focus-visible:ring-2");
+  });
+
+  it("stores an authenticated public-entry choice only for that account", () => {
+    setupMatchMedia(true);
+    mockAuthState.user = { id: "A" };
+    setPreferredProjectType("short", "A");
+    render(<MemoryRouter><HomePage /></MemoryRouter>);
+
+    fireEvent.click(screen.getByTestId("home-project-type-card-screenplay"));
+
+    expect(getPreferredProjectType("A")).toBe("screenplay");
+    expect(getPreferredProjectType("B")).toBeNull();
+    expect(getPreferredProjectType()).toBeNull();
+    expect(mockNavigate).toHaveBeenCalledWith("/dashboard");
   });
 
   it("shows an opening state on the clicked type card while the sign-up page loads", () => {

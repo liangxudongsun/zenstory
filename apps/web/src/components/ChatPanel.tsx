@@ -2345,6 +2345,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
       && !nextStepDismissal.isDismissed(frameworkReadyProjectId)
       && !isStreaming
       && !isThinking
+      && !error
       && !aiSendBlocked
       && !resendRepeatsNextStep
       // 历史还没载入时不知道上一轮是不是在等作者回答；AI 正在「等你回复」时，

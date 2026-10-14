@@ -50,6 +50,7 @@ const mockAgentStreamState = vi.hoisted(() => ({
   thinkingContent: '',
   error: null as string | null,
   errorCode: null as string | null,
+  retryable: false,
 }))
 
 const capturedUseAgentStream = vi.hoisted(() => ({
@@ -215,6 +216,7 @@ vi.mock('../../hooks/useAgentStream', () => ({
     conflicts: [],
     error: mockAgentStreamState.error,
     errorCode: mockAgentStreamState.errorCode,
+    retryable: mockAgentStreamState.retryable,
     clearError: mockClearError,
   })
   },
@@ -329,6 +331,7 @@ describe('ChatPanel mount smoke', () => {
     mockAgentStreamState.thinkingContent = ''
     mockAgentStreamState.error = null
     mockAgentStreamState.errorCode = null
+    mockAgentStreamState.retryable = false
     localStorage.removeItem('zenstory_suggestions_cache_project-1')
     localStorage.removeItem('zenstory_inspiration_project-1')
     localStorage.removeItem('zenstory_next_step_dismissed_project-1')
@@ -945,6 +948,49 @@ describe('ChatPanel mount smoke', () => {
     expect(request.metadata.entry).toBe('next_step')
     expect(screen.queryByTestId('next-step-card')).not.toBeInTheDocument()
     mockGetProgress.mockResolvedValue([])
+  })
+
+  it('keeps partial files and retry available without claiming the framework is ready during a stream error', async () => {
+    // One completed character sheet makes framework_ready true even if the
+    // interrupted round left its second character file empty.
+    mockGetProgress.mockResolvedValue([
+      { project_id: 'project-1', written_units: 0, word_count: 0, framework_ready: true },
+    ])
+    render(<ChatPanel />)
+    await screen.findByTestId('next-step-card')
+    await act(async () => { await lastMessageInputProps().onSend('补齐两个角色小传', []) })
+    const toolCalls = [
+      { id: 'created-1', name: 'create_file', status: 'success', result: { status: 'success', data: { id: 'filled', title: '林舟', file_type: 'character', content: '林舟的角色小传。' } } },
+      { id: 'created-2', name: 'create_file', status: 'success', result: { status: 'success', data: { id: 'empty', title: '周念', file_type: 'character', content: '' } } },
+    ]
+    mockAgentStreamState.error = '上游模型超时，本轮生成已中断。'
+    mockAgentStreamState.retryable = true
+    await act(async () => {
+      await roundOptions().onComplete([{ id: 'files', type: 'tool_calls', toolCalls }], null, { partial: true })
+    })
+
+    expect(screen.getByText('上游模型超时，本轮生成已中断。')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'common:retry' })).toBeInTheDocument()
+    expect(screen.queryByTestId('next-step-card')).not.toBeInTheDocument()
+    expect(lastMessageInputProps().sendDisabled).toBe(false)
+    const props = mockMessageList.mock.calls.at(-1)?.[0] as {
+      messages: Array<{ toolResults?: unknown[] }>
+      onOpenFile: (id: string, type: string, title: string) => void
+    }
+    expect(props.messages.at(-1)?.toolResults).toHaveLength(2)
+    act(() => props.onOpenFile('empty', 'character', '周念'))
+    expect(mockProjectState.setSelectedItem).toHaveBeenCalledWith({ id: 'empty', type: 'character', title: '周念' })
+
+    // The real stream hook clears its error when a retry starts. Let the mock
+    // perform that same transition; the panel's retry path triggers the render.
+    mockStartStream.mockImplementationOnce(() => {
+      mockAgentStreamState.error = null
+      mockAgentStreamState.retryable = false
+    })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+    fireEvent.click(screen.getByRole('button', { name: 'common:retry' }))
+    expect(mockStartStream).toHaveBeenCalledTimes(2)
+    expect(await screen.findByTestId('next-step-card')).toBeInTheDocument()
   })
 
   it('offers one way back after a refunded stop of the chapter-1 request, not two buttons for it', async () => {
@@ -1913,6 +1959,7 @@ describe('ChatPanel new-author flow', () => {
     mockAgentStreamState.thinkingContent = ''
     mockAgentStreamState.error = null
     mockAgentStreamState.errorCode = null
+    mockAgentStreamState.retryable = false
     localStorage.removeItem('zenstory_suggestions_cache_project-1')
     localStorage.removeItem('zenstory_inspiration_project-1')
     mockQuota.value = { ai_conversations: { used: 2, limit: 10, reset_at: null } }

@@ -10,6 +10,7 @@ import { getEntrySource } from '../lib/entrySource';
 import { getLocale } from '../lib/i18n-helpers';
 import { saveOAuthPlanIntent, type PlanIntent } from '../lib/authFlow';
 import { clearPendingUpgradeFunnelEvents } from '../lib/upgradeAnalytics';
+import { claimPreferredProjectType } from '../lib/preferredProjectType';
 
 export interface User {
   id: string;
@@ -150,7 +151,11 @@ const attemptTokenRefresh = async (
 };
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUserState] = useState<User | null>(null);
+  const setUser = React.useCallback((next: User | null) => {
+    if (next) claimPreferredProjectType(next.id, { currentTabOnly: true });
+    setUserState(next);
+  }, []);
   const [loading, setLoading] = useState(true);
   const previousUserIdRef = React.useRef<string | null>(null);
   const authGenerationRef = React.useRef(0);
@@ -276,7 +281,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return () => {
       authGenerationRef.current += 1;
     };
-  }, [ownsSession]);
+  }, [ownsSession, setUser]);
 
   // Keep auth state in sync when API client clears tokens (same-tab)
   useEffect(() => {
@@ -290,7 +295,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return () => {
       window.removeEventListener('auth:logout', onLogout as EventListener);
     };
-  }, []);
+  }, [setUser]);
 
   useEffect(() => {
     if (loading) return;
@@ -319,6 +324,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.setItem(CACHE_KEYS.REFRESH_TOKEN, data.refresh_token);
     saveUserCache(data.user);
 
+    claimPreferredProjectType(data.user.id);
     setUser(data.user);
     trackEvent('login_success', {
       login_method: 'password',
@@ -370,6 +376,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.setItem(CACHE_KEYS.REFRESH_TOKEN, data.refresh_token);
     saveUserCache(data.user);
 
+    claimPreferredProjectType(data.user.id);
     setUser(data.user);
     trackEvent('verify_email_success', {
       email_verified: data.user.email_verified,
@@ -447,6 +454,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.setItem(CACHE_KEYS.REFRESH_TOKEN, refreshToken);
     saveUserCache(user);
 
+    claimPreferredProjectType(user.id);
     setUser(user);
     const isNewUser = options.isNewUser === true;
     if (isNewUser) {
