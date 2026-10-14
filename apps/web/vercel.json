@@ -788,7 +788,7 @@
       ]
     },
     {
-      "source": "/:path((?!api(?:/|$)|_app(?:/|$)|_site(?:/|$)|org-home(?:/|$)).*)",
+      "source": "/:path((?!api(?:/|$)|assets(?:/|$)|_app(?:/|$)|_site(?:/|$)|org-home(?:/|$)).*)",
       "destination": "/_app/index.html",
       "has": [
         {

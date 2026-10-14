@@ -45,6 +45,24 @@ test('Vercel config is source-controlled and API bypasses the SPA', () => {
   assert.ok(vercelConfig.rewrites.at(-1).has, 'No unconditional apex SPA fallback')
 })
 
+test('missing Vite assets bypass the SPA fallback while app deep links still match', () => {
+  const fallback = vercelConfig.rewrites.at(-1)
+  assert.equal(fallback.destination, '/_app/index.html')
+  const matchesPath = path => new RegExp(`^(?:${fallback.source.slice(7, -1)})$`).test(path.slice(1))
+  const matchesHost = host => fallback.has.some(rule => rule.type === 'host' && new RegExp(`^(?:${rule.value})$`).test(host))
+
+  for (const host of ['app.zenstory.ai', 'app-preview.zenstory.ai', 'stale-assets.vercel.app']) {
+    assert.ok(matchesHost(host), `${host} keeps the existing app fallback`)
+    for (const path of ['/assets', '/assets/', '/assets/AdminRoute-CESi9LW4.js', '/assets/AdminRoute-ZxO1YCHS.js', '/assets/nested/missing.js']) {
+      assert.equal(matchesPath(path), false, `${host}${path} must reach a real filesystem 404`)
+    }
+    for (const path of ['/admin/payment-orders', '/project/synthetic', '/docs/user-guide/editor', '/assets-archive']) {
+      assert.ok(matchesPath(path), `${host}${path} remains an app deep link`)
+    }
+  }
+  for (const host of ['zenstory.ai', 'geo-preview.zenstory.ai']) assert.equal(matchesHost(host), false)
+})
+
 test('post-build output cannot shadow host rewrites; sitemap uses canonical routes only', () => {
   const dir = mkdtempSync(join(tmpdir(), 'site-layout-'))
   try {
