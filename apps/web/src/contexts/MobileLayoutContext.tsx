@@ -7,6 +7,8 @@ interface MobileLayoutContextType {
   switchToEditor: () => void;
   switchToFiles: () => void;
   switchToChat: () => void;
+  chatFocusRequest: number;
+  focusChatInput: () => void;
   isMobile: boolean;
 }
 
@@ -41,6 +43,12 @@ export const MobileLayoutProvider: React.FC<MobileLayoutProviderProps> = ({
     }
   }, [isMobile]);
 
+  const [chatFocusRequest, setChatFocusRequest] = useState(0);
+  const focusChatInput = useCallback(() => {
+    setActivePanel("chat");
+    setChatFocusRequest(value => value + 1);
+  }, []);
+
   return (
     <MobileLayoutContext.Provider
       value={{
@@ -49,6 +57,8 @@ export const MobileLayoutProvider: React.FC<MobileLayoutProviderProps> = ({
         switchToEditor,
         switchToFiles,
         switchToChat,
+        chatFocusRequest,
+        focusChatInput,
         isMobile,
       }}
     >
@@ -68,6 +78,8 @@ export const useMobileLayout = (): MobileLayoutContextType => {
       switchToEditor: () => {},
       switchToFiles: () => {},
       switchToChat: () => {},
+      chatFocusRequest: 0,
+      focusChatInput: () => {},
       isMobile: false,
     };
   }

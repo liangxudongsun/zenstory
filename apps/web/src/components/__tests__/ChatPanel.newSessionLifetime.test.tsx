@@ -99,6 +99,7 @@ beforeEach(async () => {
     if (path === '/api/v1/projects') return json([project('a'), project('b')])
     if (/^\/api\/v1\/chat\/session\/[ab]\/recent$/.test(path)) return json(history(path.split('/')[5]))
     if (/^\/api\/v1\/chat\/session\/[ab]\/new$/.test(path)) return json({ id: 'new-session', project_id: path.split('/')[5] })
+    if (path === '/api/v1/workspace/first-work') return json({ status: 'ineligible', project_id: null, static_guidance: false })
     if (path === '/api/v1/agent/suggest') return json({ suggestions: [`${(body as { project_id: string }).project_id.toUpperCase()} OWN SUGGESTION`] })
     if (path === '/api/v1/subscription/quota') return json({ ai_conversations: { used: 0, limit: 100 }, plan: 'free' })
     if (path === '/api/v1/projects/progress') return json([])

@@ -60,6 +60,8 @@ const restoreContainerScrollTop = (container: HTMLElement | null, prevScrollTop:
 };
 
 interface SimpleEditorProps {
+  /** Static UI only: never persisted as manuscript content. */
+  emptyHint?: (focusEditor: () => void) => React.ReactNode;
   userId?: string;
   fileId?: string;
   projectId?: string;
@@ -118,6 +120,7 @@ interface SimpleEditorProps {
 }
 
 export const SimpleEditor = ({
+  emptyHint,
   userId,
   fileId,
   projectId,
@@ -1173,6 +1176,7 @@ export const SimpleEditor = ({
           {...bindPinchZoom()}
         >
           <div className="px-6 py-4">
+            {!content.trim() && !readOnly && !isStreaming && emptyHint?.(() => textareaRef.current?.focus())}
             <div className="relative">
               <textarea
                 ref={textareaRef}

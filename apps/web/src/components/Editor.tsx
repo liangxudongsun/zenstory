@@ -22,6 +22,7 @@ import { handleApiError } from "../lib/errorHandler";
 import { toast } from "../lib/toast";
 import { isFileTitleTooLong } from "../lib/fileTitle";
 import { logger } from "../lib/logger";
+import { FirstWorkGuidance } from "./FirstWorkGuidance";
 import { SimpleEditor } from "./SimpleEditor";
 import type { SaveOutcome, SaveResult, SaveSubmission } from "./SimpleEditor";
 import { MaterialPreview } from "./MaterialPreview";
@@ -1384,6 +1385,7 @@ const EditorComponent: React.FC<EditorProps> = () => {
 
     // Common editor props
     const editorProps = {
+      emptyHint: (focusEditor: () => void) => <FirstWorkGuidance userId={currentUserId || null} projectId={currentProjectId} fileId={file.id} focusEditor={focusEditor} />,
       userId: currentUserId || undefined,
       fileId: file.id,
       projectId: currentProjectId || undefined,

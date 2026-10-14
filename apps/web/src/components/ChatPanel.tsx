@@ -27,6 +27,9 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useProject } from "../contexts/ProjectContext";
+import { useAuth } from "../contexts/AuthContext";
+import { useFirstWork, needsStaticFirstWorkGuidance } from "../hooks/useFirstWork";
+import { firstWorkApi, firstWorkQueryKey } from "../lib/firstWorkApi";
 import { useMobileLayout } from "../contexts/MobileLayoutContext";
 import { useMaterialAttachment } from "../contexts/MaterialAttachmentContext";
 import { useTextQuote } from "../contexts/TextQuoteContext";
@@ -414,6 +417,10 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
   } =
     useProject();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+  const firstWork = useFirstWork(userId);
+  const staticFirstWork = needsStaticFirstWorkGuidance(firstWork.data, currentProjectId);
   // Same query (and cache) as the header's QuotaBadge, which also polls it.
   const { data: quota } = useQuery({
     queryKey: subscriptionQueryKeys.quota(),
@@ -448,7 +455,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     queryClient.setQueryData<QuotaResponse>(subscriptionQueryKeys.quota(), restore);
     queryClient.setQueryData<QuotaResponse>(subscriptionQueryKeys.quotaLite(), restore);
   }, [queryClient]);
-  const { isMobile } = useMobileLayout();
+  const { isMobile, activePanel, chatFocusRequest } = useMobileLayout();
   const { attachedFileIds, attachedLibraryMaterials, clearMaterials } = useMaterialAttachment();
   const { quotes, clearQuotes } = useTextQuote();
 
@@ -772,11 +779,31 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     }
   }, [getSuggestionCacheKey]);
 
+  const canRequestSuggestions = useCallback(async (projectId: string) => {
+    if (!userId) return false;
+    try {
+      const state = await queryClient.fetchQuery({
+        queryKey: firstWorkQueryKey(userId), queryFn: firstWorkApi.get, retry: false, staleTime: 1000,
+      });
+      return !needsStaticFirstWorkGuidance(state, projectId);
+    } catch {
+      // Unknown status must not spend an AI request. Author-initiated chat and writing remain available.
+      return false;
+    }
+  }, [queryClient, userId]);
+
   const fetchAndApplySuggestions = useCallback(async (
     projectId: string,
     sourceMessages: Message[],
     options?: { allowFallback?: boolean }
   ): Promise<string[]> => {
+    const allowed = await canRequestSuggestions(projectId);
+    if (currentProjectIdRef.current !== projectId) return [];
+    if (!allowed) {
+      setAiSuggestions([]);
+      setSuggestionDisplayState("ready");
+      return [];
+    }
     const suggestions = await fetchSuggestions(projectId, toRecentMessages(sourceMessages), 3);
 
     // Ignore stale responses from previous projects/requests.
@@ -795,7 +822,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
       setSuggestionDisplayState("fallback");
     }
     return [];
-  }, [setAiSuggestions, toRecentMessages, writeSuggestionCache]);
+  }, [canRequestSuggestions, setAiSuggestions, toRecentMessages, writeSuggestionCache]);
 
   const requestInitialSuggestions = useCallback(async (
     projectId: string,
@@ -803,6 +830,13 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
   ) => {
     suggestionRequestSeqRef.current += 1;
     const requestSeq = suggestionRequestSeqRef.current;
+    const allowed = await canRequestSuggestions(projectId);
+    if (currentProjectIdRef.current !== projectId || requestSeq !== suggestionRequestSeqRef.current) return;
+    if (!allowed) {
+      setAiSuggestions([]);
+      setSuggestionDisplayState("ready");
+      return;
+    }
     const cached = readCachedSuggestions(projectId);
 
     if (cached.length > 0) {
@@ -844,7 +878,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     if (firstResult.suggestions.length === 0 && aiSuggestionsRef.current.length === 0) {
       setSuggestionDisplayState("fallback");
     }
-  }, [fetchAndApplySuggestions, readCachedSuggestions, setAiSuggestions]);
+  }, [canRequestSuggestions, fetchAndApplySuggestions, readCachedSuggestions, setAiSuggestions]);
 
   const finalizePendingContextClears = useCallback(() => {
     if (pendingMaterialClearRef.current) {
@@ -954,6 +988,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
       return;
     }
     onCompleteCalledRef.current = true;
+    void queryClient.invalidateQueries({ queryKey: firstWorkQueryKey(userId) });
 
     // 【关键修复】将流式内容持久化到 messages，防止下一轮对话时丢失
     const accumulatedContent = completedSegments
@@ -1084,6 +1119,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     hydrateAssistantBackendMessage,
     invalidateQuota,
     refreshNextStep,
+    queryClient, userId,
   ]);
 
   // Agent stream hook - uses callbacks from useChatStreaming hook
@@ -1224,6 +1260,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
       // The server has already charged this round's AI message by now.
       roundProgressRef.current.charged = true;
       invalidateQuota();
+      void queryClient.invalidateQueries({ queryKey: firstWorkQueryKey(userId) });
     },
     onParallelStart: (executionId, taskCount, taskDescriptions, droppedCount) => {
       proseCounterRef.current.boundary();
@@ -1839,7 +1876,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
   const inspirationSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!currentProjectId || isLoadingHistory || isStreaming) return;
+    if (!currentProjectId || isLoadingHistory || isStreaming || !firstWork.isSuccess || firstWork.data?.project_id === currentProjectId) return;
     
     // Skip if we've already processed this project's inspiration
     if (inspirationProcessedRef.current.has(currentProjectId)) return;
@@ -1894,7 +1931,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
         inspirationSendTimerRef.current = null;
       }
     };
-  }, [currentProjectId, isLoadingHistory, isStreaming, handleSendMessage]);
+  }, [currentProjectId, isLoadingHistory, isStreaming, handleSendMessage, firstWork.isSuccess, firstWork.data?.project_id]);
 
   /**
    * Starts a new chat session for the current project.
@@ -2234,8 +2271,8 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
         className={`shrink-0 flex items-center justify-between border-b border-[hsl(var(--separator-color))] ${isMobile ? 'h-11 px-2' : 'h-12 px-3'}`}
       >
         {/* 右栏可能只有 300px 宽：标题不折行，状态词放不下就省略，额度用紧凑胶囊。 */}
-        <div className="flex min-w-0 items-center gap-1" data-testid="chat-panel-header-title">
-          <span className={`shrink-0 whitespace-nowrap font-medium text-[hsl(var(--text-primary))] ${isMobile ? 'text-xs' : 'text-sm'}`}>{t('chat:panel.title')}</span>
+        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden" data-testid="chat-panel-header-title">
+          <span className={`min-w-0 truncate whitespace-nowrap font-medium text-[hsl(var(--text-primary))] ${isMobile ? 'text-xs' : 'text-sm'}`}>{t('chat:panel.title')}</span>
           {isStreaming && (
             <span className="min-w-0 truncate whitespace-nowrap text-xs text-[hsl(var(--success))] animate-[breathe_1.5s_ease-in-out_infinite]">
               · {t('chat:panel.processing')}
@@ -2245,7 +2282,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
             <span className="min-w-0 truncate whitespace-nowrap text-xs text-[hsl(var(--text-secondary))]">· {t('chat:panel.loadingHistory')}</span>
           )}
         </div>
-        <div className={`flex min-w-0 items-center ${isMobile ? 'gap-1' : 'gap-2'}`} data-testid="chat-panel-header-actions">
+        <div className={`flex shrink-0 items-center ${isMobile ? 'gap-1' : 'gap-2'}`} data-testid="chat-panel-header-actions">
           <QuotaBadge compact />
           <button
             onClick={() => setShowAIMemory(true)}
@@ -2533,6 +2570,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
             />
           )}
           <MessageInput
+            focusRequest={!isMobile || activePanel === "chat" ? chatFocusRequest : 0}
             onSend={handleSendMessage}
             // Allow drafting while AI is streaming/thinking, but prevent sending until it finishes.
             disabled={isLoadingHistory}
@@ -2557,7 +2595,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
             // While the card offers "write chapter 1", chips (AI or fallback) saying the same are dropped: one entry for it.
             hideSuggestion={showNextStep ? duplicatesNextStep : undefined}
             messageCount={messages.length}
-            suggestionDisplayState={suggestionDisplayState}
+            suggestionDisplayState={staticFirstWork || !firstWork.isSuccess ? "ready" : suggestionDisplayState}
             onRefreshSuggestions={refreshSuggestionsNow}
             isRefreshingSuggestions={isRefreshingSuggestions}
             // Mobile input panel uses a max-height (not a fixed height). Using "fill" can cause

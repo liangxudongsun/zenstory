@@ -97,7 +97,8 @@
     },
     "upgradeEntryEvents": "升级入口事件",
     "upgradeAfterAiQuotaWall": "撞过每日 AI 上限后转化",
-    "upgradeAfterAiQuotaWallPaid": "其中付费 {{count}}"
+    "upgradeAfterAiQuotaWallPaid": "其中付费 {{count}}",
+    "projectOrigins": "作者创建 {{author}} · 自动初始化 {{automatic}}"
   },
   "users": {
     "title": "用户管理",

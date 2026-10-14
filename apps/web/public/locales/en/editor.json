@@ -324,5 +324,10 @@
     "fileCreated": "File created"
   },
   "showLess": "Show less",
-  "showMore": "More options"
+  "showMore": "More options",
+  "firstWork": {
+    "hint": "Write your first paragraph here, or choose a way to begin. AI starts only after you send a message.",
+    "paste": "Paste an existing draft",
+    "ai": "Ask AI to help with the opening"
+  }
 }

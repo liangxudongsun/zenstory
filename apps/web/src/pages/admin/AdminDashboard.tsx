@@ -167,6 +167,7 @@ export default function AdminDashboard() {
               icon={<FolderOpen className="h-5 w-5" />}
               title={t('admin:dashboard.totalProjects')}
               value={stats?.total_projects ?? 0}
+              description={t('admin:dashboard.projectOrigins', { author: stats?.author_created_projects ?? 0, automatic: stats?.auto_initialized_projects ?? 0 })}
               isLoading={isLoading}
             />
             {inspirationsConfig.enabled && (

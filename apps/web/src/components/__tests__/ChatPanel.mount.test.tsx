@@ -3,6 +3,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, render as rtlRender, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
+const mockFirstWork = vi.hoisted(() => ({ get: vi.fn() }))
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'test-user' } }) }))
+vi.mock('../../lib/firstWorkApi', async (importOriginal) => ({ ...await importOriginal<typeof import('../../lib/firstWorkApi')>(), firstWorkApi: mockFirstWork }))
+const inactiveFirstWork = { status: 'ineligible', project_id: null, file_id: null, available: false, static_guidance: false, opened_at: null, first_manual_write_at: null, first_ai_requested_at: null }
+
 const mockDraft = vi.hoisted(() => ({ draft: '', saveDraft: vi.fn(), clearDraft: vi.fn() }))
 const mockStop = vi.hoisted(() => vi.fn())
 const mockReset = vi.hoisted(() => vi.fn())
@@ -306,7 +311,9 @@ import { notifyEditorContentSaved, setOpenEditorFlush } from '../../lib/editorSa
 
 describe('ChatPanel mount smoke', () => {
   beforeEach(() => {
+    mockFirstWork.get.mockReset().mockResolvedValue(inactiveFirstWork)
     vi.clearAllMocks()
+    mockFirstWork.get.mockReset().mockResolvedValue(inactiveFirstWork)
     capturedUseAgentStream.options = null
     mockStreamSnapshot.items = []
     mockAgentStreamState.isStreaming = false
@@ -1716,6 +1723,7 @@ const lastMessageListProps = () => mockMessageList.mock.calls.at(-1)?.[0] as {
 
 describe('ChatPanel new-author flow', () => {
   beforeEach(() => {
+    mockFirstWork.get.mockReset().mockResolvedValue(inactiveFirstWork)
     vi.clearAllMocks()
     capturedUseAgentStream.options = null
     mockStreamSnapshot.items = []
@@ -1993,8 +2001,8 @@ describe('ChatPanel new-author flow', () => {
 
     const titleGroup = screen.getByTestId('chat-panel-header-title')
     expect(titleGroup).toHaveClass('min-w-0')
-    expect(titleGroup.firstElementChild).toHaveClass('shrink-0', 'whitespace-nowrap')
-    expect(screen.getByTestId('chat-panel-header-actions')).toHaveClass('min-w-0')
+    expect(titleGroup.firstElementChild).toHaveClass('min-w-0', 'truncate', 'whitespace-nowrap')
+    expect(screen.getByTestId('chat-panel-header-actions')).toHaveClass('shrink-0')
     expect(screen.getByTestId('mock-quota-badge')).toHaveAttribute('data-compact', 'true')
   })
 
@@ -2058,4 +2066,53 @@ describe('ChatPanel new-author flow', () => {
     expect(mockProjectState.refreshProject).toHaveBeenCalledWith('project-1')
     expect(mockProjectState.refreshProjects).not.toHaveBeenCalled()
   })
+  it('waits for first-work status and suppresses every automatic suggestion and inspiration send for static work', async () => {
+    let resolve!: (value: typeof inactiveFirstWork) => void
+    mockFirstWork.get.mockReturnValue(new Promise(yes => { resolve = yes }))
+    localStorage.setItem('zenstory_inspiration_project-1', JSON.stringify({ content: 'stale first-work idea', timestamp: Date.now() }))
+    render(<ChatPanel />)
+    await waitFor(() => expect(getRecentMessages).toHaveBeenCalled())
+    expect(fetchSuggestions).not.toHaveBeenCalled()
+    expect(mockStartStream).not.toHaveBeenCalled()
+    await act(async () => resolve({ ...inactiveFirstWork, status: 'created', project_id: 'project-1', file_id: 'first-file', available: true, static_guidance: true } as typeof inactiveFirstWork))
+    await new Promise(resolve => setTimeout(resolve, 650))
+    expect(fetchSuggestions).not.toHaveBeenCalled()
+    expect(mockStartStream).not.toHaveBeenCalled()
+    expect(screen.getByTestId('mock-message-input')).toBeInTheDocument()
+  })
+
+  it('keeps suggestions disabled if the original first manuscript was deleted', async () => {
+    mockFirstWork.get.mockResolvedValue({ ...inactiveFirstWork, status: 'created', project_id: 'project-1', file_id: 'deleted', available: false, static_guidance: true })
+    render(<ChatPanel />)
+    await waitFor(() => expect(getRecentMessages).toHaveBeenCalled())
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+    expect(fetchSuggestions).not.toHaveBeenCalled()
+  })
+
+  it('fails closed on unknown first-work status without disabling manual chat drafting', async () => {
+    mockFirstWork.get.mockRejectedValue(new Error('status unavailable'))
+    render(<ChatPanel />)
+    await waitFor(() => expect(getRecentMessages).toHaveBeenCalled())
+    await waitFor(() => expect(lastMessageInputProps().disabled).toBe(false))
+    expect(fetchSuggestions).not.toHaveBeenCalled()
+    expect(mockStartStream).not.toHaveBeenCalled()
+  })
+
+  it('waits for accepted AI evidence and never sends a stale dashboard idea from the default work', async () => {
+    const state = { ...inactiveFirstWork, status: 'created', project_id: 'project-1', file_id: 'first-file', available: true, static_guidance: true }
+    mockFirstWork.get.mockResolvedValue(state)
+    localStorage.setItem('zenstory_inspiration_project-1', JSON.stringify({ content: 'stale accidental idea', timestamp: Date.now() }))
+    render(<ChatPanel />)
+    await waitFor(() => expect(lastMessageInputProps().disabled).toBe(false))
+    await act(async () => { await lastMessageInputProps().onSend('My explicit request', []) })
+    expect(mockStartStream).toHaveBeenCalledTimes(1)
+    expect(fetchSuggestions).not.toHaveBeenCalled()
+    expect(testQueryClient.getQueryData(['workspace-first-work', 'test-user'])).toMatchObject({ static_guidance: true })
+    mockFirstWork.get.mockResolvedValue({ ...state, static_guidance: false, first_ai_requested_at: 'accepted' })
+    await act(async () => { (capturedUseAgentStream.options!.onSessionStarted as (id: string) => void)('accepted-session') })
+    await waitFor(() => expect(testQueryClient.getQueryData(['workspace-first-work', 'test-user'])).toMatchObject({ static_guidance: false }))
+    await new Promise(resolve => setTimeout(resolve, 650))
+    expect(mockStartStream).toHaveBeenCalledTimes(1)
+  })
+
 })

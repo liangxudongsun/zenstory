@@ -119,6 +119,8 @@ export interface DashboardStats {
   active_users: number;
   new_users_today: number;
   total_projects: number;
+  author_created_projects: number;
+  auto_initialized_projects: number;
   total_inspirations: number;
   pending_inspirations: number;
   /** Paid (non-free) subscriptions whose period has not ended. */

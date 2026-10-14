@@ -97,7 +97,8 @@
     },
     "upgradeEntryEvents": "Upgrade entry events",
     "upgradeAfterAiQuotaWall": "Converted after hitting the daily AI limit",
-    "upgradeAfterAiQuotaWallPaid": "{{count}} paid"
+    "upgradeAfterAiQuotaWallPaid": "{{count}} paid",
+    "projectOrigins": "Author created {{author}} · Auto initialized {{automatic}}"
   },
   "users": {
     "title": "User Management",

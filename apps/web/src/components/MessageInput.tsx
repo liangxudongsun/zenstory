@@ -163,6 +163,8 @@ const SwipeableSuggestionChip: React.FC<SwipeableSuggestionChipProps> = ({
  * Provides a rich chat input interface with suggestions, attachments, and selected skills.
  */
 interface MessageInputProps {
+  /** Focus after an explicit cross-panel action without changing or sending the draft. */
+  focusRequest?: number;
   /**
    * Callback invoked when the user submits a message.
    * @param message - The message text
@@ -294,6 +296,7 @@ interface MessageInputProps {
  */
 export const MessageInput: React.FC<MessageInputProps> = ({
   onSend,
+  focusRequest = 0,
   disabled = false,
   sendDisabled,
   onBlockedSend,
@@ -381,6 +384,15 @@ export const MessageInput: React.FC<MessageInputProps> = ({
     }
   }, [externalDraft]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const lastFocusRequestRef = useRef(0);
+  useEffect(() => {
+    if (!focusRequest || focusRequest === lastFocusRequestRef.current || disabled) return;
+    const frame = requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      lastFocusRequestRef.current = focusRequest;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusRequest, disabled]);
   const isComposingRef = useRef(false);
   const { attachedMaterials, removeMaterial } = useMaterialAttachment();
   const { quotes, removeQuote } = useTextQuote();

@@ -82,6 +82,14 @@ const {
   mockGetProgress: vi.fn(async () => [] as unknown[]),
 }))
 
+const mockFirstWork = vi.hoisted(() => ({ get: vi.fn(), initialize: vi.fn() }))
+vi.mock('../../lib/firstWorkApi', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../lib/firstWorkApi')>(),
+  firstWorkApi: mockFirstWork,
+}))
+const firstWorkState = (status = 'ineligible') => ({ status, project_id: null, file_id: null, available: false,
+  static_guidance: false, opened_at: null, first_manual_write_at: null, first_ai_requested_at: null })
+
 const mockNavigate = vi.fn()
 const mockCreateProject = vi.fn()
 const mockDeleteProject = vi.fn()
@@ -106,6 +114,9 @@ const mockT = (
     'projects.empty': '还没有任何项目',
     'projects.emptyHint': '在上方输入灵感，点击「开始创作」创建你的第一个项目',
     'common.createButton': '开始创作',
+    'firstWork.title': '我的首部作品',
+    'firstWork.open': '开始写作',
+    'common:retry': '重试',
     'projectType.novel.name': '长篇小说',
     'inspiration.novelDesc': 'AI 将根据你的灵感，帮你构思故事框架、设定世界观和人物角色',
     'inspiration.novelPlaceholder': '请输入灵感',
@@ -158,6 +169,7 @@ vi.mock('../../contexts/ProjectContext', () => ({
     loading: mockProjectsLoading,
     createProject: mockCreateProject,
     deleteProject: mockDeleteProject,
+    refreshProjects: vi.fn(async () => {}),
   }),
 }))
 
@@ -237,6 +249,8 @@ const renderDashboardHome = () => {
 describe('DashboardHome featured inspirations section', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockFirstWork.get.mockResolvedValue(firstWorkState())
+    mockFirstWork.initialize.mockReset()
     mockCreateProject.mockResolvedValue({ id: 'project-created' })
     mockLanguage = 'zh-CN'
     mockUser = defaultMockUser
@@ -948,5 +962,41 @@ describe('DashboardHome featured inspirations section', () => {
     // Opening the project card must not have been triggered by the delete click.
     expect(mockNavigate).not.toHaveBeenCalled()
     vi.unstubAllGlobals()
+  })
+})
+
+describe('first work entry', () => {
+  beforeEach(() => { vi.clearAllMocks(); mockFirstWork.get.mockResolvedValue(firstWorkState()); mockFirstWork.initialize.mockReset(); mockLanguage = 'zh-CN'; mockUser = defaultMockUser; mockProjects = []; mockProjectsLoading = false; mockDashboardOnboardingFlags.todayActionPlanEnabled = false; mockDashboardOnboardingFlags.firstDayActivationGuideEnabled = false; mockUseFeaturedInspirations.mockReturnValue(mockFeaturedState); vi.spyOn(subscriptionApi, 'getQuota').mockResolvedValue({ ai_conversations: { used: 0, limit: 3, reset_at: null } } as QuotaResponse); localStorage.clear() })
+  it('initializes pending work with the existing type preference and opens its exact manuscript', async () => {
+    setPreferredProjectType('screenplay')
+    mockFirstWork.get.mockResolvedValue(firstWorkState('pending'))
+    mockFirstWork.initialize.mockResolvedValue({ ...firstWorkState('created'), project_id: 'first-project', file_id: 'first-script', available: true, static_guidance: true })
+    renderDashboardHome()
+    const open = await screen.findByRole('button', { name: '开始写作' })
+    expect(mockFirstWork.initialize).toHaveBeenCalledTimes(1)
+    expect(mockFirstWork.initialize).toHaveBeenCalledWith('screenplay', 'zh-CN')
+    expect(mockCreateProject).not.toHaveBeenCalled()
+    fireEvent.click(open)
+    expect(mockNavigate).toHaveBeenCalledWith('/project/first-project?file=first-script')
+  })
+
+  it('does not recreate deleted first work or initialize an existing author', async () => {
+    mockFirstWork.get.mockResolvedValue({ ...firstWorkState('created'), project_id: 'gone', file_id: 'gone-file' })
+    renderDashboardHome()
+    await waitFor(() => expect(mockFirstWork.get).toHaveBeenCalled())
+    expect(mockFirstWork.initialize).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: '开始写作' })).not.toBeInTheDocument()
+  })
+
+  it('reports initialization failure and retries only when requested, preserving the idea path', async () => {
+    mockFirstWork.get.mockResolvedValue(firstWorkState('pending'))
+    mockFirstWork.initialize.mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ ...firstWorkState('created'), project_id: 'first-project', file_id: 'first-file', available: true })
+    renderDashboardHome()
+    const retry = await screen.findByRole('button', { name: '重试' })
+    expect(mockFirstWork.initialize).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('dashboard-inspiration-input')).toBeEnabled()
+    fireEvent.click(retry)
+    await screen.findByRole('button', { name: '开始写作' })
+    expect(mockFirstWork.initialize).toHaveBeenCalledTimes(2)
   })
 })

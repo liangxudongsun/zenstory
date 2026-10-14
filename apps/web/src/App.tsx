@@ -1,4 +1,5 @@
 import React, { Suspense } from "react";
+import { FirstWorkOpenTracker } from "./components/FirstWorkGuidance";
 import { BrowserRouter, Routes, Route, Navigate, useParams, useNavigate, useLocation } from "react-router-dom";
 import { HelmetProvider } from "react-helmet-async";
 import { useTranslation } from "react-i18next";
@@ -528,6 +529,8 @@ function ProjectEditor() {
   }
 
   return (
+    <>
+    <FirstWorkOpenTracker userId={userId} projectId={isRouteProjectActive ? projectId ?? null : null} />
     <Layout
       left={<Sidebar />}
       middle={(
@@ -542,6 +545,7 @@ function ProjectEditor() {
         </ErrorBoundary>
       )}
     />
+    </>
   );
 }
 

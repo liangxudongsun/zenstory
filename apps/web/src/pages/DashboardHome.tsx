@@ -41,6 +41,7 @@ import { buildTodayActionPlan, type TodayActionPlanItem } from "../lib/dashboard
 import type { ActivationGuideResponse } from "../types/writingStats";
 import { dashboardOnboardingFlags } from "../config/dashboardOnboarding";
 import { inspirationsConfig } from "../config/inspirations";
+import { FirstWorkEntry } from "../components/dashboard/FirstWorkEntry";
 import { useDashboardProjectType } from "../hooks/useDashboardProjectType";
 
 const SUPPORTED_PROJECT_TYPES: ProjectType[] = ["novel", "short", "screenplay"];
@@ -59,6 +60,7 @@ export default function DashboardHome() {
     loading: projectsLoading,
     createProject: contextCreateProject,
     deleteProject: contextDeleteProject,
+    refreshProjects,
   } = useProject();
   const projectProgress = useProjectsProgress(projects.length);
 
@@ -676,6 +678,8 @@ export default function DashboardHome() {
           </div>
         </div>
       )}
+
+      <FirstWorkEntry key={userId} userId={userId} preferredType={activeTab} onCreated={refreshProjects} />
 
       {/* One surface owns the idea, its format and the creation action. */}
       <div className="dashboard-composer mb-10" data-testid="dashboard-composer">
