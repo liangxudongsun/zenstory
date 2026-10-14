@@ -1,3 +1,6 @@
+/** Must match MAX_SELECTED_TEXT_LENGTH in api/editor.py. */
+export const MAX_NATURAL_POLISH_CHARS = 6000;
+
 /**
  * Natural polish helpers.
  *

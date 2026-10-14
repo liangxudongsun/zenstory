@@ -320,6 +320,7 @@ describe('ChatPanel mount smoke', () => {
     mockQuota.value = { ai_conversations: { used: 2, limit: 10, reset_at: null } }
     mockProjectState.currentProject = { id: 'project-1', name: '外卖小哥看见倒计时' }
     mockDraft.draft = ''
+    mockDraft.saveDraft.mockReturnValue(true)
     mockAttachments.fileIds = []
     // 进度 mock 每个用例重置，避免中途失败的用例把排队的返回值留给下一个。
     mockGetProgress.mockReset()
@@ -1729,6 +1730,7 @@ describe('ChatPanel new-author flow', () => {
     mockQuota.value = { ai_conversations: { used: 2, limit: 10, reset_at: null } }
     mockProjectState.currentProject = { id: 'project-1', name: '外卖小哥看见倒计时' }
     mockDraft.draft = ''
+    mockDraft.saveDraft.mockReturnValue(true)
   })
 
   it('sends the dashboard idea exactly as written and tags the request as the dashboard entry', async () => {
@@ -1752,6 +1754,38 @@ describe('ChatPanel new-author flow', () => {
     })
     // The automatic snapshot after this round is described with the author's words.
     expect(mockGetStreamCallbacks.mock.calls.at(-1)?.[0].getLatestUserRequest?.()).toBe(idea)
+  })
+
+
+  it('recovers an oversized stored idea into the draft without replacing existing typed text or sending', async () => {
+    const idea = '文'.repeat(20001)
+    mockDraft.draft = '尚未发送的补充要求'
+    localStorage.setItem('zenstory_inspiration_project-1', JSON.stringify({ content: idea, timestamp: Date.now() }))
+    render(<ChatPanel />)
+    await waitFor(() => expect(mockDraft.saveDraft).toHaveBeenCalledWith(`尚未发送的补充要求\n\n${idea}`))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 650)))
+    expect(mockStartStream).not.toHaveBeenCalled()
+    expect(mockDraft.clearDraft).not.toHaveBeenCalled()
+  })
+
+
+  it('keeps the source idea when draft persistence fails, including an expired legacy entry', async () => {
+    const idea = '文'.repeat(20001)
+    const stored = JSON.stringify({ content: idea, timestamp: Date.now() - 6 * 60 * 1000 })
+    mockDraft.saveDraft.mockReturnValue(false)
+    localStorage.setItem('zenstory_inspiration_project-1', stored)
+    render(<ChatPanel />)
+    await waitFor(() => expect(mockDraft.saveDraft).toHaveBeenCalledWith(idea))
+    expect(localStorage.getItem('zenstory_inspiration_project-1')).toBe(stored)
+    expect(mockStartStream).not.toHaveBeenCalled()
+  })
+
+  it('automatically sends a stored idea at the 20000 character boundary', async () => {
+    const idea = '文'.repeat(20000)
+    localStorage.setItem('zenstory_inspiration_project-1', JSON.stringify({ content: idea, timestamp: Date.now() }))
+    render(<ChatPanel />)
+    await waitFor(() => expect(mockStartStream).toHaveBeenCalledTimes(1), { timeout: 3000 })
+    expect(mockStartStream.mock.calls[0][0].message).toBe(idea)
   })
 
   it('does not tag ordinary sends from the input box', async () => {
