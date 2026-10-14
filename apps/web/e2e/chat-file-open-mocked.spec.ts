@@ -139,14 +139,28 @@ for (const width of [390, 1440]) {
   test(`deleted and inaccessible files use existing error handling ${width}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     const { state } = await fixture(page, 'en', 'light');
-    await page.goto(`/project/${projectId}?file=A`);
-    await expect(body(page)).toHaveValue('A saved body');
-    for (const name of ['Deleted file', 'Private file']) {
+    const unavailable = "This file couldn't be opened. Refresh the page and try again.";
+    const deletedNotice = 'This file has been deleted';
+    for (const { name, fileId, status } of [
+      { name: 'Deleted file', fileId: 'deleted', status: 404 },
+      { name: 'Private file', fileId: 'private', status: 403 },
+    ]) {
+      // A fresh document prevents the previous file's error or toast from satisfying this assertion.
+      await page.goto(`/project/${projectId}?file=A`);
+      await expect(body(page)).toHaveValue('A saved body');
+      await expect(page.getByText(unavailable, { exact: true })).toHaveCount(0);
+      await expect(page.getByText(deletedNotice, { exact: true })).toHaveCount(0);
       await showChat(page, width);
+      const response = page.waitForResponse(res => res.request().method() === 'GET'
+        && new URL(res.url()).pathname === `/api/v1/files/${fileId}`);
       await chat(page).getByRole('button', { name: new RegExp(name) }).click();
-      await expect(page.getByText("This file couldn't be opened. Refresh the page and try again.", { exact: true })).toBeVisible();
+      expect((await response).status()).toBe(status);
+      const message = fileId === 'deleted'
+        ? page.getByText(unavailable, { exact: true }).or(page.getByText(deletedNotice, { exact: true }))
+        : page.getByText(unavailable, { exact: true });
+      await expect(message).toBeVisible();
+      expect(state.requests.filter(r => r.method === 'POST' && !/suggest|stats/.test(r.path))).toEqual([]);
     }
-    expect(state.requests.filter(r => r.method === 'POST' && !/suggest|stats/.test(r.path))).toEqual([]);
     expect(state.errors).toEqual([]);
   });
 }
