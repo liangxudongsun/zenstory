@@ -5,7 +5,7 @@ for (const width of [320, 390, 768]) {
   test(`documentation drawer keeps its controls and focus reachable at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 600 });
     await page.addInitScript(() => localStorage.setItem('zenstory-language', 'en'));
-    await page.goto('/docs/user-guide/editor');
+    await page.goto('/docs/user-guide/editor/');
     await expect(page.getByRole('heading', { name: 'Using the editor', exact: true })).toBeVisible();
     const trigger = page.getByRole('button', { name: 'Menu', exact: true });
     expect((await trigger.boundingBox())!.height).toBeGreaterThanOrEqual(44);

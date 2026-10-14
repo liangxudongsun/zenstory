@@ -24,6 +24,13 @@ vi.mock('../analytics', async importOriginal => ({
   trackPageView: vi.fn(), captureException: vi.fn(),
 }))
 
+const privacyImport = vi.hoisted(() => ({ ready: Promise.resolve(), started: false }))
+vi.mock('../../pages/PrivacyPolicy', async importOriginal => {
+  privacyImport.started = true
+  await privacyImport.ready
+  return importOriginal<typeof import('../../pages/PrivacyPolicy')>()
+})
+
 const locales = import.meta.glob<Record<string, unknown>>('../../../public/locales/en/*.json', { eager: true, import: 'default' })
 const target = 'https://app.zenstory.ai/offline-callback'
 type Session = ReturnType<typeof session>
@@ -339,6 +346,34 @@ describe('actual App PublicRoute caller completion', () => {
       expect(fixture.logoutReasons.filter(reason => reason === 'sso_redirect_failed')).toHaveLength(0)
       expect(fixture.hrefWrites).toHaveLength(0)
     } finally { fixture.removeListener() }
+  })
+
+  it('does not redirect after departure while the destination route module is still loading', async () => {
+    const destination = deferred<void>()
+    privacyImport.ready = destination.promise
+    const fixture = await mountCaller('validation')
+    try {
+      const before = snapshot()
+      act(() => {
+        window.history.pushState({}, '', '/privacy-policy')
+        window.dispatchEvent(new PopStateEvent('popstate'))
+      })
+      await waitFor(() => expect(privacyImport.started).toBe(true))
+      expect(window.location.pathname).toBe('/privacy-policy')
+      expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument()
+      // The destination's lazy import is unresolved: the old Suspense subtree
+      // has not unmounted, so passive effect cleanup is not a departure guard.
+      await act(async () => { fixture.lateA.resolve(json(a.user)) })
+      expect.soft(fixture.hrefWrites).toHaveLength(0)
+      expect(snapshot()).toEqual(before)
+      await act(async () => { destination.resolve() })
+      await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument())
+      expect(window.location.pathname).toBe('/privacy-policy')
+      expect.soft(fixture.hrefWrites).toHaveLength(0)
+    } finally {
+      destination.resolve()
+      fixture.removeListener()
+    }
   })
 
   it('does not redirect from departed login route after old validation succeeds', async () => {

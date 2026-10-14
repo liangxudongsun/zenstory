@@ -13,6 +13,10 @@ import { useIsDesktop } from '../hooks/useMediaQuery';
 const DOCS_ROOT = '../../docs';
 const DOCS_BASE_PATH = '/docs';
 
+function normalizeDocsPathname(pathname: string): string {
+  return pathname.replace(/\/+$/, '');
+}
+
 // Markdown 文件映射 - 使用 Vite 的 import.meta.glob 动态导入
 const docsModules = import.meta.glob('../../docs/**/*.md', { query: '?raw', import: 'default', eager: false });
 
@@ -21,7 +25,7 @@ const docsModules = import.meta.glob('../../docs/**/*.md', { query: '?raw', impo
  * 例如: '/docs/getting-started/quick-start' -> 'getting-started/quick-start'
  */
 export function extractDocPath(urlPath: string): string {
-  const match = urlPath.match(/^\/docs\/(.+)$/);
+  const match = normalizeDocsPathname(urlPath).match(/^\/docs\/(.+)$/);
   const rawPath = match ? match[1] : '';
   return rawPath.replace(/\.md$/i, '');
 }
@@ -31,15 +35,16 @@ export function isExternalHref(href: string): boolean {
 }
 
 export function getDocsDirectory(pathname: string): string {
-  if (pathname === DOCS_BASE_PATH || pathname === `${DOCS_BASE_PATH}/`) {
+  const normalizedPathname = normalizeDocsPathname(pathname);
+  if (normalizedPathname === DOCS_BASE_PATH) {
     return `${DOCS_BASE_PATH}/`;
   }
 
-  const lastSlashIndex = pathname.lastIndexOf('/');
+  const lastSlashIndex = normalizedPathname.lastIndexOf('/');
   if (lastSlashIndex <= 0) {
     return `${DOCS_BASE_PATH}/`;
   }
-  return `${pathname.slice(0, lastSlashIndex + 1)}`;
+  return `${normalizedPathname.slice(0, lastSlashIndex + 1)}`;
 }
 
 export function normalizeDocsHref(href: string, currentPathname: string): string | null {
@@ -70,7 +75,7 @@ export function normalizeDocsHref(href: string, currentPathname: string): string
     }
   }
 
-  resolvedPath = resolvedPath.replace(/\.md$/i, '');
+  resolvedPath = normalizeDocsPathname(resolvedPath).replace(/\.md$/i, '');
 
   let finalHref = resolvedPath;
   if (queryString) finalHref += `?${queryString}`;
@@ -148,7 +153,7 @@ export async function loadMarkdownContent(docPath: string, language: string): Pr
  */
 export function findDocItem(path: string): DocNavItem | undefined {
   const flatDocs = flattenDocs(docsNavigation);
-  return flatDocs.find(item => item.path === path);
+  return flatDocs.find(item => item.path === normalizeDocsPathname(path));
 }
 
 export function resolveCategoryToFirstDoc(path: string): string | null {

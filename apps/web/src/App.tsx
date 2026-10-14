@@ -169,6 +169,11 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     let active = true;
     const cleanup = () => { active = false; };
+    // A pending lazy destination can retain this Suspense subtree without
+    // running its passive cleanup. The browser URL already owns navigation.
+    const isCurrentEntry = () => active
+      && window.location.pathname === location.pathname
+      && window.location.search === location.search;
     if (loading) return cleanup;
 
     const redirectUrl = new URLSearchParams(location.search).get('redirect');
@@ -185,9 +190,9 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
       let redirected = false;
       try {
         const { handleSsoRedirect } = await import('./lib/ssoRedirect');
-        if (!active) return;
+        if (!isCurrentEntry()) return;
         const result = await handleSsoRedirect(redirectUrl);
-        if (!active) return;
+        if (!isCurrentEntry()) return;
         const owned = resolveOwnedAuthSession(entryAccess, entryRefresh);
         const empty = !localStorage.getItem('access_token') && !localStorage.getItem('refresh_token');
         if (!owned && !empty) return;
@@ -203,17 +208,17 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
         logger.warn('[PublicRoute] SSO validation failed:', result.error);
         if (result.clearAuth || (empty && result.reason === 'session_expired')) {
           if (owned && !empty) clearAuthStorage('sso_redirect_failed');
-          if (!active) return;
+          if (!isCurrentEntry()) return;
           setSsoFailureTarget('login');
         } else {
           setSsoFailureTarget('dashboard');
         }
       } catch (error) {
-        if (!active || (error instanceof DOMException && error.name === 'AbortError')) return;
+        if (!isCurrentEntry() || (error instanceof DOMException && error.name === 'AbortError')) return;
         logger.warn('[PublicRoute] SSO validation error:', error);
         setSsoFailureTarget('dashboard');
       } finally {
-        if (active && !redirected) setSsoState('failed');
+        if (isCurrentEntry() && !redirected) setSsoState('failed');
       }
     })();
     return cleanup;
