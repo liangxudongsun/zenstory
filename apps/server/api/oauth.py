@@ -684,6 +684,9 @@ async def google_oauth_callback(
         )
 
         session.add(new_user)
+        from services.first_work_service import enroll_new_user
+
+        enroll_new_user(session, new_user)
         session.commit()
         session.refresh(new_user)
 

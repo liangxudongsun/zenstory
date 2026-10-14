@@ -139,6 +139,13 @@ def _check_ai_conversation_quota_sync(user_id: str) -> tuple[bool, int, int]:
         return quota_service.check_ai_conversation_quota(quota_session, user_id)
 
 
+def _record_first_work_ai_sync(user_id: str, project_id: str) -> None:
+    from services.first_work_service import observe_first_work_ai_request
+
+    with create_session() as action_session:
+        observe_first_work_ai_request(action_session, user_id, project_id)
+
+
 def _reserve_ai_conversation_sync(user_id: str) -> datetime | None:
     """Reserve quota using a fresh sync DB session."""
     with create_session() as quota_session:
@@ -472,6 +479,20 @@ async def stream_request(
             status_code=402,
             detail=f"AI conversation quota exceeded ({used}/{limit}). Please upgrade your plan.",
         )
+
+    # Only an explicitly submitted, quota-accepted task ends static onboarding.
+    # An observation failure must not turn an already reserved request into an
+    # unrefunded pre-stream failure; the existing stream settlement still owns it.
+    try:
+        if _should_offload_session_work(session):
+            await asyncio.to_thread(_record_first_work_ai_sync, user_id, body.project_id)
+        else:
+            from services.first_work_service import observe_first_work_ai_request
+
+            observe_first_work_ai_request(session, user_id, body.project_id)
+    except Exception:
+        session.rollback()
+        logger.warning("Could not record first-work AI request", exc_info=True)
 
     # SSE 可能持续数分钟，而鉴权/权限校验的 SELECT 会让请求级 session 一直
     # 保持事务打开（Postgres 上表现为 idle in transaction，连接被整个流式
@@ -936,6 +957,12 @@ async def suggest_next_action(
         has_recent_messages=body.recent_messages is not None,
         message_count=len(body.recent_messages) if body.recent_messages else 0,
     )
+
+    from services.first_work_service import get_first_work_state
+
+    first_work = get_first_work_state(session, user_id)
+    if first_work.project_id == body.project_id and first_work.static_guidance:
+        return SuggestResponse(suggestions=[])
 
     service = get_suggest_service()
     lang = (accept_language or "").split(",")[0].split("-")[0].strip().lower() or "zh"

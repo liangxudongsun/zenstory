@@ -24,7 +24,7 @@ from core.error_codes import ErrorCode
 from core.error_handler import APIException
 from database import get_session
 from main import app
-from models import AgentApiKey, File, FileVersion, Project, Snapshot, User
+from models import AgentApiKey, File, FileVersion, Project, Snapshot, User, WorkspaceOnboarding
 from models.activation_event import ActivationEvent
 from models.inspiration import Inspiration
 from models.subscription import SubscriptionPlan, UsageQuota, UserSubscription
@@ -38,7 +38,7 @@ pytestmark = pytest.mark.skipif(
 )
 TABLES = [User.__table__, Project.__table__, File.__table__, SubscriptionPlan.__table__,
           UserSubscription.__table__, UsageQuota.__table__, ActivationEvent.__table__, Inspiration.__table__,
-          Snapshot.__table__, FileVersion.__table__, AgentApiKey.__table__]
+          Snapshot.__table__, FileVersion.__table__, AgentApiKey.__table__, WorkspaceOnboarding.__table__]
 
 
 @pytest.fixture(scope='module')

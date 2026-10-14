@@ -349,6 +349,7 @@ jobs:
           tests/test_agent/test_query_files_summary_projection.py \
           tests/test_agent/test_failed_generation_finalization_postgres.py \
           tests/test_services/test_project_capacity_concurrency_postgres.py \
+          tests/test_services/test_first_work_concurrency_postgres.py \
           tests/test_services/test_snapshot_cleanup.py \
           tests/test_services/test_snapshot_concurrency_postgres.py \
           tests/test_services/test_snapshot_hierarchy_restore.py \

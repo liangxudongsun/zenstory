@@ -571,6 +571,9 @@ async def register(
     except InvalidRecipientError:
         session.rollback()
         raise APIException(error_code=ErrorCode.AUTH_EMAIL_UNDELIVERABLE, status_code=400) from None
+    from services.first_work_service import enroll_new_user
+
+    enroll_new_user(session, new_user)
     session.commit()
     session.refresh(new_user)
 
