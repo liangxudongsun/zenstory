@@ -12,6 +12,7 @@ MESSAGES: dict[str, dict[str, str]] = {
     "zh": {
         # ==================== Authentication Messages ====================
         "auth_register_success": "注册成功,请检查邮箱验证码以完成账户激活",
+        "auth_register_delivery_pending": "账号已创建，验证码暂未发送，请重发或修改邮箱",
         "auth_login_success": "登录成功",
         "auth_logout_success": "登出成功",
         "auth_token_refresh_success": "令牌刷新成功",
@@ -60,6 +61,7 @@ MESSAGES: dict[str, dict[str, str]] = {
     "en": {
         # ==================== Authentication Messages ====================
         "auth_register_success": "Registration successful, please check your email for verification code",
+        "auth_register_delivery_pending": "Your account was created, but the code could not be sent. Resend it or correct your email.",
         "auth_login_success": "Login successful",
         "auth_logout_success": "Logout successful",
         "auth_token_refresh_success": "Token refresh successful",

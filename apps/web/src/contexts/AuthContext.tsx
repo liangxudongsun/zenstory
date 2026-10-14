@@ -30,7 +30,7 @@ export interface AuthContextType {
   user: User | null;
   loading: boolean;
   login: (username: string, password: string) => Promise<void>;
-  register: (username: string, email: string, password: string, inviteCode?: string) => Promise<{ email: string; email_verified: boolean }>;
+  register: (username: string, email: string, password: string, inviteCode?: string) => Promise<{ email: string; email_verified: boolean; verification_sent?: boolean }>;
   logout: () => void;
   refreshToken: () => Promise<void>;
   handleOAuthCallback: (
@@ -339,7 +339,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Return email and verification status for redirect
     return {
       email: data.email,
-      email_verified: data.email_verified
+      email_verified: data.email_verified,
+      verification_sent: data.verification_sent,
     };
   };
 

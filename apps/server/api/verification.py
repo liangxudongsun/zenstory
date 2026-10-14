@@ -27,6 +27,7 @@ from core.messages import get_message
 from database import get_session
 from models import RefreshTokenRecord, User
 from services.features.referral_service import complete_pending_referral_for_invitee
+from services.infra.email_client import InvalidRecipientError
 from utils.email_identity import email_identity_matches, normalize_email_identity
 from utils.logger import get_logger, log_with_context
 
@@ -70,9 +71,12 @@ async def verify_email(
     )
 
     # Find user by email
-    user = session.exec(
-        select(User).where(email_identity_matches(User.email, normalized_email))
-    ).first()
+    # A concurrent address correction must not allow an old code to verify
+    # the new address. Acquire the same account lock off the event loop.
+    user = await asyncio.to_thread(lambda: session.exec(
+        select(User).where(email_identity_matches(User.email, normalized_email)).with_for_update()
+        .execution_options(populate_existing=True)
+    ).first())
 
     if not user:
         log_with_context(
@@ -221,7 +225,10 @@ async def resend_verification(
 
     # Send verification code
     language = request.language or "zh"
-    success, error = await send_verification_code(normalized_email, language=language)
+    try:
+        success, error = await send_verification_code(normalized_email, language=language)
+    except InvalidRecipientError:
+        raise APIException(error_code=ErrorCode.AUTH_EMAIL_UNDELIVERABLE, status_code=400) from None
 
     if not success:
         # Log the actual error for debugging

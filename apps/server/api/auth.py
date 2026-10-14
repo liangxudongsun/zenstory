@@ -46,8 +46,10 @@ from models.referral import InviteCode
 from services.features import password_reset_service
 from services.features.activation_event_service import activation_event_service
 from services.features.referral_service import create_referral as create_referral_service
+from services.features.registration_recovery_service import correct_registration_email
+from services.infra.email_client import InvalidRecipientError
 from services.subscription.subscription_service import subscription_service
-from utils.email_identity import email_identity_matches, normalize_email_identity
+from utils.email_identity import email_identity_matches, normalize_email_identity, validate_registration_email
 from utils.logger import get_logger, log_with_context
 
 logger = get_logger(__name__)
@@ -155,6 +157,13 @@ class PasswordResetConfirmRequest(BaseModel):
     @classmethod
     def validate_new_password(cls, value: str) -> str:
         return _validate_new_password(value)
+
+
+class RegistrationEmailRequest(BaseModel):
+    email: EmailStr
+    password: str
+    new_email: EmailStr
+    language: str = "zh"
 
 
 def _validate_new_password(value: str) -> str:
@@ -439,6 +448,11 @@ async def register(
     """
     normalized_email = normalize_email_identity(str(request.email))
 
+    try:
+        validate_registration_email(normalized_email)
+    except ValueError:
+        raise APIException(error_code=ErrorCode.AUTH_EMAIL_UNDELIVERABLE, status_code=400) from None
+
     # Check if username already exists
     existing_user = session.exec(
         select(User).where(User.username == request.username)
@@ -540,6 +554,14 @@ async def register(
     )
 
     session.add(new_user)
+    # Reserve uniqueness before sending, but keep a rejected recipient out of
+    # the database and avoid committing any referral/subscription side effects.
+    await asyncio.to_thread(session.flush)
+    try:
+        success, error = await send_verification_code(normalized_email, language=request.language or "zh")
+    except InvalidRecipientError:
+        session.rollback()
+        raise APIException(error_code=ErrorCode.AUTH_EMAIL_UNDELIVERABLE, status_code=400) from None
     session.commit()
     session.refresh(new_user)
 
@@ -607,10 +629,6 @@ async def register(
             error_type=type(e).__name__,
         )
 
-    # Send verification code
-    language = request.language or "zh"
-    success, error = await send_verification_code(normalized_email, language=language)
-
     if not success:
         # Keep registration successful to avoid "account created but API failed" inconsistency.
         # User can request a new code via /api/auth/resend-verification.
@@ -647,11 +665,34 @@ async def register(
         )
 
     return {
-        "message": get_message("auth_register_success", _accept_language),
+        "message": get_message("auth_register_success" if success else "auth_register_delivery_pending", _accept_language),
         "email": normalized_email,
         "email_verified": False,
         "verification_sent": success,
     }
+
+
+@router.post("/registration-email")
+async def change_registration_email(
+    request: RegistrationEmailRequest,
+    http_request: Request,
+    session: Session = Depends(get_session),
+):
+    if _is_auth_rate_limit_enabled():
+        await asyncio.to_thread(
+            _enforce_auth_rate_limit, http_request=http_request, key="registration_email_ip",
+            max_requests=10, window_seconds=600, endpoint="registration-email",
+        )
+        await asyncio.to_thread(
+            _enforce_auth_rate_limit,
+            http_request=http_request, key=f"registration_email:{normalize_email_identity(str(request.email))}",
+            max_requests=5, window_seconds=600, endpoint="registration-email", include_client_ip=False,
+        )
+    corrected = await correct_registration_email(
+        session, email=str(request.email), password=request.password,
+        new_email=str(request.new_email), language=request.language,
+    )
+    return {"email": corrected, "verification_sent": True}
 
 
 @router.post("/login", response_model=LoginResponse)

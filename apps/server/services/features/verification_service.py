@@ -11,7 +11,7 @@ from core.messages import get_message
 from utils.email_identity import normalize_email_identity
 from utils.logger import get_logger, log_with_context
 
-from ..infra.email_client import send_verification_email
+from ..infra.email_client import InvalidRecipientError, send_verification_email
 from ..infra.redis_client import (
     check_resend_cooldown,
     consume_verification_code,
@@ -99,6 +99,12 @@ async def send_verification_code(email: str, language: str = "zh") -> tuple[bool
 
         return True, None
 
+    except InvalidRecipientError:
+        try:
+            await asyncio.to_thread(delete_verification_code, email)
+            await asyncio.to_thread(delete_resend_cooldown, email)
+        finally:
+            raise
     except Exception as e:
         log_with_context(
             logger,

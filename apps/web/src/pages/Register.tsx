@@ -311,7 +311,12 @@ export const Register: React.FC = () => {
         rejectSubmit(t('auth:errors.inviteCodeRequired'), 'invite_code');
         return;
       }
-      await register(trimmedUsername, trimmedEmail, password, trimmedInviteCode || undefined);
+      const result = await register(trimmedUsername, trimmedEmail, password, trimmedInviteCode || undefined);
+      if (result?.verification_sent === false) {
+        const path = selectedPlan ? `/verify-email?${new URLSearchParams({ plan: selectedPlan }).toString()}` : '/verify-email';
+        navigate(path, { state: { email: result.email || trimmedEmail, verificationSent: false } });
+        return;
+      }
       setSuccess(true);
       toast.success(t('auth:register.success'));
       setTimeout(() => {

@@ -6,7 +6,7 @@ type VerificationStatusResponse = { email_verified: boolean; resend_cooldown_sec
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(), verify: vi.fn(), resend: vi.fn(), status: vi.fn(),
 }));
-vi.mock('react-router-dom', () => ({ useNavigate: () => mocks.navigate }));
+vi.mock('react-router-dom', () => ({ useNavigate: () => mocks.navigate, useLocation: () => ({ state: null }) }));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string, opts?: { count?: number; time?: string }) =>
     key === 'auth:verifyEmail.resendButtonWithCount' ? 'resend:' + opts?.count :

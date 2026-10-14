@@ -2,11 +2,12 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockNavigate, mockVerifyEmail, mockResendVerification, mockCheckVerification } = vi.hoisted(() => ({
+const { mockNavigate, mockVerifyEmail, mockResendVerification, mockCheckVerification, mockCorrectEmail } = vi.hoisted(() => ({
   mockNavigate: vi.fn(),
   mockVerifyEmail: vi.fn(),
   mockResendVerification: vi.fn(),
   mockCheckVerification: vi.fn(),
+  mockCorrectEmail: vi.fn(),
 }));
 
 vi.mock("react-router-dom", async () => {
@@ -38,6 +39,7 @@ vi.mock("../../contexts/AuthContext", () => ({
 vi.mock("../../lib/api", () => ({
   authApi: {
     checkVerification: mockCheckVerification,
+    correctRegistrationEmail: mockCorrectEmail,
   },
 }));
 
@@ -64,6 +66,31 @@ describe("VerifyEmail", () => {
         <VerifyEmail email={email} planIntent={planIntent} />
       </MemoryRouter>
     );
+
+  it("corrects an unfinished account's address with a password and preserves plan intent", async () => {
+    mockCorrectEmail.mockResolvedValueOnce({ email: 'corrected@example.com', verification_sent: true });
+    renderPage('writer@example.c0m', 'pro');
+    fireEvent.click(screen.getByRole('button', { name: 'auth:verifyEmail.changeEmail' }));
+    fireEvent.change(screen.getByLabelText('auth:verifyEmail.newEmail'), { target: { value: 'corrected@example.com' } });
+    fireEvent.change(screen.getByLabelText('auth:verifyEmail.registrationPassword'), { target: { value: 'OwnedPassword1!' } });
+    fireEvent.click(screen.getByRole('button', { name: 'auth:verifyEmail.confirmChange' }));
+    await waitFor(() => expect(mockCorrectEmail).toHaveBeenCalledWith(expect.objectContaining({
+      email: 'writer@example.c0m', new_email: 'corrected@example.com', password: 'OwnedPassword1!',
+    })));
+    expect(mockNavigate).toHaveBeenCalledWith('/verify-email?plan=pro', {
+      replace: true, state: { email: 'corrected@example.com', verificationSent: true },
+    });
+    expect(mockVerifyEmail).not.toHaveBeenCalled();
+  });
+
+  it("shows the failed-delivery recovery path without saying a code was sent", () => {
+    render(<MemoryRouter initialEntries={[{ pathname: '/verify-email', state: { verificationSent: false } }]}>
+      <VerifyEmail email="writer@example.com" />
+    </MemoryRouter>);
+    expect(screen.getByText('auth:verifyEmail.deliveryPending')).toBeVisible();
+    expect(screen.queryByText('verify-email:writer@example.com')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'auth:verifyEmail.changeEmail' })).toBeVisible();
+  });
 
   describe("establishment completion errors", () => {
     beforeEach(() => vi.useFakeTimers());

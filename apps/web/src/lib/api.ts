@@ -135,6 +135,17 @@ export const authApi = {
    * });
    * ```
    */
+  correctRegistrationEmail: async (data: { email: string; password: string; new_email: string; language: 'zh' | 'en' }) => {
+    const response = await fetch(`${getApiBase()}/api/auth/registration-email`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new ApiError(response.status, resolveApiErrorMessage(error, 'ERR_AUTH_RESEND_FAILED'));
+    }
+    return response.json() as Promise<{ email: string; verification_sent: boolean }>;
+  },
+
   register: async (data: { username: string; email: string; password: string; invite_code?: string; language?: 'zh' | 'en' }) => {
     const response = await fetch(`${getApiBase()}/api/auth/register`, {
       method: 'POST',
