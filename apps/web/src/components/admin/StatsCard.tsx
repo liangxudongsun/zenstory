@@ -11,6 +11,7 @@ interface StatsCardProps {
   isLoading?: boolean;
   trend?: 'up' | 'down' | 'neutral';
   trendValue?: string;
+  description?: string;
 }
 
 export function StatsCard({
@@ -20,6 +21,7 @@ export function StatsCard({
   isLoading = false,
   trend,
   trendValue,
+  description,
 }: StatsCardProps) {
   const trendIcon = {
     up: <TrendingUp className="h-4 w-4 text-green-500" />,
@@ -81,6 +83,7 @@ export function StatsCard({
               </span>
             )}
           </div>
+          {description && <p className="mt-1 text-xs leading-5 text-[hsl(var(--text-secondary))] break-words">{description}</p>}
         </div>
       </div>
     </Card>

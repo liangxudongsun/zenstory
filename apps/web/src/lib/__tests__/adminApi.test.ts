@@ -628,6 +628,8 @@ describe('adminApi', () => {
         total_users: '10',
         active_users: '8',
         total_projects: 4,
+        author_created_projects: '3',
+        auto_initialized_projects: '1',
       })
 
       const result = await getDashboardStats()
@@ -638,6 +640,8 @@ describe('adminApi', () => {
         active_users: 8,
         total_projects: 4,
         week_referrals: 0,
+        author_created_projects: 3,
+        auto_initialized_projects: 1,
       })
     })
 

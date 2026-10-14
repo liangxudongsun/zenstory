@@ -695,5 +695,12 @@
     "frameworkReady": "Outline ready. Start writing",
     "words_one": "{{words}} word",
     "words_other": "{{words}} words"
+  },
+  "firstWork": {
+    "title": "My First Work",
+    "description": "Your writing space is ready. Start a first paragraph or paste an existing draft.",
+    "open": "Start writing",
+    "preparing": "Preparing your writing space…",
+    "failed": "Your writing space is not ready yet. Retry, or create a project from your own idea."
   }
 }

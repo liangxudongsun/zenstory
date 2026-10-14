@@ -336,5 +336,10 @@
     "fileCreated": "已新建文件"
   },
   "showLess": "收起",
-  "showMore": "更多选项"
+  "showMore": "更多选项",
+  "firstWork": {
+    "hint": "从这里写下第一段，或选择一种方式开始。AI 只会在你发送消息后开始。",
+    "paste": "粘贴已有稿件",
+    "ai": "让 AI 帮我写开头"
+  }
 }
