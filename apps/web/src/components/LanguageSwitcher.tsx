@@ -31,11 +31,11 @@ export const LanguageSwitcher = ({ className = '', variant = 'icon' }: LanguageS
   return (
     <button
       onClick={toggleLanguage}
-      className={`flex items-center gap-1 md:gap-1.5 px-1.5 md:px-2 py-0.5 md:py-1 rounded-lg hover:bg-[hsl(var(--bg-tertiary))] transition-colors text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))] ${className}`}
+      className={`flex min-h-11 min-w-11 md:min-h-8 md:min-w-8 items-center justify-center gap-1 md:gap-1.5 px-1.5 md:px-2 py-0.5 md:py-1 rounded-lg hover:bg-[hsl(var(--bg-tertiary))] transition-colors text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-primary)/0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-[hsl(var(--bg-primary))] ${className}`}
       title={i18n.language === 'zh' ? t('common:language.switchToEnglish') : t('common:language.switchToChinese')}
     >
       <Globe size={14} className="w-3.5 h-3.5 md:w-4 md:h-4" />
-      <span className="text-[11px] md:text-sm font-medium">{currentLanguage}</span>
+      <span className="text-xs md:text-sm font-medium">{currentLanguage}</span>
     </button>
   );
 };

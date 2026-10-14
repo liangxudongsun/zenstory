@@ -457,12 +457,13 @@ export const Register: React.FC = () => {
               <input
                 id="username"
                 type="text"
+                autoComplete="username"
                 value={username}
                 onChange={(e) => {
                   setUsername(e.target.value);
                   resetSubmitStateOnInput();
                 }}
-                className="input"
+                className="input min-h-11"
                 placeholder={t('auth:register.usernameHint')}
                 required
                 autoFocus
@@ -494,12 +495,13 @@ export const Register: React.FC = () => {
               <input
                 id="email"
                 type="email"
+                autoComplete="email"
                 value={email}
                 onChange={(e) => {
                   setEmail(e.target.value);
                   resetSubmitStateOnInput();
                 }}
-                className="input"
+                className="input min-h-11"
                 placeholder={t('auth:register.emailPlaceholder')}
                 required
                 disabled={loading || success}
@@ -527,7 +529,7 @@ export const Register: React.FC = () => {
                   setPassword(e.target.value);
                   resetSubmitStateOnInput();
                 }}
-                className="input"
+                className="input min-h-11"
                 placeholder={t('auth:register.passwordHint')}
                 required
                 minLength={6}
@@ -564,7 +566,7 @@ export const Register: React.FC = () => {
                   setConfirmPassword(e.target.value);
                   resetSubmitStateOnInput();
                 }}
-                className="input"
+                className="input min-h-11"
                 placeholder={t('auth:register.confirmPasswordPlaceholder')}
                 required
                 minLength={6}
@@ -604,7 +606,7 @@ export const Register: React.FC = () => {
             </div>
 
             <div className="mb-6">
-              <label className="flex items-start gap-2 text-sm text-[hsl(var(--text-secondary))]">
+              <label className="flex min-h-11 cursor-pointer items-start gap-3 py-2 text-sm leading-6 text-[hsl(var(--text-secondary))]">
                 <input
                   type="checkbox"
                   checked={acceptTerms}
@@ -612,7 +614,7 @@ export const Register: React.FC = () => {
                     setAcceptTerms(e.target.checked);
                     resetSubmitStateOnInput();
                   }}
-                  className="mt-0.5"
+                  className="mt-0.5 h-5 w-5 shrink-0 accent-[hsl(var(--accent-primary))]"
                   disabled={loading || success}
                 />
                 <span>
