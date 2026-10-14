@@ -203,7 +203,7 @@ export function PaymentCheckoutModal({
               ? t('dashboard:billing.paymentBenefitsBase', 'AI 消息不限条数 · 项目不限')
               : t('dashboard:billing.paymentBenefits', 'AI 消息不限条数 · 项目不限 · 每月 {{limit}} 次素材拆解', { limit: materialLimit })}
           </p>
-          <div className="grid grid-cols-2 gap-3 pt-2" role="radiogroup" aria-label={t('dashboard:billing.billingCycleLabel', '购买时长')}>
+          <div className="grid grid-cols-1 gap-3 pt-2 sm:grid-cols-2" role="radiogroup" aria-label={t('dashboard:billing.billingCycleLabel', '购买时长')}>
             {(['month', 'year'] as PaymentCycle[]).map((item) => {
               const selected = cycle === item
               const itemPrice = item === 'month' ? monthlyPriceCents : yearlyPriceCents
@@ -216,7 +216,7 @@ export function PaymentCheckoutModal({
                   key={item}
                   onClick={() => setCycle(item)}
                   disabled={isBusy}
-                  className={`flex flex-col items-stretch rounded-lg border p-3 text-left transition-colors ${
+                  className={`flex min-w-0 flex-col items-stretch rounded-lg border p-3 text-left transition-colors ${
                     selected
                       ? 'border-[hsl(var(--accent-primary))] bg-[hsl(var(--accent-primary)/0.08)] ring-1 ring-[hsl(var(--accent-primary))]'
                       : savings
@@ -224,11 +224,11 @@ export function PaymentCheckoutModal({
                       : 'border-[hsl(var(--border-color))] hover:bg-[hsl(var(--bg-tertiary))]'
                   }`}
                 >
-                  <span className="flex items-center justify-between text-sm font-medium text-[hsl(var(--text-primary))]">
+                  <span className="flex items-center justify-between gap-2 text-sm font-medium text-[hsl(var(--text-primary))]">
                     {item === 'month'
                       ? t('dashboard:billing.monthlyDuration', '月付 · 30 天')
                       : t('dashboard:billing.yearlyDuration', '年付 · 365 天')}
-                    {selected && <Check className="h-4 w-4 text-[hsl(var(--accent-primary))]" />}
+                    {selected && <Check className="h-4 w-4 shrink-0 text-[hsl(var(--accent-primary))]" />}
                   </span>
                   {itemPrice !== undefined && (
                     <span className="mt-1 block text-xl font-semibold text-[hsl(var(--text-primary))]">
@@ -249,7 +249,7 @@ export function PaymentCheckoutModal({
                     )
                   )}
                   {savings && (
-                    <span className="mt-2 self-start rounded-full bg-[hsl(var(--accent-primary))] px-2 py-0.5 text-xs font-medium text-white">
+                    <span className="mt-2 self-start rounded-full bg-[hsl(var(--primary))] px-2 py-0.5 text-xs font-medium text-[hsl(var(--primary-foreground))]">
                       {t('dashboard:billing.yearlyBestValue', '最划算 · 省 {{percent}}%', { percent: savings.percent })}
                     </span>
                   )}
@@ -289,10 +289,10 @@ export function PaymentCheckoutModal({
         </div>
       </Modal.Body>
       <Modal.Footer>
-        <Button variant="secondary" onClick={handleClose} disabled={isBusy}>
+        <Button size="touch" variant="secondary" onClick={handleClose} disabled={isBusy}>
           {t('common:cancel', '取消')}
         </Button>
-        <Button onClick={handlePay} disabled={!alipayEnabled || isBusy || optionsQuery.isLoading}>
+        <Button size="touch" onClick={handlePay} disabled={!alipayEnabled || isBusy || optionsQuery.isLoading}>
           {redirecting
             ? t('dashboard:billing.paymentRedirecting', "正在前往支付宝…")
             : createOrder.isPending
