@@ -5,6 +5,7 @@
  * v2 with the stale v1 text. All API calls are mocked; the agent stream is a
  * page-side ReadableStream that the test feeds event by event.
  */
+import { readFile } from 'node:fs/promises';
 import { test, expect, type Page } from '@playwright/test';
 import { mockResponsiveApp, responsiveProjects } from './fixtures-responsive';
 
@@ -68,6 +69,7 @@ async function setup(page: Page) {
     requests.push({ method, path: url.pathname, body });
     const fulfill = (data: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(data) });
     const fileId = url.pathname.match(/^\/api\/v1\/files\/([^/]+)$/)?.[1];
+    if (fileId && !files[fileId]) return fulfill({ error_code: 'ERR_FILE_NOT_FOUND', error_message: 'Deleted' }, 404);
     if (fileId && files[fileId]) {
       if (method === 'GET') return fulfill(files[fileId]);
       if (method === 'PUT') {
@@ -297,3 +299,39 @@ test('leaving before deciding where both rewrote the same words keeps the author
   expect(putsToCh2(f).at(-1)?.body).toMatchObject({ base_updated_at: tokenV2 });
   expect(f.errors).toEqual([]);
 });
+
+
+for (const width of [390, 1280]) {
+test(`an AI deletion retains a downloadable dirty draft at ${width}px without refetching the deleted file`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 900 });
+  const f = await setup(page);
+  await page.goto(`/project/${projectId}?file=ch1`);
+  await expect(titleInput(page)).toHaveValue('第1章 头顶的钟');
+  if (width < 768) await page.locator('[role=tab][aria-controls=chat-panel]').click();
+  await page.getByTestId('chat-input').fill('删除正在打开的第一章');
+  await page.getByTestId('send-button').click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __sse: { opened: () => boolean } }).__sse.opened())).toBe(true);
+  if (width < 768) await page.locator('[role=tab][aria-controls=editor-panel]').click();
+  const dirty = '作者在这一轮中刚输入、尚未保存的正文';
+  await textarea(page).fill(dirty);
+  const before = f.requests.filter(request => request.method === 'GET' && request.path.endsWith('/files/ch1')).length;
+  delete f.files.ch1;
+  await push(page, 'tool_result', { tool_use_id: 'delete-1', tool_name: 'delete_file', status: 'success', data: true });
+  const recovery = page.getByRole('textbox', { name: '已删除文件的草稿' });
+  await expect(recovery).toHaveValue(dirty);
+  await expect(recovery).toHaveAttribute('readonly', '');
+  await push(page, 'done', { success: true });
+  await page.evaluate(() => (window as unknown as { __sse: { close: () => void } }).__sse.close());
+  await expect(page.getByText('AI 刚改过这个文件，但最新内容没能载入', { exact: false })).toHaveCount(0);
+  expect(f.requests.filter(request => request.method === 'GET' && request.path.endsWith('/files/ch1'))).toHaveLength(before);
+  expect(f.requests.filter(request => request.method === 'PUT' && request.path.endsWith('/files/ch1'))).toHaveLength(0);
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: '下载草稿' }).click();
+  const saved = await download;
+  expect(saved.suggestedFilename()).toBe('第1章 头顶的钟.txt');
+  expect(await readFile((await saved.path())!, 'utf8')).toBe(`第1章 头顶的钟\n\n${dirty}`);
+  await page.screenshot({ path: `/tmp/zenstory-190-deleted-draft-${width}.png` });
+  expect(f.errors).toEqual([]);
+});
+
+}

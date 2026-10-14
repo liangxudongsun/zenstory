@@ -28,6 +28,7 @@ import { FOLDER_TYPE_MAP, MATERIAL_FOLDER_NAMES } from "../lib/folderTypeMap";
 import { toast } from "../lib/toast";
 import { ConfirmDialog } from "./ui/ConfirmDialog";
 import { findAncestorFolderIds } from "../lib/lastOpenedFile";
+import { notifyFileRemoved } from "../lib/fileRemovalEvents";
 import { FileSearchInput } from "./FileSearchInput";
 import { useFileSearch, type FileSearchResult } from "../hooks/useFileSearch";
 import SearchResultsDropdown from "./SearchResultsDropdown";
@@ -131,6 +132,10 @@ const MobileFileTreeComponent: React.FC<MobileFileTreeProps> = ({ className }) =
   const loadRequestIdRef = useRef(0);
   const loadAbortControllerRef = useRef<AbortController | null>(null);
   const activeProjectIdRef = useRef(currentProjectId);
+  const selectedItemRef = useRef(selectedItem);
+  const treeRef = useRef(tree);
+  selectedItemRef.current = selectedItem;
+  treeRef.current = tree;
 
   const isAbortError = useCallback((error: unknown): boolean => {
     return (
@@ -162,6 +167,8 @@ const MobileFileTreeComponent: React.FC<MobileFileTreeProps> = ({ className }) =
   const loadData = useCallback(async (showLoading = false) => {
     // A mutation started in a previous project may finish after navigation.
     if (!currentProjectId || currentProjectId !== activeProjectIdRef.current) return;
+    const selectedAtRequest = selectedItemRef.current;
+    const previousTree = treeRef.current;
     const requestId = ++loadRequestIdRef.current;
     loadAbortControllerRef.current?.abort();
     const abortController = new AbortController();
@@ -178,6 +185,12 @@ const MobileFileTreeComponent: React.FC<MobileFileTreeProps> = ({ className }) =
         return;
       }
       setTree(response.tree || []);
+      if (selectedAtRequest && selectedItemRef.current?.id === selectedAtRequest.id
+        && findAncestorFolderIds(previousTree, selectedAtRequest.id) !== null
+        && findAncestorFolderIds(response.tree || [], selectedAtRequest.id) === null) {
+        notifyFileRemoved(currentProjectId, selectedAtRequest.id);
+        if (selectedItemRef.current?.id === selectedAtRequest.id) setSelectedItem(null);
+      }
 
       // Auto-expand root folders
       const rootFolderIds = (response.tree || [])
@@ -198,7 +211,7 @@ const MobileFileTreeComponent: React.FC<MobileFileTreeProps> = ({ className }) =
         setIsInitialLoad(false);
       }
     }
-  }, [currentProjectId, isAbortError]);
+  }, [currentProjectId, isAbortError, setSelectedItem]);
 
   // Expand the folders around a selected file once (e.g. the file restored on
   // reopening the project), without re-opening folders the author collapses later.
@@ -411,7 +424,7 @@ const MobileFileTreeComponent: React.FC<MobileFileTreeProps> = ({ className }) =
    * Clears selection if the deleted file was selected.
    */
   const handleConfirmDelete = useCallback(async () => {
-    if (!pendingDelete || pendingDelete.projectId !== currentProjectId || deletingFile) return;
+    if (!currentProjectId || !pendingDelete || pendingDelete.projectId !== currentProjectId || deletingFile) return;
     const fileId = pendingDelete.id;
     setDeletingFile(true);
 
@@ -419,8 +432,9 @@ const MobileFileTreeComponent: React.FC<MobileFileTreeProps> = ({ className }) =
       await fileApi.delete(fileId);
 
       if (currentProjectId !== activeProjectIdRef.current) return;
-      // Clear selection if deleted item was selected
-      if (selectedItem?.id === fileId) {
+      notifyFileRemoved(currentProjectId, fileId);
+      // A selected descendant is corrected by the successful tree refresh.
+      if (selectedItemRef.current?.id === fileId) {
         setSelectedItem(null);
       }
 
@@ -432,7 +446,7 @@ const MobileFileTreeComponent: React.FC<MobileFileTreeProps> = ({ className }) =
       setDeletingFile(false);
       setPendingDelete(null);
     }
-  }, [pendingDelete, deletingFile, currentProjectId, selectedItem, setSelectedItem, loadData, t]);
+  }, [pendingDelete, deletingFile, currentProjectId, setSelectedItem, loadData, t]);
 
   /**
    * Returns localized placeholder text for the file creation input.

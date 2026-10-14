@@ -17,13 +17,14 @@ const mocks = vi.hoisted(() => ({
   addMaterial: vi.fn(() => true),
   isAtLimit: false,
   projectId: 'project-1' as string | null,
+  fileTreeVersion: 0,
   selectedItem: null as { id: string; type: string; title: string } | null,
   results: [{ id: 'draft-1', fileType: 'draft', title: 'Draft' }],
 }));
 
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock('../../../contexts/ProjectContext', () => ({
-  useProject: () => ({ currentProjectId: mocks.projectId, selectedItem: mocks.selectedItem, setSelectedItem: mocks.select, fileTreeVersion: 0 }),
+  useProject: () => ({ currentProjectId: mocks.projectId, selectedItem: mocks.selectedItem, setSelectedItem: mocks.select, fileTreeVersion: mocks.fileTreeVersion }),
 }));
 vi.mock('../../../contexts/MobileLayoutContext', () => ({
   useMobileLayout: () => ({ isMobile: false, switchToEditor: mocks.switchToEditor }),
@@ -402,5 +403,44 @@ describe('FileTreePane reveals the selected file', () => {
     // The author can still collapse the folder afterwards.
     fireEvent.click(screen.getByText('第二卷'));
     await waitFor(() => expect(screen.queryByText('第九章')).not.toBeInTheDocument());
+  });
+});
+
+
+describe('FileTreePane deletion validation', () => {
+  const tree = [{ id: 'folder', title: 'Folder', file_type: 'folder', children: [
+    { id: 'draft-1', title: 'Draft', file_type: 'draft', children: [] },
+    { id: 'draft-2', title: 'Other draft', file_type: 'draft', children: [] },
+  ] }];
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.projectId = 'project-1';
+    mocks.fileTreeVersion = 0;
+    mocks.selectedItem = { id: 'draft-1', type: 'draft', title: 'Draft' };
+    mocks.getTree.mockResolvedValue({ tree });
+  });
+  afterEach(() => { mocks.selectedItem = null; mocks.fileTreeVersion = 0; });
+
+  it('clears a selected descendant when its containing folder disappears on a successful refresh', async () => {
+    const view = render(<FileSearchProvider><FileTreePane /></FileSearchProvider>);
+    await screen.findByText('Folder');
+    mocks.getTree.mockResolvedValue({ tree: [] });
+    mocks.fileTreeVersion = 1;
+    view.rerender(<FileSearchProvider><FileTreePane /></FileSearchProvider>);
+    await waitFor(() => expect(mocks.select).toHaveBeenCalledWith(null));
+  });
+
+  it('does not clear a newer selection based on a tree request started for the previous selection', async () => {
+    const view = render(<FileSearchProvider><FileTreePane /></FileSearchProvider>);
+    await screen.findByText('Folder');
+    let resolve!: (value: { tree: unknown[] }) => void;
+    mocks.getTree.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+    mocks.fileTreeVersion = 1;
+    view.rerender(<FileSearchProvider><FileTreePane /></FileSearchProvider>);
+    await waitFor(() => expect(mocks.getTree).toHaveBeenCalledTimes(2));
+    mocks.selectedItem = { id: 'draft-2', type: 'draft', title: 'Other draft' };
+    view.rerender(<FileSearchProvider><FileTreePane /></FileSearchProvider>);
+    await act(async () => resolve({ tree: [] }));
+    expect(mocks.select).not.toHaveBeenCalled();
   });
 });

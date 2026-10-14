@@ -7,6 +7,8 @@ import { useDialogInteractions } from './ui/dialogFocus';
 
 export interface LeaveWhileGeneratingDialogProps {
   open: boolean;
+  /** A deleted file has unsaved text that browser storage could not protect. */
+  unprotectedDraft?: boolean;
   /**
    * What the author is about to do mid-round: leave the workbench (the default), or start a
    * new chat in the panel, which stops this round through the server first.
@@ -29,6 +31,7 @@ export interface LeaveWhileGeneratingDialogProps {
  */
 export function LeaveWhileGeneratingDialog({
   open,
+  unprotectedDraft = false,
   intent = 'leave',
   roundEnded,
   producedOutput,
@@ -36,7 +39,7 @@ export function LeaveWhileGeneratingDialog({
   onStay,
   onLeave,
 }: LeaveWhileGeneratingDialogProps) {
-  const { t } = useTranslation(['chat']);
+  const { t } = useTranslation(['chat', 'editor']);
   const titleId = useId();
   const descriptionId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -50,12 +53,14 @@ export function LeaveWhileGeneratingDialog({
 
   if (!open) return null;
 
-  const title = roundEnded
+  const title = unprotectedDraft ? t('editor:deletedFile.leaveTitle') : roundEnded
     ? t('chat:leaveWhileGenerating.endedTitle', { defaultValue: '这一轮已经结束' })
     : t('chat:leaveWhileGenerating.title', { defaultValue: 'AI 还在写' });
   const newChat = intent === 'newChat';
   let message: string;
-  if (newChat) {
+  if (unprotectedDraft) {
+    message = t(roundEnded ? 'editor:deletedFile.leaveMessage' : 'editor:deletedFile.leaveMessageWhileGenerating');
+  } else if (newChat) {
     message = newChatMessage(t, { roundEnded, producedOutput, showDailyCount });
   } else if (roundEnded) {
     message = t('chat:leaveWhileGenerating.endedMessage', { defaultValue: '现在离开不会中断任何内容。' });

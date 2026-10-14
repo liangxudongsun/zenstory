@@ -5,6 +5,7 @@ import {
   createEditorDraftSnapshot,
   getEditorDraftRecoveryKey,
   readEditorDraftSnapshot,
+  readDeletedEditorDraftSnapshots,
   resolveEditorDraftRecovery,
   writeEditorDraftSnapshot,
 } from "../editorDraftRecovery";
@@ -111,4 +112,11 @@ describe("editorDraftRecovery", () => {
     expect(readEditorDraftSnapshot(unavailableStorage, scope)).toBeNull();
     expect(clearEditorDraftSnapshot(unavailableStorage, scope)).toBe(false);
   });
+  it('lists deleted drafts only for the signed-in user and active project', () => {
+    const own = createEditorDraftSnapshot({ ...scope, title: 'Deleted', content: 'Keep', reason: 'file-deleted' });
+    [own, { ...own, userId: 'another-user' }, { ...own, projectId: 'another-project' }, { ...own, fileId: 'ordinary', reason: 'page-exit' as const }]
+      .forEach(snapshot => writeEditorDraftSnapshot(localStorage, snapshot));
+    expect(readDeletedEditorDraftSnapshots(localStorage, scope)).toEqual([own]);
+  });
+
 });

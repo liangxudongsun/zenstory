@@ -23,7 +23,8 @@
  * @see useAgentStream - SSE streaming hook for AI responses
  * @module components/ChatPanel
  */
-import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { hasUnprotectedDeletedDraft, notifyFileRemoved, subscribeDeletedDraftProtection } from "../lib/fileRemovalEvents";
+import React, { useState, useRef, useEffect, useCallback, useMemo, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useProject } from "../contexts/ProjectContext";
@@ -1239,6 +1240,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
       invalidateQuota();
       if (removedFiles.length > 0) {
         // The server removed blank files this stopped round had created.
+        if (currentProjectId) removedFiles.forEach(file => notifyFileRemoved(currentProjectId, file.id));
         const removedIds = new Set(removedFiles.map((file) => file.id));
         if (selectedItemRef.current && removedIds.has(selectedItemRef.current.id)) setSelectedItem(null);
         triggerFileTreeRefresh();
@@ -1246,7 +1248,12 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     },
   });
   // Stopping already ends the round on its own; no need to ask before leaving then.
-  const leaveGuard = useLeaveWhileGenerating(isStreaming && !isStopping);
+  const unprotectedDeletedDraft = useSyncExternalStore(
+    subscribeDeletedDraftProtection,
+    () => hasUnprotectedDeletedDraft(currentProjectId),
+    () => false,
+  );
+  const leaveGuard = useLeaveWhileGenerating((isStreaming && !isStopping) || unprotectedDeletedDraft);
   // Leaving mid-round: the server settles (and may refund) after the chat is gone.
   useQuotaRefreshAfterLeave(isStreaming, currentProjectId ?? null);
   /** A confirmed leave is waiting for the editor's save. */
@@ -1257,7 +1264,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
   // the open file so the server keeps it, then leave.
   const handleConfirmLeave = () => {
     const confirmLeave = leaveGuard.confirmLeave;
-    if (leaveGuard.roundEnded) {
+    if (!isStreaming || leaveGuard.roundEnded) {
       confirmLeave();
       return;
     }
@@ -2637,7 +2644,8 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
       {/* Leaving the workbench mid-round drops the stream and ends the round. */}
       <LeaveWhileGeneratingDialog
         open={leaveGuard.leavePending}
-        roundEnded={leaveGuard.roundEnded}
+        unprotectedDraft={unprotectedDeletedDraft}
+        roundEnded={unprotectedDeletedDraft ? !isStreaming : leaveGuard.roundEnded}
         producedOutput={roundProgressRef.current.producedOutput}
         showDailyCount={showDailyCount}
         onStay={leaveGuard.cancelLeave}

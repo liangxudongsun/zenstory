@@ -27,6 +27,9 @@ import type {
 } from "../types";
 import { logger } from "../lib/logger";
 import { toast } from "../lib/toast";
+import { fileApi } from "../lib/api";
+import { findAncestorFolderIds } from "../lib/lastOpenedFile";
+import { isFileRemoved, notifyFileRemoved } from "../lib/fileRemovalEvents";
 import { stripThinkTags } from "../lib/utils";
 import { dispatchProjectStatusUpdated } from "../lib/projectStatusEvents";
 import { formatHandoffMessage } from "../lib/agentDisplayName";
@@ -441,7 +444,7 @@ export interface UseChatStreamingDependencies {
    */
   setAiEditingFileId?: (fileId: string | null) => void;
   /** Function to set the selected item in project context */
-  setSelectedItem: (item: { id: string; type: FileType; title: string }) => void;
+  setSelectedItem: (item: { id: string; type: FileType; title: string } | null) => void;
   /** Returns the latest selected item from project context */
   getCurrentSelectedItem?: () => { id: string; type: FileType; title: string } | null;
   /** Function to append content to a streaming file */
@@ -728,6 +731,8 @@ export function useChatStreaming(): UseChatStreamingReturn {
   const pendingFileTreeRefreshRef = useRef(false);
   /** Whether the current round has written any file (reset on stream start). */
   const roundWroteFilesRef = useRef(false);
+  const roundMayDeleteFilesRef = useRef(false);
+  const deletionTreeCheckRef = useRef<ReturnType<typeof fileApi.getTree> | null>(null);
   const fileTreeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
@@ -817,7 +822,27 @@ export function useChatStreaming(): UseChatStreamingReturn {
        */
       const refreshOpenFileFromServer = () => {
         const selected = getCurrentSelectedItem?.() ?? null;
-        if (!selected || selected.type === "folder") return;
+        if (!selected || selected.type === "folder" || isFileRemoved(activeProjectId, selected.id)) return;
+        if (roundMayDeleteFilesRef.current && activeProjectId) {
+          // Older delete_file results contain only true. Validate the selection
+          // against a committed tree before asking the editor to GET this id.
+          const pending = deletionTreeCheckRef.current ?? fileApi.getTree(activeProjectId);
+          deletionTreeCheckRef.current = pending;
+          void pending.then(response => {
+            if (getCurrentSelectedItem?.()?.id !== selected.id || isFileRemoved(activeProjectId, selected.id)) return;
+            if (findAncestorFolderIds(response.tree || [], selected.id) === null) {
+              notifyFileRemoved(activeProjectId, selected.id);
+              if (getCurrentSelectedItem?.()?.id === selected.id) setSelectedItem(null);
+            } else {
+              triggerEditorRefresh(selected.id);
+            }
+          }).catch(() => {
+            // A failed tree request is not deletion evidence; the editor still
+            // distinguishes one terminal 404 from recoverable read failures.
+            if (getCurrentSelectedItem?.()?.id === selected.id && !isFileRemoved(activeProjectId, selected.id)) triggerEditorRefresh(selected.id);
+          }).finally(() => { if (deletionTreeCheckRef.current === pending) deletionTreeCheckRef.current = null; });
+          return;
+        }
         const activeStreamFileId = getCurrentStreamingFileId?.() ?? null;
         if (activeStreamFileId && activeStreamFileId === selected.id) return;
         triggerEditorRefresh(selected.id);
@@ -848,6 +873,8 @@ export function useChatStreaming(): UseChatStreamingReturn {
           fileContentEndByFileIdRef.current.clear();
           fileEditMetaByIdRef.current.clear();
           roundWroteFilesRef.current = false;
+          roundMayDeleteFilesRef.current = false;
+          deletionTreeCheckRef.current = null;
           pendingFileTreeRefreshRef.current = false;
           if (fileTreeRefreshTimerRef.current) {
             clearTimeout(fileTreeRefreshTimerRef.current);
@@ -1191,6 +1218,28 @@ export function useChatStreaming(): UseChatStreamingReturn {
             // Coalesce multiple tool/file events into one refresh.
             scheduleFileTreeRefresh();
             roundWroteFilesRef.current = true;
+          }
+
+          if (status === "success") {
+            const payload = (result?.data ?? result) as Record<string, unknown> | undefined;
+            const tasks = payload && Array.isArray(payload.tasks) ? payload.tasks as Array<Record<string, unknown>> : [];
+            const deletes = toolName === "delete_file" ? [payload] : toolName === "parallel_execute"
+              ? tasks.filter(task => task.type === "delete_file" && (task.status === "completed" || task.status === "success"))
+                .map(task => (task.result as Record<string, unknown> | undefined)?.data ?? task.result)
+              : [];
+            if (deletes.length > 0) {
+              roundMayDeleteFilesRef.current = true;
+              for (const deletion of deletes) {
+                if (!deletion || typeof deletion !== "object" || !activeProjectId) continue;
+                const data = deletion as Record<string, unknown>;
+                const id = data.id ?? data.file_id;
+                if (typeof id === "string") {
+                  notifyFileRemoved(activeProjectId, id);
+                  if (getCurrentSelectedItem?.()?.id === id) setSelectedItem(null);
+                }
+              }
+              refreshOpenFileFromServer();
+            }
           }
 
           // parallel_execute 改了正文却不发 file_edit_* 事件（子任务里可能有

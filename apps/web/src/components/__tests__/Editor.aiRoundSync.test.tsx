@@ -12,6 +12,7 @@ type ServerFile = { id: string; project_id: string; file_type: string; title: st
 const server = vi.hoisted(() => ({
   files: new Map<string, ServerFile>(),
   get: vi.fn(),
+  getTree: vi.fn(),
   update: vi.fn(),
 }));
 const toastError = vi.hoisted(() => vi.fn());
@@ -26,7 +27,7 @@ vi.mock('../../lib/api', () => ({
   fileApi: {
     get: server.get,
     update: server.update,
-    getTree: vi.fn(async () => ({ tree: [] })),
+    getTree: server.getTree,
     create: vi.fn(),
   },
   fileVersionApi: { getVersions: vi.fn(async () => ({ total: 0, versions: [] })) },
@@ -46,7 +47,8 @@ import { ProjectProvider, useProject } from '../../contexts/ProjectContext';
 import { useChatStreaming } from '../../hooks/useChatStreaming';
 import type { UseChatStreamingOptions } from '../../hooks/useChatStreaming';
 import { ApiError } from '../../lib/apiClient';
-import { readEditorDraftSnapshot } from '../../lib/editorDraftRecovery';
+import { BEFORE_CHUNK_RELOAD_EVENT, createEditorDraftSnapshot, writeEditorDraftSnapshot, readEditorDraftSnapshot } from '../../lib/editorDraftRecovery';
+import { getLastOpenedFile, setLastOpenedFile } from '../../lib/lastOpenedFile';
 import { Editor } from '../Editor';
 
 const CH1: ServerFile = { id: 'ch-1', project_id: 'project-1', file_type: 'draft', title: '第1章', content: '第一章正文。', updated_at: '2026-10-09T12:00:00.000001' };
@@ -65,7 +67,8 @@ const harness: {
 } = { callbacks: null, project: null, setShowEditor: null };
 
 /** Wires the real stream callbacks to the real ProjectContext, like ChatPanel does. */
-function Harness() {
+function Harness({ initialSelection = true }: { initialSelection?: boolean }) {
+  const selectedInitially = React.useRef(false);
   const project = useProject();
   // The project state outlives the editor, as in the app (leaving the project page).
   const [showEditor, setShowEditor] = React.useState(true);
@@ -80,10 +83,11 @@ function Harness() {
     if (!currentProjectId) setCurrentProjectId('project-1');
   }, [currentProjectId, setCurrentProjectId]);
   React.useEffect(() => {
-    if (currentProjectId === 'project-1' && !selectedItem) {
+    if (initialSelection && !selectedInitially.current && currentProjectId === 'project-1' && !selectedItem) {
+      selectedInitially.current = true;
       setSelectedItem({ id: CH1.id, type: 'draft', title: CH1.title });
     }
-  }, [currentProjectId, selectedItem, setSelectedItem]);
+  }, [currentProjectId, selectedItem, setSelectedItem, initialSelection]);
   React.useLayoutEffect(() => {
     selectedRef.current = project.selectedItem;
     streamingRef.current = project.streamingFileId;
@@ -175,6 +179,8 @@ beforeEach(() => {
   server.files.set(CH1.id, { ...CH1 });
   server.get.mockReset();
   server.update.mockReset();
+  server.getTree.mockReset();
+  server.getTree.mockImplementation(async () => ({ tree: [...server.files.values()].map(file => ({...file, children: []})) }));
   server.get.mockImplementation(async (id: string) => {
     const file = server.files.get(id);
     if (!file) throw new Error(`missing ${id}`);
@@ -602,4 +608,157 @@ describe('AI writes the open chapter twice in one round', () => {
     expect(textarea().value).toBe(V2);
     expect(screen.queryByText('editor:serverSyncFailed.message')).toBeNull();
   });
+});
+
+
+describe('deleted open file terminal state', () => {
+  const mountOpenFile = async () => {
+    const view = render(<ProjectProvider><Harness /></ProjectProvider>);
+    await settle(); await advance(50); await settle();
+    expect(textarea()).toHaveValue(CH1.content);
+    return view;
+  };
+
+  it('validates a legacy boolean delete result against the tree and never refreshes the removed file', async () => {
+    await mountOpenFile();
+    setLastOpenedFile('user-1', 'project-1', CH1.id);
+    const getsBefore = server.get.mock.calls.length;
+    server.files.delete(CH1.id);
+    act(() => callbacks().onToolResult('delete_file', 'success', true as unknown as Record<string, unknown>));
+    await settle();
+    await act(async () => { await callbacks().onComplete([], null); });
+    await advance(5000); await settle();
+    expect(harness.project?.selectedItem).toBeNull();
+    expect(server.get).toHaveBeenCalledTimes(getsBefore);
+    expect(getLastOpenedFile('user-1', 'project-1')).toBeNull();
+    expect(screen.queryByText('editor:serverSyncFailed.message')).not.toBeInTheDocument();
+  });
+
+  it('treats refresh 404 as terminal after one request', async () => {
+    await mountOpenFile();
+    const getsBefore = server.get.mock.calls.length;
+    server.get.mockRejectedValue(new ApiError(404, 'gone', 'ERR_FILE_NOT_FOUND'));
+    act(() => harness.project?.triggerEditorRefresh(CH1.id));
+    await advance(5000); await settle();
+    expect(server.get).toHaveBeenCalledTimes(getsBefore + 1);
+    expect(harness.project?.selectedItem).toBeNull();
+    expect(screen.queryByText('editor:serverSyncFailed.message')).not.toBeInTheDocument();
+  });
+
+  it('keeps a deleted dirty draft readable after remount without saving into the deleted file', async () => {
+    const view = await mountOpenFile();
+    const draft = '作者刚输入、还没有保存的正文';
+    fireEvent.change(textarea(), { target: { value: draft } });
+    server.files.delete(CH1.id);
+    act(() => callbacks().onToolResult('delete_file', 'success', { id: CH1.id }));
+    await settle(); await advance(5000);
+    expect(harness.project?.selectedItem).toBeNull();
+    expect(screen.getByLabelText('editor:deletedFile.draft')).toHaveValue(draft);
+    expect(readEditorDraftSnapshot(localStorage, { userId: 'user-1', projectId: 'project-1', fileId: CH1.id })?.content).toBe(draft);
+    expect(server.update).not.toHaveBeenCalled();
+    view.unmount(); await settle();
+    render(<ProjectProvider><Harness initialSelection={false} /></ProjectProvider>);
+    await settle();
+    expect(screen.getByLabelText('editor:deletedFile.draft')).toHaveValue(draft);
+    expect(server.update).not.toHaveBeenCalled();
+  });
+
+  it('retains the visible draft and reports storage failure without claiming it was saved', async () => {
+    await mountOpenFile();
+    fireEvent.change(textarea(), { target: { value: '内存中的未保存正文' } });
+    const write = vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new DOMException('full', 'QuotaExceededError'); });
+    try {
+      server.files.delete(CH1.id);
+      act(() => callbacks().onToolResult('delete_file', 'success', { id: CH1.id }));
+      await settle(); await advance(5000);
+      expect(screen.getByLabelText('editor:deletedFile.draft')).toHaveValue('内存中的未保存正文');
+      expect(screen.getByText('editor:deletedFile.storageFailed')).toBeInTheDocument();
+      expect(screen.queryByText('editor:deletedFile.saved')).not.toBeInTheDocument();
+      const unload = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(unload);
+      expect(unload.defaultPrevented).toBe(true);
+      const chunkReload = new Event(BEFORE_CHUNK_RELOAD_EVENT, { cancelable: true });
+      window.dispatchEvent(chunkReload);
+      expect(chunkReload.defaultPrevented).toBe(true);
+
+
+      expect(server.update).not.toHaveBeenCalled();
+    } finally { write.mockRestore(); }
+  });
+  it('does not let an old GET response replace a newly selected file after deletion', async () => {
+    await mountOpenFile();
+    let resolveOld!: (file: ServerFile) => void;
+    server.get.mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }));
+    act(() => harness.project?.triggerEditorRefresh(CH1.id));
+    await advance(100);
+    const second = { ...CH1, id: CH2_ID, title: '第2章', content: '另一个文件的正文' };
+    server.files.set(CH2_ID, second);
+    act(() => {
+      callbacks().onToolResult('delete_file', 'success', { id: CH1.id });
+      harness.project?.setSelectedItem({ id: CH2_ID, type: 'draft', title: second.title });
+    });
+    await settle();
+    await act(async () => resolveOld({ ...CH1, content: '删除前的过期响应' }));
+    await settle();
+    expect(harness.project?.selectedItem?.id).toBe(CH2_ID);
+    expect(textarea()).toHaveValue(second.content);
+  });
+
+  it('keeps the latest dirty recovery copy when an earlier PUT completes after deletion', async () => {
+    await mountOpenFile();
+    let resolveSave!: (file: ServerFile) => void;
+    server.update.mockImplementationOnce(() => new Promise(resolve => { resolveSave = resolve; }));
+    fireEvent.change(textarea(), { target: { value: '先提交的正文' } });
+    fireEvent.keyDown(textarea(), { key: 's', ctrlKey: true });
+    await settle();
+    expect(server.update).toHaveBeenCalledTimes(1);
+    fireEvent.change(textarea(), { target: { value: '删除前最后输入的正文' } });
+    act(() => callbacks().onToolResult('delete_file', 'success', { id: CH1.id }));
+    await settle();
+    await act(async () => resolveSave({ ...CH1, content: '先提交的正文' }));
+    await settle();
+    expect(harness.project?.selectedItem).toBeNull();
+    expect(readEditorDraftSnapshot(localStorage, { userId: 'user-1', projectId: 'project-1', fileId: CH1.id })?.content).toBe('删除前最后输入的正文');
+    expect(screen.getByLabelText('editor:deletedFile.draft')).toHaveValue('删除前最后输入的正文');
+    expect(recordStats).not.toHaveBeenCalled();
+  });
+
+  it('recognizes a deletion completed inside parallel_execute', async () => {
+    await mountOpenFile();
+    server.files.delete(CH1.id);
+    act(() => callbacks().onToolResult('parallel_execute', 'success', {
+      tasks: [{ type: 'delete_file', status: 'completed', result: { status: 'success', data: true } }],
+    }));
+    await settle(); await advance(5000);
+    expect(harness.project?.selectedItem).toBeNull();
+    expect(server.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers a previously saved local draft when the file is already deleted on opening', async () => {
+    writeEditorDraftSnapshot(localStorage, createEditorDraftSnapshot({
+      userId: 'user-1', projectId: 'project-1', fileId: CH1.id,
+      title: '本地标题', content: '离开前保留的正文', baseUpdatedAt: CH1.updated_at, reason: 'page-exit',
+    }));
+    server.get.mockRejectedValue(new ApiError(404, 'gone', 'ERR_FILE_NOT_FOUND'));
+    render(<ProjectProvider><Harness /></ProjectProvider>);
+    await settle(); await advance(5000);
+    expect(screen.getByLabelText('editor:deletedFile.draft')).toHaveValue('离开前保留的正文');
+    expect(harness.project?.selectedItem).toBeNull();
+    expect(server.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains an undecided comparison without inventing a newer base token when it is deleted', async () => {
+    const AUTHOR_REWRITE = V1.replace('中午十二点，老周还在摊上。', '傍晚，老周收摊了。');
+    await runRoundUntilV1();
+    fireEvent.change(textarea(), { target: { value: AUTHOR_REWRITE } });
+    await secondWrite('parallel_execute');
+    act(() => callbacks().onToolResult('delete_file', 'success', { id: CH2_ID }));
+    await settle();
+    const snapshot = readEditorDraftSnapshot(localStorage, { userId: 'user-1', projectId: 'project-1', fileId: CH2_ID });
+    expect(snapshot?.content).toBe(AUTHOR_REWRITE);
+    expect(snapshot?.baseUpdatedAt).toBeUndefined();
+    expect(snapshot?.reason).toBe('file-deleted');
+    expect(putsFor(CH2_ID)).toHaveLength(0);
+  });
+
 });

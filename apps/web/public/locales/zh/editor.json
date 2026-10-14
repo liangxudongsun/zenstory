@@ -1,4 +1,15 @@
 {
+  "deletedFile": {
+    "leaveTitle": "草稿还没有备份",
+    "leaveMessage": "有些文字还只在当前页面，离开可能会丢失。建议先留在这里下载草稿副本。",
+    "leaveMessageWhileGenerating": "有些文字还只在当前页面，离开可能会丢失，正在生成的内容也会停止。建议先下载草稿副本。",
+    "message": "此文件已删除",
+    "recovery": "已删除文件「{{title}}」的未保存草稿",
+    "saved": "未保存的文字已保留在本机，你可以查看或下载副本",
+    "storageFailed": "本机存储未能保存草稿，请先下载副本，再离开页面",
+    "draft": "已删除文件的草稿",
+    "download": "下载草稿"
+  },
   "header": {
     "appName": "ZenStory",
     "goDashboard": "返回工作台",

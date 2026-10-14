@@ -1,4 +1,6 @@
 import React from 'react'
+import { BrowserRouter, Link } from 'react-router-dom'
+import { setUnprotectedDeletedDraft } from '../../lib/fileRemovalEvents'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, render as rtlRender, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -324,6 +326,24 @@ describe('ChatPanel mount smoke', () => {
     // 进度 mock 每个用例重置，避免中途失败的用例把排队的返回值留给下一个。
     mockGetProgress.mockReset()
     mockGetProgress.mockResolvedValue([])
+  })
+
+
+  it('asks before in-app navigation when a deleted draft has no persistent copy', async () => {
+    const originalPath = window.location.pathname
+    setUnprotectedDeletedDraft('project-1', true)
+    const view = render(<BrowserRouter><Link to="/protected-draft-leave">leave-project</Link><ChatPanel /></BrowserRouter>)
+    try {
+      fireEvent.click(screen.getByText('leave-project'))
+      expect(await screen.findByRole('dialog')).toHaveTextContent('editor:deletedFile.leaveMessage')
+      expect(window.location.pathname).toBe(originalPath)
+      fireEvent.click(screen.getByTestId('leave-dialog-stay'))
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(window.location.pathname).toBe(originalPath)
+    } finally {
+      act(() => setUnprotectedDeletedDraft('project-1', false))
+      view.unmount()
+    }
   })
 
   it('mounts without runtime initialization errors', async () => {
