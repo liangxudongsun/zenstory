@@ -214,3 +214,34 @@ describe("getSubscriptionFeatureRows", () => {
     expect(rows.find((row) => row.key === "material_decompositions")?.value).toBe("不含");
   });
 });
+
+
+describe("catalog and settings entitlement consistency", () => {
+  const en = (key: string, fallback: string) => ({
+    "dashboard:billing.messagesPerDay": "/day",
+    "dashboard:billing.timesPerMonth": "/month",
+    "dashboard:billing.versionsUnit": "versions",
+  }[key] ?? fallback);
+
+  it("compares the actual per-file version limit and hides it for older APIs", () => {
+    const definitions = getEntitlementMetricDefinitions(t, "zh");
+    const metric = definitions.find((item) => item.key === "file_versions_per_file");
+    expect(metric).toBeDefined();
+    const tier = { entitlements: { file_versions_per_file: 42 } } as SubscriptionCatalogTier;
+    expect(metric?.value(tier)).toBe("42 个");
+    expect(metric?.compareValue(tier)).toBe(42);
+    expect(filterAvailableMetrics(definitions, [tier]).map((item) => item.key)).toEqual(["file_versions_per_file"]);
+    expect(filterAvailableMetrics(definitions, [tier, { entitlements: {} } as SubscriptionCatalogTier])).toEqual([]);
+  });
+
+  it("joins slash units without spaces in both comparison and settings", () => {
+    const definitions = getEntitlementMetricDefinitions(en, "en");
+    const tier = { entitlements: { ai_conversations_per_day: 3, material_decompositions_monthly: 7 } } as SubscriptionCatalogTier;
+    expect(definitions.find((item) => item.key === "ai_conversations_per_day")?.value(tier)).toBe("3/day");
+    expect(definitions.find((item) => item.key === "material_decompositions_monthly")?.value(tier)).toBe("7/month");
+    const rows = getSubscriptionFeatureRows({ ai_conversations_per_day: 3, material_decompositions: 7, materials_library_access: true, file_versions_per_file: 42 }, en, "en");
+    expect(rows.find((item) => item.key === "ai_conversations_per_day")?.value).toBe("3/day");
+    expect(rows.find((item) => item.key === "material_decompositions")?.value).toBe("7/month");
+    expect(rows.find((item) => item.key === "file_versions_per_file")?.value).toBe("42 versions");
+  });
+});

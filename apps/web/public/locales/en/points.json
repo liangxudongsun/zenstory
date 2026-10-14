@@ -23,7 +23,7 @@
   "benefit": {
     "unlimitedAI": "Unlimited AI messages",
     "unlimitedProjects": "Unlimited projects",
-    "materials": "5 material breakdowns a month"
+    "materials": "{{limit}} material breakdowns per month"
   },
   "opportunityDescriptions": {
     "check_in": "Daily check-in",

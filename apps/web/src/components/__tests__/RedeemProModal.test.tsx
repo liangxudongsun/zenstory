@@ -1,8 +1,10 @@
+vi.mock('../../lib/subscriptionApi', () => ({ subscriptionApi: { getCatalog: vi.fn(async () => ({ tiers: [{ name: 'pro', entitlements: { material_decompositions_monthly: 5 } }] })) } }))
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RedeemProModal } from '../points/RedeemProModal'
 import * as pointsApi from '../../lib/pointsApi'
+import { subscriptionApi } from '../../lib/subscriptionApi'
 import type { PointsBalance } from '../../types/points'
 
 // Mock pointsApi
@@ -55,6 +57,7 @@ describe('RedeemProModal', () => {
 
   beforeEach(() => {
     vi.resetAllMocks()
+    vi.mocked(subscriptionApi.getCatalog).mockResolvedValue({ tiers: [{ name: "pro", entitlements: { material_decompositions_monthly: 5 } }] } as Awaited<ReturnType<typeof subscriptionApi.getCatalog>>)
     mockPointsApi.getConfig.mockResolvedValue({check_in:5,check_in_streak:20,referral:50,skill_contribution:50,inspiration_contribution:50,profile_complete:20,pro_7days_cost:100,streak_bonus_threshold:7})
   })
 

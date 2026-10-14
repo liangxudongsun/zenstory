@@ -9,6 +9,7 @@ import { paymentApi, paymentQueryKeys } from '../../lib/paymentApi'
 import { ApiError } from '../../lib/apiClient'
 import { trackEvent } from '../../lib/analytics'
 import { formatYuan, getYearlySavings } from '../../lib/subscriptionEntitlements'
+import { useProMaterialDecompositionsLimit } from '../../hooks/useProMaterialDecompositionsLimit'
 import type { PaymentCycle, PaymentCheckout } from '../../types/payment'
 
 // Codes whose errors: translation tells the buyer what to do next.
@@ -101,6 +102,7 @@ export function PaymentCheckoutModal({
     ? rawUpgradeSource
     : undefined
   const { t, i18n } = useTranslation(['dashboard', 'common', 'errors'])
+  const materialLimit = useProMaterialDecompositionsLimit(isOpen)
   const [cycle, setCycle] = useState<PaymentCycle>(initialCycle)
   const [error, setError] = useState('')
   // Set once the order exists and the form is submitted: until the browser has
@@ -197,7 +199,9 @@ export function PaymentCheckoutModal({
       <Modal.Body>
         <div className="space-y-4">
           <p className="text-sm text-[hsl(var(--text-secondary))]">
-            {t('dashboard:billing.paymentBenefits', 'AI 消息不限条数 · 项目不限 · 每月 5 次素材拆解')}
+            {materialLimit === null
+              ? t('dashboard:billing.paymentBenefitsBase', 'AI 消息不限条数 · 项目不限')
+              : t('dashboard:billing.paymentBenefits', 'AI 消息不限条数 · 项目不限 · 每月 {{limit}} 次素材拆解', { limit: materialLimit })}
           </p>
           <div className="grid grid-cols-2 gap-3 pt-2" role="radiogroup" aria-label={t('dashboard:billing.billingCycleLabel', '购买时长')}>
             {(['month', 'year'] as PaymentCycle[]).map((item) => {
@@ -212,7 +216,7 @@ export function PaymentCheckoutModal({
                   key={item}
                   onClick={() => setCycle(item)}
                   disabled={isBusy}
-                  className={`relative rounded-lg border p-3 text-left transition-colors ${
+                  className={`flex flex-col items-stretch rounded-lg border p-3 text-left transition-colors ${
                     selected
                       ? 'border-[hsl(var(--accent-primary))] bg-[hsl(var(--accent-primary)/0.08)] ring-1 ring-[hsl(var(--accent-primary))]'
                       : savings
@@ -220,11 +224,6 @@ export function PaymentCheckoutModal({
                       : 'border-[hsl(var(--border-color))] hover:bg-[hsl(var(--bg-tertiary))]'
                   }`}
                 >
-                  {savings && (
-                    <span className="absolute -top-2.5 right-3 rounded-full bg-[hsl(var(--accent-primary))] px-2 py-0.5 text-xs font-medium text-white shadow-sm">
-                      {t('dashboard:billing.yearlyBestValue', '最划算 · 省 {{percent}}%', { percent: savings.percent })}
-                    </span>
-                  )}
                   <span className="flex items-center justify-between text-sm font-medium text-[hsl(var(--text-primary))]">
                     {item === 'month'
                       ? t('dashboard:billing.monthlyDuration', '月付 · 30 天')
@@ -248,6 +247,11 @@ export function PaymentCheckoutModal({
                         {t('dashboard:billing.monthlyFlexible', '先试一个月')}
                       </span>
                     )
+                  )}
+                  {savings && (
+                    <span className="mt-2 self-start rounded-full bg-[hsl(var(--accent-primary))] px-2 py-0.5 text-xs font-medium text-white">
+                      {t('dashboard:billing.yearlyBestValue', '最划算 · 省 {{percent}}%', { percent: savings.percent })}
+                    </span>
                   )}
                 </button>
               )

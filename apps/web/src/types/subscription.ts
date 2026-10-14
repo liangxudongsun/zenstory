@@ -51,6 +51,8 @@ export interface SubscriptionCatalogEntitlements {
   /** @deprecated Fixed at zero for compatibility; not a runtime entitlement. */
   agent_runs_monthly: number;
   active_projects_limit: number;
+  /** Missing from older APIs during a rolling release. */
+  file_versions_per_file?: number;
   materials_library_access: boolean;
   material_uploads_monthly: number;
   material_decompositions_monthly: number;
