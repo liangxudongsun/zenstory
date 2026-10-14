@@ -1,4 +1,5 @@
 {
+  "naturalPolishTooLong": "一次最多处理 6000 字，请分段选中",
   "header": {
     "appName": "ZenStory",
     "goDashboard": "返回工作台",

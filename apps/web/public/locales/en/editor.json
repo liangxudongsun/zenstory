@@ -1,4 +1,5 @@
 {
+  "naturalPolishTooLong": "Select up to 6000 characters at a time. Split longer text into sections.",
   "header": {
     "appName": "ZenStory",
     "goDashboard": "Back to dashboard",

@@ -536,14 +536,14 @@ describe('SimpleEditor', () => {
     });
   });
 
-  const renderPolishableEditor = (onEnterDiffReview = vi.fn()) => {
+  const renderPolishableEditor = (onEnterDiffReview = vi.fn(), content = "Hello world") => {
     render(
       <SimpleEditor
         projectId="project-1"
         fileId="file-1"
         fileType="draft"
         title="File 1"
-        content="Hello world"
+        content={content}
         onTitleChange={vi.fn()}
         onContentChange={vi.fn()}
         onSave={vi.fn().mockResolvedValue({ outcome: 'saved', updatedAt: '2026-10-06T10:00:00.000002' })}
@@ -1170,4 +1170,24 @@ describe('SimpleEditor', () => {
       }),
     );
   });
+  it.each([6000, 6001])('checks the natural polish selection boundary at %i characters before requesting', async (length) => {
+    const { naturalPolishApi } = await import('../../lib/naturalPolishApi');
+    const text = '文'.repeat(length);
+    vi.mocked(naturalPolishApi.naturalPolish).mockResolvedValue({ text, unchanged: true });
+    const info = vi.spyOn(toast, 'info').mockImplementation(() => {});
+    const textarea = renderPolishableEditor(vi.fn(), text);
+    textarea.setSelectionRange(0, length);
+    fireEvent.select(textarea);
+    fireEvent.click(screen.getByRole('button', { name: 'editor:naturalPolish' }));
+    if (length === 6000) {
+      await waitFor(() => expect(naturalPolishApi.naturalPolish).toHaveBeenCalledWith(
+        expect.objectContaining({ selectedText: text }), expect.anything(),
+      ));
+    } else {
+      expect(naturalPolishApi.naturalPolish).not.toHaveBeenCalled();
+      expect(info).toHaveBeenCalledWith('editor:naturalPolishTooLong');
+      expect(textarea).toHaveValue(text);
+    }
+  });
+
 });

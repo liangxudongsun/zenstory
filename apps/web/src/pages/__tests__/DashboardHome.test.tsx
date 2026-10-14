@@ -949,4 +949,25 @@ describe('DashboardHome featured inspirations section', () => {
     expect(mockNavigate).not.toHaveBeenCalled()
     vi.unstubAllGlobals()
   })
+  it('keeps an oversized idea editable and rejects button and Enter before creating a project', () => {
+    renderDashboardHome()
+    const input = screen.getByTestId('dashboard-inspiration-input')
+    fireEvent.change(input, { target: { value: '文'.repeat(20001) } })
+    expect(screen.getByRole('alert')).toHaveTextContent('chat:input.tooLong')
+    expect(screen.getByTestId('create-project-button')).toBeDisabled()
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(mockCreateProject).not.toHaveBeenCalled()
+    expect(input).toHaveValue('文'.repeat(20001))
+    expect(mockNavigate).not.toHaveBeenCalled()
+  })
+
+  it('creates a project with an idea at the 20000 character boundary', async () => {
+    renderDashboardHome()
+    const idea = '文'.repeat(20000)
+    fireEvent.change(screen.getByTestId('dashboard-inspiration-input'), { target: { value: idea } })
+    fireEvent.click(screen.getByTestId('create-project-button'))
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/project/project-created'))
+    expect(JSON.parse(localStorage.getItem('zenstory_inspiration_project-created')!).content).toBe(idea)
+  })
+
 })

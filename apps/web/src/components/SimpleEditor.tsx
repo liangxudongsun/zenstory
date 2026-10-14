@@ -16,7 +16,7 @@ import { SavedAgoLabel } from "./SavedAgoLabel";
 import { countWords } from "../lib/documentChunker";
 import { logger } from "../lib/logger";
 import { toast } from "../lib/toast";
-import { preserveSelectionWhitespace } from "../lib/naturalPolish";
+import { MAX_NATURAL_POLISH_CHARS, preserveSelectionWhitespace } from "../lib/naturalPolish";
 import { naturalPolishApi } from "../lib/naturalPolishApi";
 import { subscriptionQueryKeys } from "../lib/subscriptionApi";
 import type { QuotaResponse } from "../types/subscription";
@@ -647,6 +647,11 @@ export const SimpleEditor = ({
     const selection = textarea.value.substring(start, end);
     if (!selection.trim()) {
       toast.info(t("editor:naturalPolishNoSelection"));
+      return;
+    }
+
+    if (selection.length > MAX_NATURAL_POLISH_CHARS) {
+      toast.info(t("editor:naturalPolishTooLong"));
       return;
     }
 

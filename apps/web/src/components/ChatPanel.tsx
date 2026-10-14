@@ -23,6 +23,7 @@
  * @see useAgentStream - SSE streaming hook for AI responses
  * @module components/ChatPanel
  */
+import { MAX_AGENT_MESSAGE_CHARS } from "../lib/agentLimits";
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -1859,6 +1860,14 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
           // author's own words. `entry` lets the server add its first-message hint
           // to the model context without persisting it (older servers ignore it).
           const idea = content;
+          if (idea.length > MAX_AGENT_MESSAGE_CHARS) {
+            // Legacy dashboard entries may predate client length validation.
+            // Let MessageInput explain the limit, preserving any text already typed.
+            inspirationProcessedRef.current.add(currentProjectId);
+            saveDraft(draft && !draft.includes(idea) ? `${draft}\n\n${idea}` : draft || idea);
+            localStorage.removeItem(inspirationKey);
+            return;
+          }
 
           // Delay slightly to ensure UI is ready. Tracked in a ref so it can be
           // cleared on unmount/deps-change, otherwise a stray auto-send could
@@ -1894,7 +1903,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
         inspirationSendTimerRef.current = null;
       }
     };
-  }, [currentProjectId, isLoadingHistory, isStreaming, handleSendMessage]);
+  }, [currentProjectId, isLoadingHistory, isStreaming, handleSendMessage, draft, saveDraft]);
 
   /**
    * Starts a new chat session for the current project.

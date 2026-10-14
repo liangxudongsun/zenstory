@@ -1754,6 +1754,26 @@ describe('ChatPanel new-author flow', () => {
     expect(mockGetStreamCallbacks.mock.calls.at(-1)?.[0].getLatestUserRequest?.()).toBe(idea)
   })
 
+
+  it('recovers an oversized stored idea into the draft without replacing existing typed text or sending', async () => {
+    const idea = '文'.repeat(20001)
+    mockDraft.draft = '尚未发送的补充要求'
+    localStorage.setItem('zenstory_inspiration_project-1', JSON.stringify({ content: idea, timestamp: Date.now() }))
+    render(<ChatPanel />)
+    await waitFor(() => expect(mockDraft.saveDraft).toHaveBeenCalledWith(`尚未发送的补充要求\n\n${idea}`))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 650)))
+    expect(mockStartStream).not.toHaveBeenCalled()
+    expect(mockDraft.clearDraft).not.toHaveBeenCalled()
+  })
+
+  it('automatically sends a stored idea at the 20000 character boundary', async () => {
+    const idea = '文'.repeat(20000)
+    localStorage.setItem('zenstory_inspiration_project-1', JSON.stringify({ content: idea, timestamp: Date.now() }))
+    render(<ChatPanel />)
+    await waitFor(() => expect(mockStartStream).toHaveBeenCalledTimes(1), { timeout: 3000 })
+    expect(mockStartStream.mock.calls[0][0].message).toBe(idea)
+  })
+
   it('does not tag ordinary sends from the input box', async () => {
     render(<ChatPanel />)
     await waitFor(() => expect(screen.getByTestId('mock-message-input')).toBeInTheDocument())
