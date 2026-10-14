@@ -9,7 +9,7 @@ Use history to read older prose, compare changes, or restore content. Choose the
 | History in the editor | Retained versions of one file | Read, compare, or restore a file |
 | Project history in the header | Project file state at a moment | Compare file changes or restore a project |
 
-Saving current prose and adding a history version are different. Small changes may not add a version, and a full history allowance may save prose only. Check the records actually retained in the list.
+Saving current prose and adding a history version are different. Consecutive manual saves may be merged into one version within a time window, regardless of how much text changed. When the history allowance is full, prose can still be saved, but a new version may not be added. Check the records actually retained in the list.
 
 ## Read and compare file versions
 

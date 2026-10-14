@@ -503,6 +503,10 @@ export const FileVersionHistory: React.FC<FileVersionHistoryProps> = ({
         </div>
       </div>
 
+      <p className="px-4 py-2 text-sm text-[hsl(var(--text-secondary))]">
+        {t('savingHint')}
+      </p>
+
       {/* Content */}
       <div className="flex-1 overflow-hidden flex">
         {/* Version List */}
