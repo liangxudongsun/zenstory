@@ -1918,3 +1918,140 @@ async def test_update_project_notes_over_shared_budget_fail_before_any_write(db_
         assert stored.summary == "旧摘要"
     finally:
         ToolContext.clear_context()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ('reply', 'expected'),
+    [('确认以上全部提议', ['主角不会游泳', '魂灯点一次少活一年']), ('确认第2条', ['魂灯点一次少活一年'])],
+)
+async def test_update_project_confirms_current_presented_proposals_by_reference(db_session, reply, expected):
+    """作者按上一轮明确呈现的编号确认，无须再把固定提议复述一遍。"""
+    from agent.tools.author_edit_guard import previous_offer_items
+    from agent.tools.mcp_tools import ToolContext
+    from config.project_notes import PROPOSALS_HEADER, split_project_notes
+
+    entries = ['主角不会游泳', '魂灯点一次少活一年']
+    user, project = _make_user_and_project(db_session, f'notesbatch{uuid4().hex[:5]}')
+    project.notes = PROPOSALS_HEADER + '\n' + '\n'.join(entries)
+    db_session.add(project)
+    db_session.commit()
+    previous_reply = '请确认以下提议：\n1. 主角不会游泳\n2. 魂灯点一次少活一年'
+    ToolContext.set_context(
+        session=db_session, user_id=user.id, project_id=project.id, session_id='notes-batch',
+        author_message=reply,
+        author_previous_offer=previous_offer_items(previous_reply),
+        author_previous_offer_context=(previous_reply,),
+    )
+    try:
+        payload = _parse_payload(await update_project({'notes': '\n'.join(entries), 'author_quotes': [reply]}))
+        assert payload['status'] == 'success'
+        sections = split_project_notes(_stored_notes(db_session, project))
+        assert sections.confirmed == expected
+        assert sections.proposals == [entry for entry in entries if entry not in expected]
+    finally:
+        ToolContext.clear_context()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+@pytest.mark.parametrize(('previous_reply', 'current_second'), [
+    ('请确认以下提议：\n1. 主角不会游泳\n2. 魂灯点一次少活一年\n3. 另开一个项目', '魂灯点一次少活一年'),
+    ('请确认以下提议：\n1. 主角不会游泳\n2. 女主第三章才出场', '魂灯点一次少活一年'),
+    ('请确认以下提议：\n1. 主角不会游泳\n2. 魂灯点一次少活一年', '魂灯点一次少活十年'),
+    ('', '魂灯点一次少活一年'),
+])
+async def test_update_project_does_not_filter_or_trust_a_different_confirmation_batch(db_session, previous_reply, current_second):
+    from agent.tools.author_edit_guard import previous_offer_items
+    from agent.tools.mcp_tools import ToolContext
+    from config.project_notes import PROPOSALS_HEADER, split_project_notes
+
+    entries = ['主角不会游泳', current_second]
+    user, project = _make_user_and_project(db_session, f'noteswrongbatch{uuid4().hex[:5]}')
+    project.notes = PROPOSALS_HEADER + '\n' + '\n'.join(entries)
+    db_session.add(project)
+    db_session.commit()
+    ToolContext.set_context(
+        session=db_session, user_id=user.id, project_id=project.id, session_id='notes-wrong-batch',
+        author_message='确认以上全部提议',
+        author_previous_offer=previous_offer_items(previous_reply),
+        author_previous_offer_context=(previous_reply, '请列出待确认条目'),
+    )
+    try:
+        payload = _parse_payload(await update_project({
+            'notes': '\n'.join(entries), 'author_quotes': ['确认以上全部提议'],
+            # 模型自报的清单不能替代服务端已有的上一轮选项。
+            'previous_proposals': list(enumerate(entries, start=1)),
+        }))
+        assert payload['status'] == 'success'
+        sections = split_project_notes(_stored_notes(db_session, project))
+        assert sections.confirmed == []
+        assert sections.proposals == entries
+    finally:
+        ToolContext.clear_context()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_update_project_confirms_full_proposal_list_beyond_offer_tail_and_topic_headings(db_session):
+    """D01 结构：35 个条目、多个主题标题和末尾说明，不可只拿主题标题或最后12行。"""
+    from agent.tools.author_edit_guard import previous_offer_items
+    from agent.tools.mcp_tools import ToolContext
+    from config.project_notes import PROPOSALS_HEADER, split_project_notes
+
+    entries = [f'合成规则{index}保持原样' for index in range(1, 36)]
+    user, project = _make_user_and_project(db_session, f'noteslongbatch{uuid4().hex[:5]}')
+    project.notes = PROPOSALS_HEADER + '\n' + '\n'.join(entries)
+    db_session.add(project)
+    db_session.commit()
+    lines = ['下面是 AI 记忆「待确认」区里的条目，请按编号或全部确认。']
+    for index, entry in enumerate(entries, start=1):
+        if index in (1, 13, 25):
+            lines.append(f'**{ {1:"一",13:"二",25:"三"}[index]}、主题**')
+        lines.append(f'{index}. {entry}')
+    lines.extend(['**说明**', '- 未选的提议保持待确认。'])
+    previous_reply = '\n'.join(lines)
+    ToolContext.set_context(
+        session=db_session, user_id=user.id, project_id=project.id, session_id='notes-full-batch',
+        author_message='全部确认', author_previous_offer=previous_offer_items(previous_reply),
+        author_previous_offer_context=(previous_reply, '请列出待确认的条目'),
+    )
+    try:
+        payload = _parse_payload(await update_project({'notes': '\n'.join(entries), 'author_quotes': ['全部确认']}))
+        assert payload['status'] == 'success'
+        sections = split_project_notes(_stored_notes(db_session, project))
+        assert sections.confirmed == entries
+        assert sections.proposals == []
+    finally:
+        ToolContext.clear_context()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_update_project_does_not_treat_previous_author_list_as_ai_presentation(db_session):
+    """仅工具的空 assistant 会被历史 helper 省略，剩下的作者原文不能冒充 AI 展示。"""
+    from agent.tools.author_edit_guard import previous_offer_context_from_history, previous_offer_from_history
+    from agent.tools.mcp_tools import ToolContext
+    from config.project_notes import PROPOSALS_HEADER, split_project_notes
+
+    entries = ['主角不会游泳', '魂灯点一次少活一年']
+    author_list = '请确认以下提议：\n1. 主角不会游泳\n2. 魂灯点一次少活一年'
+    history = [{'role': 'user', 'content': author_list}, {'role': 'assistant', 'content': ''}]
+    user, project = _make_user_and_project(db_session, f'notesauthorlist{uuid4().hex[:5]}')
+    project.notes = PROPOSALS_HEADER + '\n' + '\n'.join(entries)
+    db_session.add(project)
+    db_session.commit()
+    ToolContext.set_context(
+        session=db_session, user_id=user.id, project_id=project.id, session_id='notes-author-list',
+        author_message='全部确认', author_previous_offer=previous_offer_from_history(history),
+        author_previous_offer_context=previous_offer_context_from_history(history),
+    )
+    try:
+        payload = _parse_payload(await update_project({'notes': '\n'.join(entries), 'author_quotes': ['全部确认']}))
+        assert payload['status'] == 'success'
+        sections = split_project_notes(_stored_notes(db_session, project))
+        assert sections.confirmed == []
+        assert sections.proposals == entries
+    finally:
+        ToolContext.clear_context()
