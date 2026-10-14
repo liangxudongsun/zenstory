@@ -42,7 +42,10 @@
     "roundSavedFile": "\"{{title}}\"",
     "roundSavedFileWords": "\"{{title}}\" ({{words}} words)",
     "roundSavedFilesJoiner": ", ",
-    "roundSavedFilesMore": "{{files}} and {{rest}} more"
+    "roundSavedFilesMore": "{{files}} and {{rest}} more",
+    "creatingSession": "Creating new chat",
+    "newSessionFailed": "Could not create a new chat. Syncing the current chat.",
+    "sessionRecoveryFailed": "Unable to sync the current chat. Retry before sending. Your draft is preserved."
   },
   "input": {
     "placeholder": "Tell the AI what to write",

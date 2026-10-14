@@ -242,7 +242,9 @@ class AgentService:
         `agent_artifact_ledger.session_id` has a FK to `chat_session.id`.
         """
         from models import ChatSession
+        from services.chat_session_service import lock_active_chat_session
 
+        lock_active_chat_session(session, user_id=user_id, project_id=project_id)
         normalized_requested = (requested_session_id or "").strip()
 
         # 1) If caller provided a runtime session id, we REQUIRE it to exist in

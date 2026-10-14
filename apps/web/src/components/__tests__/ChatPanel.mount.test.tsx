@@ -1558,6 +1558,19 @@ describe('ChatPanel mount smoke', () => {
       expect(createNewSession).not.toHaveBeenCalled()
     })
 
+    it('keeps a committed new chat when its auxiliary suggestions reject', async () => {
+      render(<ChatPanel />)
+      await waitFor(() => expect(fetchSuggestions).toHaveBeenCalledTimes(1))
+      vi.mocked(fetchSuggestions).mockRejectedValueOnce(new Error('Auxiliary suggestions unavailable'))
+      fireEvent.click(newChatButton())
+      await waitFor(() => expect(fetchSuggestions).toHaveBeenCalledTimes(2))
+      await act(async () => { await Promise.resolve() })
+      expect(createNewSession).toHaveBeenCalledTimes(1)
+      expect(getRecentMessages).toHaveBeenCalledTimes(1)
+      expect(toast.error).not.toHaveBeenCalled()
+      expect(newChatButton()).toBeEnabled()
+    })
+
     it('starts the new chat right away when nothing is generating', async () => {
       render(<ChatPanel />)
       await waitFor(() => expect(screen.getByTestId('message-list')).toBeInTheDocument())
