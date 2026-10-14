@@ -13,15 +13,27 @@ from models.subscription import SubscriptionPlan
 
 def test_normalize_plan_features_for_response_uses_plan_defaults_and_filters_exports():
     normalized = _normalize_plan_features_for_response(
-        {"export_formats": ["docx", "txt", "docx"]},
+        {
+            "export_formats": ["docx", "txt", "docx"],
+            "material_uploads": 5,
+            "context_window_tokens": 16384,
+            "custom_prompts": True,
+            "priority_support": True,
+        },
         plan_name="pro",
     )
 
-    assert normalized["materials_library_access"] is True
-    assert normalized["ai_conversations_per_day"] == -1
-    assert normalized["max_projects"] == -1
-    assert normalized["material_uploads"] == 5
-    assert normalized["export_formats"] == ["txt"]
+    # Public features contain only runtime rights, even with legacy stored keys.
+    assert normalized == {
+        "ai_conversations_per_day": -1,
+        "file_versions_per_file": 100,
+        "max_projects": -1,
+        "export_formats": ["txt"],
+        "materials_library_access": True,
+        "material_decompositions": 5,
+        "custom_skills": 20,
+        "inspiration_copies_monthly": -1,
+    }
 
 
 def test_normalize_plan_features_does_not_infer_access_from_free_upload_limit():
@@ -31,7 +43,10 @@ def test_normalize_plan_features_does_not_infer_access_from_free_upload_limit():
     )
 
     assert normalized["materials_library_access"] is False
-    assert normalized["material_uploads"] == 1
+    assert "material_uploads" not in normalized
+    assert normalized["material_decompositions"] == 0
+    assert normalized["ai_conversations_per_day"] == 3
+    assert normalized["max_projects"] == 3
 
 
 def test_normalize_plan_features_replaces_legacy_free_message_limit():
@@ -47,6 +62,8 @@ def test_normalize_plan_features_preserves_explicit_false_and_zero_overrides():
     normalized = _normalize_plan_features_for_response(
         {
             "ai_conversations_per_day": 0,
+            "file_versions_per_file": 0,
+            "max_projects": 0,
             "materials_library_access": False,
             "material_uploads": 0,
             "material_decompositions": 0,
@@ -56,8 +73,10 @@ def test_normalize_plan_features_preserves_explicit_false_and_zero_overrides():
     )
 
     assert normalized["ai_conversations_per_day"] == 0
+    assert normalized["file_versions_per_file"] == 0
+    assert normalized["max_projects"] == 0
     assert normalized["materials_library_access"] is False
-    assert normalized["material_uploads"] == 0
+    assert "material_uploads" not in normalized
     assert normalized["material_decompositions"] == 0
     assert normalized["custom_skills"] == 0
 

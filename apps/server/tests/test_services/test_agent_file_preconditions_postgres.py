@@ -23,6 +23,7 @@ from models.agent_api_key import AgentApiKey
 from models.entities import Project, Snapshot, User
 from models.file_model import File
 from models.file_version import FileVersion
+from models.workspace_onboarding import WorkspaceOnboarding
 from services.features.file_version_service import get_file_version_service
 
 pytestmark = pytest.mark.skipif(
@@ -37,6 +38,7 @@ TABLES = [
     Snapshot.__table__,
     FileVersion.__table__,
     AgentApiKey.__table__,
+    WorkspaceOnboarding.__table__,
 ]
 STAMP = datetime(2026, 10, 6, 8, 0, 0, 123456, tzinfo=UTC)
 

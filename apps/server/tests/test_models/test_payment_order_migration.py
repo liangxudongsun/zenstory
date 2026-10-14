@@ -150,10 +150,14 @@ def test_upgrade_source_and_pro_backfill_round_trip(tmp_path: Path):
         assert free.features == {"max_projects": 3}
     engine.dispose()
 
-    # Downgrade keeps the data (see migration docstring); re-upgrading is a no-op.
+    # Freeze this round trip at the historical backfill. Later revisions may
+    # intentionally normalize the plan JSON and have their own migration tests.
     _alembic(db_url, "downgrade", UPGRADE_SOURCE_REVISION)
     _alembic(db_url, "downgrade", REVISION)
-    _alembic(db_url, "upgrade", "head")
+    _alembic(db_url, "upgrade", PRO_BACKFILL_REVISION)
     engine = create_engine(db_url)
+    assert _version(engine) == PRO_BACKFILL_REVISION
+    columns = {column["name"] for column in inspect(engine).get_columns("payment_order")}
+    assert "upgrade_source" in columns
     assert _pro_features(engine) == upgraded
     engine.dispose()

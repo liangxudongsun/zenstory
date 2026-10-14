@@ -19,7 +19,7 @@ from api import agent_api
 from api import files as web
 from core.error_codes import ErrorCode
 from core.error_handler import APIException
-from models import File, FileVersion, Project, Snapshot, User
+from models import File, FileVersion, Project, Snapshot, User, WorkspaceOnboarding
 from models.agent_api_key import AgentApiKey
 from services.features.file_version_service import FileVersionService, get_file_version_service
 
@@ -27,7 +27,7 @@ MIN_ORDER = -2_147_483_648
 MAX_ORDER = 2_147_483_647
 STAMP = datetime(2026, 10, 6, 12, 0, 0, 123456)
 TABLES = [User.__table__, Project.__table__, File.__table__, Snapshot.__table__,
-          FileVersion.__table__, AgentApiKey.__table__]
+          FileVersion.__table__, AgentApiKey.__table__, WorkspaceOnboarding.__table__]
 pytestmark = pytest.mark.skipif(
     not os.getenv("ZENSTORY_TEST_POSTGRES_URL"), reason="owned PostgreSQL URL required",
 )

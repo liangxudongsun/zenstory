@@ -25,7 +25,7 @@ from api import snapshots as snapshots_api
 from api.materials import import_ as material_import
 from api.materials.schemas import MaterialImportRequest
 from core.error_handler import APIException
-from models import File, FileVersion, Project, Snapshot, User
+from models import File, FileVersion, Project, Snapshot, User, WorkspaceOnboarding
 from models.agent_api_key import AgentApiKey
 from services.features.file_version_service import FileVersionService, get_file_version_service
 from services.features.snapshot_service import VersionService
@@ -33,7 +33,7 @@ from services.features.snapshot_service import VersionService
 pytestmark = pytest.mark.skipif(
     not os.getenv("ZENSTORY_TEST_POSTGRES_URL"), reason="isolated PostgreSQL URL not configured"
 )
-TABLES = [User.__table__, Project.__table__, File.__table__, Snapshot.__table__, FileVersion.__table__, AgentApiKey.__table__]
+TABLES = [User.__table__, Project.__table__, File.__table__, Snapshot.__table__, FileVersion.__table__, AgentApiKey.__table__, WorkspaceOnboarding.__table__]
 STAMP = datetime(2026, 10, 6, 8, 0, 0, 123456)
 
 
