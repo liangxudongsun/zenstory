@@ -159,6 +159,7 @@ describe("SubscriptionPlanManagement", () => {
           ai_conversations_per_day: 100,
           max_projects: 10,
           custom_prompts: true,
+          inspiration_copies_monthly: -1,
         },
       },
     });
@@ -174,6 +175,16 @@ describe("SubscriptionPlanManagement", () => {
     expect(JSON.parse((screen.getByLabelText("plans.featuresDetail.jsonLabel") as HTMLTextAreaElement).value)).toEqual({max_projects: 3});
     fireEvent.click(screen.getByRole("button", {name: "plans.save"}));
     expect(mutateMock).toHaveBeenCalledWith(expect.objectContaining({data: expect.objectContaining({features: {max_projects: 3, ai_conversations_per_day: 3}})}));
+  });
+
+  it("keeps Pro's existing unlimited inspiration policy read-only", () => {
+    useQueryMock.mockReturnValue({data: [{...plan, features: {inspiration_copies_monthly: 100, max_projects: -1}}]});
+    render(<SubscriptionPlanManagement />);
+    fireEvent.click(screen.getByRole("button", {name: "plans.edit"}));
+    expect(screen.getByRole("textbox", {name: "plans.featuresDetail.inspiration_copies_monthly"})).toHaveAttribute("readonly");
+    expect(JSON.parse((screen.getByLabelText("plans.featuresDetail.jsonLabel") as HTMLTextAreaElement).value)).toEqual({max_projects: -1});
+    fireEvent.click(screen.getByRole("button", {name: "plans.save"}));
+    expect(mutateMock).toHaveBeenCalledWith(expect.objectContaining({data: expect.objectContaining({features: {max_projects: -1, inspiration_copies_monthly: -1}})}));
   });
 
   it("rejects a pasted free daily policy override before making a request", () => {

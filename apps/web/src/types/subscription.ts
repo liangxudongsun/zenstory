@@ -13,16 +13,20 @@ export type SubscriptionAction =
 // Subscription plan features
 export interface SubscriptionFeatures {
   ai_conversations_per_day?: number; // -1 = unlimited
+  /** @deprecated Unenforced legacy configuration, absent from public plan rights. */
   context_window_tokens?: number;
   file_versions_per_file?: number;
   max_projects?: number; // -1 = unlimited
   export_formats?: string[];
+  /** @deprecated Unenforced legacy configuration. */
   custom_prompts?: boolean;
   materials_library_access?: boolean;
-  material_uploads?: number; // -1 = unlimited
+  /** @deprecated Uploads consume material_decompositions, not a second quota. */
+  material_uploads?: number;
   material_decompositions?: number;
   custom_skills?: number; // -1 = unlimited
   inspiration_copies_monthly?: number; // -1 = unlimited
+  /** @deprecated Unenforced legacy configuration. */
   priority_support?: boolean;
   [key: string]: unknown;
 }
@@ -52,6 +56,7 @@ export interface SubscriptionCatalogEntitlements {
   agent_runs_monthly: number;
   active_projects_limit: number;
   materials_library_access: boolean;
+  /** @deprecated Fixed neutral zero for cached clients. */
   material_uploads_monthly: number;
   material_decompositions_monthly: number;
   custom_skills_limit: number;

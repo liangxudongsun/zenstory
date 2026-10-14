@@ -191,6 +191,7 @@ export const SubscriptionPlanManagement: React.FC = () => {
   const handleEdit = (plan: SubscriptionPlan) => {
     const editableFeatures = { ...plan.features };
     if (plan.name === "free") delete editableFeatures.ai_conversations_per_day;
+    if (plan.name === "pro") delete editableFeatures.inspiration_copies_monthly;
     setEditingPlan(plan);
     setEditFormData({
       display_name: plan.display_name,
@@ -234,6 +235,13 @@ export const SubscriptionPlanManagement: React.FC = () => {
         return;
       }
       features.ai_conversations_per_day = freeDailyLimit;
+    }
+    if (editingPlan.name === "pro") {
+      if (features.inspiration_copies_monthly !== undefined && features.inspiration_copies_monthly !== -1) {
+        setJsonError(t("plans.featuresDetail.proInspirationPolicy"));
+        return;
+      }
+      features.inspiration_copies_monthly = -1;
     }
 
     updateMutation.mutate({
@@ -433,12 +441,26 @@ export const SubscriptionPlanManagement: React.FC = () => {
                   </p>
                 </div>
               )}
+              {editingPlan.name === "pro" && (
+                <div>
+                  <label htmlFor="admin-plans-pro-copy-limit" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
+                    {t("plans.featuresDetail.inspiration_copies_monthly")}
+                  </label>
+                  <input id="admin-plans-pro-copy-limit" value={t("plans.unlimited")} readOnly
+                    aria-describedby="admin-plans-pro-copy-policy"
+                    className="w-full min-h-11 rounded-lg border border-[hsl(var(--separator-color))] bg-[hsl(var(--bg-secondary))] px-3 py-2.5 text-[hsl(var(--text-secondary))]" />
+                  <p id="admin-plans-pro-copy-policy" className="mt-1 text-sm text-[hsl(var(--text-secondary))]">
+                    {t("plans.featuresDetail.proInspirationPolicy")}
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label htmlFor="admin-plans-featuresDetail-jsonLabel" className="block text-sm font-medium text-[hsl(var(--text-primary))] mb-1">
                   {t("plans.featuresDetail.jsonLabel")}
                 </label>
                 <textarea id="admin-plans-featuresDetail-jsonLabel"
+                  aria-describedby="admin-plans-legacy-feature-hint"
                   value={editFormData.featuresJson}
                   onChange={(e) => handleJsonChange(e.target.value)}
                   rows={10}
@@ -449,6 +471,9 @@ export const SubscriptionPlanManagement: React.FC = () => {
                   }`}
                   placeholder={t("plans.featuresDetail.jsonPlaceholder")}
                 />
+                <p id="admin-plans-legacy-feature-hint" className="mt-1 text-sm text-[hsl(var(--text-secondary))]">
+                  {t("plans.featuresDetail.legacyFeaturesHint")}
+                </p>
                 {jsonError && (
                   <p className="mt-1 text-sm text-[hsl(var(--error-text))] flex items-center gap-1">
                     <AlertTriangle size={14} />

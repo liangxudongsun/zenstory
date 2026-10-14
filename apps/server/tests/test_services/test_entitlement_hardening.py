@@ -87,10 +87,10 @@ def test_pro_plan_missing_keys_use_pro_defaults_not_free(db_session: Session):
     _subscribe(db_session, user, pro)
 
     assert quota_service.check_feature_quota(db_session, user.id, "skill_create") == (True, 0, 20)
-    assert quota_service.check_feature_quota(db_session, user.id, "inspiration_copy") == (True, 0, 100)
+    assert quota_service.check_feature_quota(db_session, user.id, "inspiration_copy") == (True, 0, -1)
     snapshot = quota_service.get_quota_snapshot(db_session, user.id)
     assert snapshot["skill_creates"]["limit"] == 20
-    assert snapshot["inspiration_copies"]["limit"] == 100
+    assert snapshot["inspiration_copies"]["limit"] == -1
 
     # Unknown plans and the free plan keep free-tier fallbacks.
     other = _user(db_session, "custom_plan_user")
