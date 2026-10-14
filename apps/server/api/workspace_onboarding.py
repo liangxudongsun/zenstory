@@ -10,7 +10,7 @@ from services.first_work_service import (
     FirstWorkState,
     get_first_work_state,
     initialize_first_work,
-    record_first_work_action,
+    open_first_work,
 )
 from services.project_service import resolve_template_lang
 
@@ -37,8 +37,4 @@ def initialize(
 
 @router.post("/open", response_model=FirstWorkState)
 def record_open(current_user: User = Depends(get_current_active_user), session: Session = Depends(get_session)):
-    state = get_first_work_state(session, current_user.id)
-    if state.project_id and state.available:
-        record_first_work_action(session, current_user.id, state.project_id, "open")
-        session.commit()
-    return get_first_work_state(session, current_user.id)
+    return open_first_work(session, current_user.id)

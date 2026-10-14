@@ -140,11 +140,10 @@ def _check_ai_conversation_quota_sync(user_id: str) -> tuple[bool, int, int]:
 
 
 def _record_first_work_ai_sync(user_id: str, project_id: str) -> None:
-    from services.first_work_service import record_first_work_action
+    from services.first_work_service import observe_first_work_ai_request
 
     with create_session() as action_session:
-        record_first_work_action(action_session, user_id, project_id, "ai_request")
-        action_session.commit()
+        observe_first_work_ai_request(action_session, user_id, project_id)
 
 
 def _reserve_ai_conversation_sync(user_id: str) -> datetime | None:
@@ -488,10 +487,9 @@ async def stream_request(
         if _should_offload_session_work(session):
             await asyncio.to_thread(_record_first_work_ai_sync, user_id, body.project_id)
         else:
-            from services.first_work_service import record_first_work_action
+            from services.first_work_service import observe_first_work_ai_request
 
-            record_first_work_action(session, user_id, body.project_id, "ai_request")
-            session.commit()
+            observe_first_work_ai_request(session, user_id, body.project_id)
     except Exception:
         session.rollback()
         logger.warning("Could not record first-work AI request", exc_info=True)

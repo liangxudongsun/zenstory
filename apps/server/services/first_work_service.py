@@ -1,6 +1,7 @@
 """One transactional, model-free starting workspace for newly registered authors."""
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 from datetime import datetime
@@ -14,6 +15,9 @@ from core.error_codes import ErrorCode
 from core.error_handler import APIException
 from models import File, Project, User, UserPersonaProfile, WorkspaceOnboarding
 from services.quota_service import quota_service
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 VALID_TYPES = {"novel", "short", "screenplay"}
 PERSONA_TYPES = {"short_story": "short", "screenwriter": "screenplay"}
@@ -49,11 +53,11 @@ def _state(session: Session, record: WorkspaceOnboarding | None) -> FirstWorkSta
         return FirstWorkState(status="ineligible")
     project = session.get(Project, record.project_id) if record.project_id else None
     file = session.get(File, record.file_id) if record.file_id else None
-    available = bool(project and project.owner_id == record.user_id and not project.is_deleted
-                     and file and file.project_id == project.id and not file.is_deleted)
+    project_available = bool(project and project.owner_id == record.user_id and not project.is_deleted)
+    available = bool(project_available and file and file.project_id == record.project_id and not file.is_deleted)
     return FirstWorkState(
         status=record.status, project_id=record.project_id, file_id=record.file_id,
-        available=available, static_guidance=available and record.first_ai_requested_at is None,
+        available=available, static_guidance=project_available and record.first_ai_requested_at is None,
         opened_at=record.opened_at, first_manual_write_at=record.first_manual_write_at,
         first_ai_requested_at=record.first_ai_requested_at,
     )
@@ -150,3 +154,24 @@ def record_first_work_action(session: Session, user_id: str, project_id: str, ac
         col(WorkspaceOnboarding.project_id) == project_id,
         column.is_(None),
     ).values(**{field: utcnow()}))
+
+
+def observe_first_work_ai_request(session: Session, user_id: str, project_id: str) -> None:
+    """A best-effort observation must never interrupt a quota-accepted task."""
+    try:
+        record_first_work_action(session, user_id, project_id, "ai_request")
+        session.commit()
+    except Exception:
+        with contextlib.suppress(Exception):
+            session.rollback()
+        logger.warning("Could not record first-work AI request", exc_info=True)
+
+
+def open_first_work(session: Session, user_id: str) -> FirstWorkState:
+    """Observe opening the durable original project, independently of its file."""
+    state = get_first_work_state(session, user_id)
+    project = session.get(Project, state.project_id) if state.project_id else None
+    if project is not None and project.owner_id == user_id and not project.is_deleted:
+        record_first_work_action(session, user_id, project.id, "open")
+        session.commit()
+    return get_first_work_state(session, user_id)

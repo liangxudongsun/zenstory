@@ -16,6 +16,7 @@ from database import get_session
 from middleware.rate_limit import require_user_rate_limit
 from models import User
 from services.features.natural_polish_service import is_noop_rewrite, natural_polish_service
+from services.first_work_service import observe_first_work_ai_request
 from services.quota_service import quota_service
 from utils.logger import get_logger, log_with_context
 from utils.permission import verify_project_access
@@ -103,6 +104,7 @@ async def natural_polish(
 ) -> NaturalPolishResponse:
     """Single-round natural polish (non-streaming)."""
     await verify_project_access(body.project_id, session, current_user)
+    user_id = current_user.id
 
     if not body.selected_text.strip():
         raise APIException(
@@ -118,7 +120,7 @@ async def natural_polish(
             detail=f"selected_text must be <= {MAX_SELECTED_TEXT_LENGTH} characters.",
         )
 
-    allowed, used, limit = quota_service.check_ai_conversation_quota(session, current_user.id)
+    allowed, used, limit = quota_service.check_ai_conversation_quota(session, user_id)
     if not allowed:
         raise APIException(
             error_code=ErrorCode.QUOTA_AI_CONVERSATIONS_EXCEEDED,
@@ -131,7 +133,7 @@ async def natural_polish(
     #  但 stream 早已改成失败退款，注释与实现已经脱节）。
     charged_period_start = quota_service.reserve_ai_conversation(
         session,
-        current_user.id,
+        user_id,
     )
     if charged_period_start is None:
         raise APIException(
@@ -139,6 +141,10 @@ async def natural_polish(
             status_code=402,
             detail="AI conversation quota exceeded. Please upgrade your plan.",
         )
+
+    # This explicit editor action is an AI request too; only an accepted
+    # reservation counts. Observing it cannot interrupt generation/refunds.
+    observe_first_work_ai_request(session, user_id, body.project_id)
 
     lang = (accept_language or "").split(",")[0].split("-")[0].strip().lower() or "zh"
     raw_file_type = body.metadata.get("current_file_type")
@@ -149,13 +155,13 @@ async def natural_polish(
             selected_text=body.selected_text,
             language=lang,
             file_type=file_type,
-            user_id=current_user.id,
+            user_id=user_id,
             project_id=body.project_id,
         )
     except APIException:
         _refund_ai_conversation(
             session,
-            current_user.id,
+            user_id,
             charged_period_start,
             reason="api_exception",
         )
@@ -163,7 +169,7 @@ async def natural_polish(
     except Exception as exc:
         _refund_ai_conversation(
             session,
-            current_user.id,
+            user_id,
             charged_period_start,
             reason=type(exc).__name__,
         )
@@ -178,7 +184,7 @@ async def natural_polish(
     if is_noop_rewrite(body.selected_text, result.polished_text):
         refunded = _refund_ai_conversation(
             session,
-            current_user.id,
+            user_id,
             charged_period_start,
             reason="no_change",
         )

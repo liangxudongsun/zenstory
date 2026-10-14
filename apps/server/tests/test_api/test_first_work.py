@@ -7,7 +7,7 @@ import pytest
 from sqlmodel import select
 
 from config.datetime_utils import utcnow
-from models import ActivationEvent, Project, UsageQuota, User, UserPersonaProfile, WorkspaceOnboarding
+from models import ActivationEvent, File, Project, UsageQuota, User, UserPersonaProfile, WorkspaceOnboarding
 from services.core.auth_service import create_access_token
 from services.first_work_service import enroll_new_user, initialize_first_work
 
@@ -154,3 +154,69 @@ async def test_closing_rollout_keeps_created_work_static_and_pending_work_uninit
     monkeypatch.setenv("FIRST_WORK_ONBOARDING_ROLLOUT_PERCENT", "100")
     resumed = await client.post("/api/v1/workspace/first-work", headers=pending_headers, json={})
     assert resumed.json()["status"] == "created"
+
+
+@pytest.mark.parametrize("delete_mode", ["soft", "hard"])
+async def test_deleted_default_file_never_enables_automatic_model_suggestions(client, db_session, monkeypatch, delete_mode):
+    user, quota, headers = author(db_session)
+    state = initialize_first_work(db_session, user.id)
+    if delete_mode == "soft":
+        deleted = await client.delete(f"/api/v1/files/{state.file_id}", headers=headers)
+        assert deleted.status_code == 200
+    else:
+        db_session.delete(db_session.get(File, state.file_id))
+        db_session.commit()
+    current = (await client.get("/api/v1/workspace/first-work", headers=headers)).json()
+    assert current["available"] is False and current["static_guidance"] is True
+    assert current["opened_at"] is None
+    opened = await client.post("/api/v1/workspace/first-work/open", headers=headers)
+    assert opened.json()["opened_at"] is not None
+    assert opened.json()["available"] is False and opened.json()["static_guidance"] is True
+    model = MagicMock(generate_suggestions=AsyncMock())
+    monkeypatch.setattr("agent.suggest_service.get_suggest_service", lambda: model)
+    for _ in range(2):
+        response = await client.post("/api/v1/agent/suggest", headers=headers, json={"project_id": state.project_id})
+        assert response.json() == {"suggestions": []}
+    model.generate_suggestions.assert_not_called()
+    assert db_session.get(UsageQuota, quota.id).ai_conversations_used == 3
+    assert db_session.get(WorkspaceOnboarding, user.id).first_ai_requested_at is None
+
+
+@pytest.mark.parametrize("mode", ["accepted", "quota_rejected", "model_failure", "observer_failure", "observer_and_model_failure"])
+async def test_explicit_polish_records_first_ai_only_after_reservation_without_changing_refunds(client, db_session, monkeypatch, mode):
+    from services.features.natural_polish_service import NaturalPolishResult
+
+    user, quota, headers = author(db_session)
+    quota.ai_conversations_used = 3 if mode == "quota_rejected" else 2
+    db_session.add(quota)
+    db_session.commit()
+    state = initialize_first_work(db_session, user.id)
+    model = AsyncMock(return_value=NaturalPolishResult(polished_text="润色后的合成正文，保留作者设定。", model="mock-only"))
+    model_failed = mode in {"model_failure", "observer_and_model_failure"}
+    observation_failed = mode in {"observer_failure", "observer_and_model_failure"}
+    if model_failed:
+        model.side_effect = RuntimeError("synthetic model failure")
+    monkeypatch.setattr("api.editor.natural_polish_service.natural_polish", model)
+    observation = None
+    if observation_failed:
+        from unittest.mock import Mock
+        observation = Mock(side_effect=RuntimeError("synthetic observation failure"))
+        monkeypatch.setattr("services.first_work_service.record_first_work_action", observation)
+    response = await client.post("/api/v1/editor/natural-polish", headers=headers,
+                                 json={"project_id": state.project_id, "selected_text": "作者粘贴的合成原文。"})
+    current = (await client.get("/api/v1/workspace/first-work", headers=headers)).json()
+    if mode == "quota_rejected":
+        assert response.status_code == 402
+        model.assert_not_called()
+        assert current["first_ai_requested_at"] is None
+    elif observation_failed:
+        assert response.status_code == (500 if model_failed else 200)
+        model.assert_awaited_once()
+        observation.assert_called_once()
+        assert current["first_ai_requested_at"] is None
+        assert db_session.exec(select(UsageQuota.ai_conversations_used).where(UsageQuota.id == quota.id)).one() == (2 if model_failed else 3)
+    else:
+        assert response.status_code == (500 if model_failed else 200)
+        model.assert_awaited_once()
+        assert current["first_ai_requested_at"] is not None and current["static_guidance"] is False
+        assert db_session.exec(select(UsageQuota.ai_conversations_used).where(UsageQuota.id == quota.id)).one() == (2 if model_failed else 3)
