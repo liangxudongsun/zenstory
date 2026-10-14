@@ -73,9 +73,18 @@ for (const width of [390, 768, 1440]) for (const locale of ['zh', 'en'] as const
     const updateTitle = chat(page).getByRole('button', { name: /Current draft/ });
     await expect(createTitle).toHaveCount(1);
     await expect(chat(page).getByRole('button', { name: /Old record without ID|Unfinished file/ })).toHaveCount(0);
-    const updateBox = await updateTitle.boundingBox();
-    const countBox = await updateTitle.locator('..').locator('..').getByText(locale === 'zh' ? '3 字' : '3 chars', { exact: true }).boundingBox();
-    expect(updateBox!.y + updateBox!.height).toBeLessThanOrEqual(countBox!.y);
+    for (const title of [createTitle, updateTitle]) {
+      const card = title.locator('..').locator('..');
+      const titleBox = await title.boundingBox();
+      const countBox = await card.getByText(locale === 'zh' ? '3 字' : '3 chars', { exact: true }).boundingBox();
+      const statusBox = await card.locator(':scope > span').first().boundingBox();
+      expect(Math.abs(statusBox!.y + statusBox!.height / 2 - countBox!.y - countBox!.height / 2)).toBeLessThanOrEqual(2);
+      expect(statusBox!.x + statusBox!.width).toBeLessThan(countBox!.x);
+      expect(countBox!.y + countBox!.height).toBeLessThanOrEqual(titleBox!.y);
+    }
+    if (width < 768) expect((await updateTitle.locator('..').locator('..').locator('..').boundingBox())!.height).toBeLessThan(100);
+    await updateTitle.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: info.outputPath('short-file-card.png') });
     // Opening the same ID must not fetch over a title-only draft before autosave.
     const readsBefore = state.requests.filter(r => r.method === 'GET' && r.path.endsWith('/files/A')).length;
     if (width < 768) await updateTitle.tap();
@@ -98,6 +107,7 @@ for (const width of [390, 768, 1440]) for (const locale of ['zh', 'en'] as const
     expect(bounds!.x).toBeGreaterThanOrEqual(0);
     expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
     if (width < 768) expect(bounds!.height).toBeGreaterThanOrEqual(44);
+    await createTitle.locator('..').locator('..').locator('..').scrollIntoViewIfNeeded();
     await page.screenshot({ path: info.outputPath('file-title-focus.png') });
     const chatBounds = await chat(page).boundingBox();
     const scrollTop = await chat(page).evaluate(el => el.scrollTop);
