@@ -1852,6 +1852,15 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
       try {
         const { content, timestamp } = JSON.parse(stored);
 
+        if (typeof content === "string" && content.length > MAX_AGENT_MESSAGE_CHARS) {
+          // Keep legacy oversized ideas editable even after the auto-send window.
+          // Do not remove the only durable copy when browser storage is full.
+          inspirationProcessedRef.current.add(currentProjectId);
+          const saved = saveDraft(draft && !draft.includes(content) ? `${draft}\n\n${content}` : draft || content);
+          if (saved) localStorage.removeItem(inspirationKey);
+          return;
+        }
+
         // Only use if recent (within 5 minutes) and content is not empty
         const isRecent = Date.now() - timestamp < 5 * 60 * 1000;
 
@@ -1860,14 +1869,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
           // author's own words. `entry` lets the server add its first-message hint
           // to the model context without persisting it (older servers ignore it).
           const idea = content;
-          if (idea.length > MAX_AGENT_MESSAGE_CHARS) {
-            // Legacy dashboard entries may predate client length validation.
-            // Let MessageInput explain the limit, preserving any text already typed.
-            inspirationProcessedRef.current.add(currentProjectId);
-            saveDraft(draft && !draft.includes(idea) ? `${draft}\n\n${idea}` : draft || idea);
-            localStorage.removeItem(inspirationKey);
-            return;
-          }
+
 
           // Delay slightly to ensure UI is ready. Tracked in a ref so it can be
           // cleared on unmount/deps-change, otherwise a stray auto-send could

@@ -50,8 +50,8 @@ function loadDraftFromStorage(projectId: string | null): string {
 export interface DraftPersistenceResult {
   /** Current draft content */
   draft: string;
-  /** Save new content to the draft */
-  saveDraft: (content: string) => void;
+  /** Keep the draft in memory; return whether persistence also succeeded. */
+  saveDraft: (content: string) => boolean;
   /** Clear the draft for the current project */
   clearDraft: () => void;
 }
@@ -104,7 +104,7 @@ export function useDraftPersistence(projectId: string | null): DraftPersistenceR
   const saveDraft = useCallback((content: string) => {
     setDraft(content);
 
-    if (!projectId) return;
+    if (!projectId) return false;
 
     try {
       const stored = localStorage.getItem(DRAFT_STORAGE_KEY);
@@ -116,8 +116,10 @@ export function useDraftPersistence(projectId: string | null): DraftPersistenceR
       drafts[projectId]['default'] = content;
 
       localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(drafts));
+      return true;
     } catch (e) {
       logger.warn('Failed to save draft:', e);
+      return false;
     }
   }, [projectId]);
 

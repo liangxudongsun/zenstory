@@ -6,7 +6,7 @@
 
 ## Decision
 
-首页复用 MAX_AGENT_MESSAGE_CHARS，在按钮和提交入口检查，超限保留原文并展示聊天框同款提示，不创建项目。旧 localStorage 灵感在 ChatPanel 自动发送前检查，超限移入聊天草稿，合并保留作者已输入的文字，由 MessageInput 展示限制。去AI味共享 MAX_NATURAL_POLISH_CHARS，在任何请求与额度刷新前阻止超长选区并提示分段；恰好达到上限仍可提交。不截断、不自动拆分或自动重试。
+首页复用 MAX_AGENT_MESSAGE_CHARS，在按钮和提交入口检查，超限保留原文并展示聊天框同款提示，不创建项目。旧 localStorage 灵感在 ChatPanel 自动发送前检查，超限移入聊天草稿，合并保留作者已输入的文字，由 MessageInput 展示限制。只有聊天草稿持久化成功后才清理原灵感键；存储失败保留原键和内存草稿，旧灵感即使超过自动发送时限也不丢弃。去AI味共享 MAX_NATURAL_POLISH_CHARS，在任何请求与额度刷新前阻止超长选区并提示分段；恰好达到上限仍可提交。不截断、不自动拆分或自动重试。
 
 ## Alternatives considered
 

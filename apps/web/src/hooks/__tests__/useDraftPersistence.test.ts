@@ -99,4 +99,15 @@ describe('useDraftPersistence', () => {
     expect(result.current.draft).toBe('')
     expect(warnMock).toHaveBeenCalled()
   })
+  it('reports persistence failure while retaining the in-memory draft', () => {
+    const { result } = renderHook(() => useDraftPersistence('projectA'))
+    const write = vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new DOMException('full', 'QuotaExceededError') })
+    try {
+      let saved: unknown
+      act(() => { saved = result.current.saveDraft('Keep this draft') })
+      expect(saved).toBe(false)
+      expect(result.current.draft).toBe('Keep this draft')
+    } finally { write.mockRestore() }
+  })
+
 })
