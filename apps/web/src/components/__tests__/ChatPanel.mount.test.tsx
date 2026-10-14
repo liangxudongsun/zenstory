@@ -582,7 +582,7 @@ describe('ChatPanel mount smoke', () => {
       render(<ChatPanel />)
       // 成本兜底和每日条数用同一个标题与说明；错误码文案本身不再重复显示。
       const card = await screen.findByTestId('chat-quota-card')
-      expect(card).toHaveTextContent('今天的免费 AI 消息用完了')
+      await waitFor(() => expect(card).toHaveTextContent('今天的免费 AI 消息用完了'))
       expect(card).toHaveTextContent(/北京时间明天 00:00 恢复/)
       // No count it cannot back up (the badge says 2/10), and no second limit.
       expect(card).not.toHaveTextContent(/\d+ 条/)
@@ -1972,7 +1972,7 @@ describe('ChatPanel new-author flow', () => {
     render(<ChatPanel />)
 
     const card = await screen.findByTestId('chat-quota-card')
-    expect(card).toHaveTextContent('今天的 10 条免费 AI 消息用完了')
+    await waitFor(() => expect(card).toHaveTextContent('今天的 10 条免费 AI 消息用完了'))
     expect(card).toHaveTextContent('北京时间 10月10日 00:00 恢复')
     expect(card).toHaveTextContent('开通 Pro')
     // Only the daily message count is ever named.
