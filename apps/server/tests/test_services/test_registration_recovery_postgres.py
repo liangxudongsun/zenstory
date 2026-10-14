@@ -23,8 +23,10 @@ from services.features import verification_service
 pytestmark = pytest.mark.skipif(not os.getenv("ZENSTORY_TEST_POSTGRES_URL"), reason="owned PostgreSQL URL required")
 
 
-@pytest.mark.parametrize("first", ["recover", "verify"])
-def test_old_verification_and_address_correction_share_a_real_account_gate(monkeypatch, first):
+@pytest.mark.parametrize("first,second", [
+    ("recover", "verify"), ("verify", "recover"), ("recover", "resend"), ("resend", "recover"),
+])
+def test_old_email_operations_share_a_real_account_gate(monkeypatch, first, second):
     url = os.environ["ZENSTORY_TEST_POSTGRES_URL"]
     assert database.is_postgres and url == os.environ["DATABASE_URL"]
     engine = create_engine(url, connect_args={"options": "-c lock_timeout=12000 -c statement_timeout=15000"})
@@ -37,14 +39,23 @@ def test_old_verification_and_address_correction_share_a_real_account_gate(monke
         user_id = user.id
     locked, release, second_started = threading.Event(), threading.Event(), threading.Event()
     pids = {}
-    second = "verify" if first == "recover" else "recover"
+    codes = {"old@example.com": "original-code"}
+
+    async def send_code(email, **_kwargs):
+        if first == "resend" and email == "old@example.com":
+            locked.set()
+            assert await asyncio.to_thread(release.wait, 10), "sending gate was not released"
+        codes[email] = f"{email}-code"
+        return True, None
+
     verify = AsyncMock(return_value=(True, None))
-    sender = AsyncMock(return_value=(True, None))
+    sender = AsyncMock(side_effect=send_code)
     monkeypatch.setattr("api.verification.verify_code", verify)
     monkeypatch.setattr("api.verification.complete_pending_referral_for_invitee", AsyncMock())
     monkeypatch.setattr(verification_service, "send_verification_code", sender)
-    monkeypatch.setattr(verification_service, "delete_verification_code", MagicMock())
-    monkeypatch.setattr(verification_service, "delete_resend_cooldown", MagicMock())
+    monkeypatch.setattr("api.verification.send_verification_code", sender)
+    monkeypatch.setattr(verification_service, "delete_verification_code", MagicMock(side_effect=lambda email: codes.pop(email, None) is not None))
+    monkeypatch.setattr(verification_service, "delete_resend_cooldown", MagicMock(return_value=True))
     monkeypatch.setenv("AUTH_RATE_LIMIT_ENABLED", "false")
 
     def session_for_request(request: Request):
@@ -62,16 +73,21 @@ def test_old_verification_and_address_correction_share_a_real_account_gate(monke
             second_started.set()
 
     def after(connection, _cursor, statement, _parameters, _context, _many):
-        if 'FOR UPDATE' in statement and connection.info.get("recovery_actor") == first:
+        if first != 'resend' and 'FOR UPDATE' in statement and connection.info.get("recovery_actor") == first:
             locked.set()
             assert release.wait(10), "owned lock was not released"
 
     def request(actor):
         async def send():
             async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                path, body = ("/api/auth/verify-email", {"email": "old@example.com", "code": "123456"}) if actor == "verify" else (
-                    "/api/auth/registration-email", {"email": "old@example.com", "password": "OwnedPassword1!", "new_email": "new@example.com"},
-                )
+                if actor == "verify":
+                    path, body = "/api/auth/verify-email", {"email": "old@example.com", "code": "123456"}
+                elif actor == "resend":
+                    path, body = "/api/auth/resend-verification", {"email": "old@example.com"}
+                else:
+                    path, body = "/api/auth/registration-email", {
+                        "email": "old@example.com", "password": "OwnedPassword1!", "new_email": "new@example.com",
+                    }
                 return await client.post(path, json=body, headers={"X-Recovery-Actor": actor})
         return asyncio.run(send())
 
@@ -101,7 +117,13 @@ def test_old_verification_and_address_correction_share_a_real_account_gate(monke
             responses = {first: a.result(10), second: b.result(10)}
         with Session(engine) as reader:
             stored = reader.get(User, user_id)
-            if first == "recover":
+            if "resend" in (first, second):
+                assert responses["recover"].status_code == responses["resend"].status_code == 200
+                assert (stored.email, stored.email_verified) == ("new@example.com", False)
+                assert "old@example.com" not in codes
+                expected = ["old@example.com", "new@example.com"] if first == "resend" else ["new@example.com"]
+                assert [call.args[0] for call in sender.await_args_list] == expected
+            elif first == "recover":
                 assert responses["recover"].status_code == 200
                 assert responses["verify"].status_code == 400
                 assert (stored.email, stored.email_verified) == ("new@example.com", False)

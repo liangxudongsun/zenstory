@@ -204,10 +204,12 @@ async def resend_verification(
     """
     normalized_email = normalize_email_identity(str(request.email))
 
-    # Find user by email
-    user = session.exec(
-        select(User).where(email_identity_matches(User.email, normalized_email))
-    ).first()
+    # Keep address ownership stable until sending finishes. A correction must
+    # invalidate this code before releasing the old unique email address.
+    user = await asyncio.to_thread(lambda: session.exec(
+        select(User).where(email_identity_matches(User.email, normalized_email)).with_for_update()
+        .execution_options(populate_existing=True)
+    ).first())
 
     if not user:
         # Return generic success to avoid user/email enumeration.
