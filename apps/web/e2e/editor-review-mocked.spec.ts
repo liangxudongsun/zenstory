@@ -109,6 +109,7 @@ async function fixture(page: Page, content = '你好 world\n\n第二段 story', 
     if (method === 'GET' && url.pathname === '/api/v1/projects') return fulfill(responsiveProjects);
     if (method === 'GET' && /^\/api\/v1\/projects\/[^/]+$/.test(url.pathname)) return fulfill(responsiveProjects.find(p => p.id === url.pathname.split('/').at(-1)));
     // Reuse only auxiliary GET fakes from the existing safe responsive fixture.
+    if (method === 'GET' && url.pathname === '/api/v1/workspace/first-work') return route.fallback();
     if (method === 'GET' && /auth\/me|subscription\/|persona|skills|points|\/recent$|\/agent\/suggest$|\/stats|materials|attachments/.test(url.pathname)) return route.fallback();
     f.blocked.push(`${method} ${url.origin}${url.pathname}`);
     return route.abort('blockedbyclient');
