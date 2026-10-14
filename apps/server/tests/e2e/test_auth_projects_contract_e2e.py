@@ -10,11 +10,15 @@ browser lanes rely on:
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any
 
 import pytest
 from httpx import AsyncClient
 from sqlmodel import Session
+
+import api.auth as auth_api
+from config.datetime_utils import utcnow
 
 from .test_core_api_e2e import (
     _auth_headers,
@@ -43,6 +47,7 @@ def _collect_titles(nodes: list[dict[str, Any]]) -> list[str]:
 async def test_auth_contract_supports_me_and_refresh_rotation(
     client: AsyncClient,
     db_session: Session,
+    monkeypatch,
 ):
     user = await _create_user(db_session, prefix="auth_contract")
 
@@ -69,11 +74,20 @@ async def test_auth_contract_supports_me_and_refresh_rotation(
     assert refreshed_payload["refresh_token"] != login_by_email["refresh_token"]
     assert refreshed_payload["access_token"]
 
+    concurrent_response = await client.post(
+        "/api/auth/refresh", json={"refresh_token": login_by_email["refresh_token"]},
+    )
+    assert concurrent_response.status_code == 409
+    assert "refresh_token" not in concurrent_response.json()
+    original_now = utcnow()
+    monkeypatch.setattr(auth_api, "utcnow", lambda: original_now + timedelta(seconds=11))
     replay_response = await client.post(
         "/api/auth/refresh",
         json={"refresh_token": login_by_email["refresh_token"]},
     )
     assert replay_response.status_code == 401
+    revoked_child = await client.post("/api/auth/refresh", json={"refresh_token": refreshed_payload["refresh_token"]})
+    assert revoked_child.status_code == 401
 
     login_by_username = await _login(client, identifier=user.username)
     assert login_by_username["access_token"]
