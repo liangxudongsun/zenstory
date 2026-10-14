@@ -1568,6 +1568,9 @@ describe('ChatPanel mount smoke', () => {
     it('keeps a committed new chat when its auxiliary suggestions reject', async () => {
       render(<ChatPanel />)
       await waitFor(() => expect(fetchSuggestions).toHaveBeenCalledTimes(1))
+      await act(async () => { await Promise.resolve() })
+      // Exercise a fresh auxiliary request rather than a valid project-cache hit.
+      localStorage.removeItem('zenstory_suggestions_cache_project-1')
       vi.mocked(fetchSuggestions).mockRejectedValueOnce(new Error('Auxiliary suggestions unavailable'))
       fireEvent.click(newChatButton())
       await waitFor(() => expect(fetchSuggestions).toHaveBeenCalledTimes(2))
