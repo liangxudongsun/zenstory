@@ -155,6 +155,8 @@ interface MessageListProps {
   streamingMessageId?: string;
   /** Callback invoked when user requests to undo a file edit operation */
   onUndo?: (target: FileEditUndoTarget) => void;
+  /** Open a successful file result in the current project. */
+  onOpenFile?: (fileId: string, fileType: string, title: string) => void;
   /** Callback invoked when user submits thumbs up/down feedback for assistant message */
   onSubmitFeedback?: (message: Message, vote: MessageFeedbackVote) => void | Promise<void>;
   /** Message ID currently submitting feedback */
@@ -382,9 +384,10 @@ export const ContextItemsView: React.FC<ContextItemsViewProps> = ({ items, token
 /**
  * Props passed to each message Row component.
  */
-function OrderedMessageItems({ items, onUndo, onIterationAssistAction, isStreaming = false }: {
+function OrderedMessageItems({ items, onUndo, onOpenFile, onIterationAssistAction, isStreaming = false }: {
   items: StreamRenderItem[];
   onUndo?: MessageListProps['onUndo'];
+  onOpenFile?: MessageListProps['onOpenFile'];
   onIterationAssistAction?: MessageListProps['onIterationAssistAction'];
   isStreaming?: boolean;
 }) {
@@ -444,6 +447,7 @@ function OrderedMessageItems({ items, onUndo, onIterationAssistAction, isStreami
               isPending={toolCall.status === 'pending' && isStreaming}
               interrupted={toolCall.status === 'pending' && !isStreaming}
               onUndo={onUndo}
+              onOpenFile={toolCall.status === 'success' && toolCall.result ? onOpenFile : undefined}
             />
           ))}
         </div>
@@ -663,6 +667,8 @@ interface RowDataProps {
   formatTime: (date: Date) => string;
   /** Callback to undo a file edit */
   onUndo?: (target: FileEditUndoTarget) => void;
+  /** Open a successful file result in the current project. */
+  onOpenFile?: (fileId: string, fileType: string, title: string) => void;
   /** Callback to submit message feedback */
   onSubmitFeedback?: (message: Message, vote: MessageFeedbackVote) => void | Promise<void>;
   /** Message ID currently submitting feedback */
@@ -694,6 +700,7 @@ function Row({
   streamingMessageId,
   formatTime,
   onUndo,
+  onOpenFile,
   onSubmitFeedback,
   feedbackPendingMessageId,
   showDailyCount = true,
@@ -771,7 +778,7 @@ function Row({
       {/* Content */}
       <div className="flex-1 min-w-0 overflow-hidden">
         {hasDisplayItems ? (
-          <OrderedMessageItems items={message.displayItems!} onUndo={onUndo} onIterationAssistAction={onIterationAssistAction} isStreaming={isStreaming} />
+          <OrderedMessageItems items={message.displayItems!} onUndo={onUndo} onOpenFile={onOpenFile} onIterationAssistAction={onIterationAssistAction} isStreaming={isStreaming} />
         ) : <>
         {/* Thinking content - show streaming if active, otherwise show historical segments */}
         {message.role === 'assistant' && (
@@ -900,6 +907,7 @@ function Row({
                 isPending={toolCall.status === 'pending' && isStreaming}
                 interrupted={toolCall.status === 'pending' && !isStreaming}
                 onUndo={onUndo}
+                onOpenFile={toolCall.status === 'success' && toolCall.result ? onOpenFile : undefined}
               />
             ))}
           </div>
@@ -916,6 +924,7 @@ function Row({
                 result={result.result ?? {}}
                 error={result.status === 'error' ? result.error : undefined}
                 onUndo={onUndo}
+                onOpenFile={result.status === 'success' ? onOpenFile : undefined}
               />
             ))}
           </div>
@@ -1113,6 +1122,7 @@ export const MessageList = React.memo(
   messages,
   streamingMessageId,
   onUndo,
+  onOpenFile,
   onSubmitFeedback,
   feedbackPendingMessageId,
   showDailyCount,
@@ -1237,6 +1247,7 @@ export const MessageList = React.memo(
           streamingMessageId={streamingMessageId}
           formatTime={formatTime}
           onUndo={onUndo}
+          onOpenFile={onOpenFile}
           onSubmitFeedback={onSubmitFeedback}
           feedbackPendingMessageId={feedbackPendingMessageId}
           showDailyCount={showDailyCount}
@@ -1260,7 +1271,7 @@ export const MessageList = React.memo(
 
           {/* Stream items */}
           <div className="flex-1 min-w-0 overflow-hidden">
-            <OrderedMessageItems items={safeStreamRenderItems} onUndo={onUndo} onIterationAssistAction={onIterationAssistAction} isStreaming={true} />
+            <OrderedMessageItems items={safeStreamRenderItems} onUndo={onUndo} onOpenFile={onOpenFile} onIterationAssistAction={onIterationAssistAction} isStreaming={true} />
 
             {/* Timestamp - 只在非 streaming 状态时显示 */}
             {!streamingMessageId && streamRenderItems && streamRenderItems.length > 0 && (
@@ -1279,6 +1290,7 @@ export const MessageList = React.memo(
   // Prefer cheap reference checks to avoid O(n) message comparisons.
   if (prevProps.streamingMessageId !== nextProps.streamingMessageId) return false;
   if (prevProps.onUndo !== nextProps.onUndo) return false;
+  if (prevProps.onOpenFile !== nextProps.onOpenFile) return false;
   if (prevProps.onSubmitFeedback !== nextProps.onSubmitFeedback) return false;
   // The iteration-exhausted action buttons call this; omitting it here let the
   // buttons keep invoking a stale closure after the parent re-created it.

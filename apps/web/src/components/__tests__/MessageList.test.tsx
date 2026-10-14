@@ -448,6 +448,29 @@ describe('MessageList', () => {
     expect(screen.getByText('chat:tool.created')).toBeInTheDocument()
   })
 
+  it.each(['toolCalls', 'toolResults', 'displayItems', 'streamRenderItems'] as const)(
+    'opens only a successful result with an ID through %s', field => {
+      const onOpenFile = vi.fn()
+      const tool = { id: 'tool-open', tool_name: 'create_file', arguments: { id: 'argument-only', title: 'Argument title' }, status: 'success' as const,
+        result: { id: 'exact-file-id', title: 'Open this file', file_type: 'draft' } }
+      const items = [{ id: 'open-items', type: 'tool_calls' as const, toolCalls: [tool], timestamp: new Date() }]
+      const message = createMessage({ role: 'assistant', content: '' })
+      const props = field === 'streamRenderItems' ? { messages: [], streamRenderItems: items }
+        : { messages: [{ ...message, [field]: field === 'displayItems' ? items : [tool] }] }
+      const { rerender } = render(<MessageList {...props} onOpenFile={onOpenFile} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Open this file' }))
+      expect(onOpenFile).toHaveBeenCalledWith('exact-file-id', 'draft', 'Open this file')
+      const nextOpen = vi.fn()
+      rerender(<MessageList {...props} onOpenFile={nextOpen} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Open this file' }))
+      expect(nextOpen).toHaveBeenCalledTimes(1)
+      // Neither a failed result with no error string nor arguments-only history is a confirmed target.
+      const invalidTools = [{ ...tool, status: 'error' as const }, { ...tool, result: undefined }]
+      rerender(<MessageList messages={[{ ...message, toolCalls: invalidTools }]} onOpenFile={onOpenFile} />)
+      expect(screen.queryByRole('button', { name: /Open this file|Argument title/ })).not.toBeInTheDocument()
+    },
+  )
+
   it('renders pending tool calls', () => {
     const messages = [
       createMessage({

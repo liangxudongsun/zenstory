@@ -54,6 +54,7 @@ import type {
   AgentRequest,
   ApplyAction,
   FileEditUndoTarget,
+  FileType,
   SSEWorkflowStoppedData,
 } from "../types";
 import { logger } from "../lib/logger";
@@ -448,7 +449,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     queryClient.setQueryData<QuotaResponse>(subscriptionQueryKeys.quota(), restore);
     queryClient.setQueryData<QuotaResponse>(subscriptionQueryKeys.quotaLite(), restore);
   }, [queryClient]);
-  const { isMobile } = useMobileLayout();
+  const { isMobile, switchToEditor } = useMobileLayout();
   const { attachedFileIds, attachedLibraryMaterials, clearMaterials } = useMaterialAttachment();
   const { quotes, clearQuotes } = useTextQuote();
 
@@ -598,6 +599,19 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
   }, [currentProjectId, generationMode, t]);
 
   const currentProjectIdRef = useRef<string | null>(currentProjectId);
+  const handleOpenFile = useCallback((fileId: string, fileType: string, title: string) => {
+    if (!currentProjectId || currentProject?.id !== currentProjectId || currentProjectIdRef.current !== currentProjectId) return;
+    const typeMap: Record<string, FileType> = {
+      folder: "folder", outline: "outline", draft: "draft", document: "document", script: "script",
+      character: "character", lore: "lore", snippet: "material", material: "material",
+    };
+    // Reselecting an open file would reload it, including an unsaved title-only draft.
+    if (selectedItemRef.current?.id !== fileId) {
+      setSelectedItem({ id: fileId, type: typeMap[fileType] || "draft", title });
+    }
+    if (isMobile) switchToEditor();
+  }, [currentProjectId, currentProject, setSelectedItem, isMobile, switchToEditor]);
+
   // "Write chapter 1" once a framework exists but no prose yet; refreshed on open, after each round
   // and after an editor save while the card can show.
   const [frameworkReadyProjectId, setFrameworkReadyProjectId] = useState<string | null>(null);
@@ -2291,6 +2305,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
                 onIterationAssistAction={handleIterationAssistAction}
                 streamingMessageId={undefined}
                 onUndo={handleUndo}
+                onOpenFile={currentProjectId && currentProject?.id === currentProjectId ? handleOpenFile : undefined}
                 onSubmitFeedback={handleSubmitFeedback}
                 feedbackPendingMessageId={feedbackPendingMessageId}
                 showDailyCount={showDailyCount}
