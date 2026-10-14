@@ -140,3 +140,38 @@ async def _exercise(tmp_path, monkeypatch, record_property, operation, *, foreig
         path.unlink(missing_ok=True)
         assert not path.exists()
         record_property("owned_cleanup", "listener/override restored; engine disposed; SQLite absent")
+
+
+def test_dedicated_new_chat_helper_commits_archival_and_preserves_old_history(tmp_path, monkeypatch):
+    """Exercise the same owning helper against an actual isolated partial index."""
+    from sqlalchemy import text
+
+    import api.chat as chat_api
+
+    path = tmp_path / "new-chat-helper.db"
+    engine = create_engine(f"sqlite:///{path}")
+    user_id, project_id, old_id, message_id = [uuid4().hex for _ in range(4)]
+    try:
+        SQLModel.metadata.create_all(engine, tables=[User.__table__, Project.__table__, ChatSession.__table__, ChatMessage.__table__])
+        with engine.begin() as connection:
+            connection.execute(text("CREATE UNIQUE INDEX uq_chat_session_user_project_active ON chat_session(user_id, project_id) WHERE is_active = true"))
+        with Session(engine) as seed:
+            seed.add(User(id=user_id, username="helper-" + user_id, email=user_id + "@example.test", hashed_password="synthetic", is_active=True))
+            seed.add(Project(id=project_id, owner_id=user_id, name="Owned helper proof"))
+            seed.add(ChatSession(id=old_id, user_id=user_id, project_id=project_id, title="Retained chat", is_active=True, message_count=1))
+            seed.add(ChatMessage(id=message_id, session_id=old_id, role="assistant", content="Retained exact history"))
+            seed.commit()
+        monkeypatch.setattr(chat_api, "create_session", lambda: Session(engine))
+        created = chat_api._create_new_session_sync(project_id, user_id, "Fresh chat")
+        # A fresh reader proves that the owning helper committed, and that its
+        # deactivation was flushed before the new active partial-index entry.
+        with Session(engine) as reader:
+            old = reader.get(ChatSession, old_id)
+            assert old and not old.is_active and old.message_count == 1
+            assert reader.get(ChatMessage, message_id).content == "Retained exact history"
+            active = reader.exec(select(ChatSession).where(ChatSession.project_id == project_id, ChatSession.is_active)).all()
+            assert len(active) == 1 and active[0].id == created.id
+            assert active[0].title == "Fresh chat" and active[0].message_count == 0
+    finally:
+        engine.dispose()
+        path.unlink(missing_ok=True)

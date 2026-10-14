@@ -23,3 +23,5 @@ PostgreSQL 的新建/获取、Agent requested-id 解析、MessageManager 无 ses
 ## Verification
 
 客户端同步双击与失败后活动历史恢复回归先失败后通过；StrictMode 与普通挂载共 28 个真实 ChatPanel 生命周期案例通过，含失败读重试只 GET、输入保留与旧项目响应隔离。受影响前端回归 203 项通过。独占本地 PostgreSQL 17 临时库以部分唯一索引和真实 SQL 读交错先复现九种 409/UniqueViolation，修复后 13 种组合通过，含 requested-id 新建/重新激活与显式旧 session 消息在途保存；不调用模型。SQLite/API/Agent/MessageManager 44 项已有回归通过。CI 的独立串行 PostgreSQL lane 纳入并发测试，默认未配置显式测试库时跳过。完整 typecheck/build、受影响 ESLint/Ruff 与 token/i18n 检查通过。
+
+补充 owning-helper 回归使用独立临时 SQLite 文件和真实部分唯一索引，通过新 Session 证明换新已提交、旧会话已归档、原消息原样保留；worker suite 13 项通过。该覆盖不替代前述 13 项真实 PostgreSQL 并发证明。
