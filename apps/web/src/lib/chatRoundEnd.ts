@@ -15,7 +15,7 @@ export function hasSubstantiveDisplayItems(items: StreamRenderItem[]): boolean {
 
 /** How a stopped / interrupted round ended, as the server recorded it on the assistant message. */
 export interface RoundStopOutcome {
-  reason: 'user_stopped' | 'client_disconnected';
+  reason: 'user_stopped' | 'client_disconnected' | 'error' | 'incomplete';
   /** Counted toward the daily AI messages (false: refunded). */
   charged: boolean;
   /** Something was written into a file before it ended. */
@@ -28,6 +28,7 @@ export interface RoundStopOutcome {
    * messages and for writes the server cannot name (parallel chapters, deletions).
    */
   writtenFiles: RoundWrittenFile[];
+  unwrittenFiles?: RoundWrittenFile[];
 }
 
 export interface RoundWrittenFile {
@@ -66,15 +67,17 @@ export function parseRoundStopOutcome(metadata: unknown): RoundStopOutcome | nul
   const outcome = (parsed as { stop_outcome?: unknown }).stop_outcome;
   if (!outcome || typeof outcome !== 'object') return null;
   const raw = outcome as Record<string, unknown>;
-  if (raw.reason !== 'user_stopped' && raw.reason !== 'client_disconnected') return null;
+  if (!['user_stopped', 'client_disconnected', 'error', 'incomplete'].includes(String(raw.reason))) return null;
+  const unwrittenFiles = parseWrittenFiles(raw.unwritten_files);
   return {
-    reason: raw.reason,
+    reason: raw.reason as RoundStopOutcome['reason'],
     charged: raw.charged !== false,
     savedOutput: raw.saved_output === true,
     removedFiles: Array.isArray(raw.removed_files)
       ? raw.removed_files.filter((title): title is string => typeof title === 'string' && Boolean(title))
       : [],
     writtenFiles: parseWrittenFiles(raw.written_files),
+    ...(unwrittenFiles.length ? { unwrittenFiles } : {}),
   };
 }
 
@@ -86,7 +89,7 @@ const NAMED_WRITTEN_FILES = 3;
  * shared by the live stop note (ChatPanel) and the end-of-round line after a refresh
  * (RoundEndNote) so both say the same thing.
  */
-export function formatSavedFiles(
+function formatFileList(
   t: TFunction,
   files: RoundWrittenFile[],
   language: string | undefined,
@@ -115,5 +118,21 @@ export function formatSavedFiles(
       rest: files.length - named.length,
     });
   }
-  return t('chat:panel.roundSavedFiles', { defaultValue: '已保存{{files}}', files: list });
+  return list;
+}
+
+export function formatSavedFiles(t: TFunction, files: RoundWrittenFile[], language: string | undefined): string {
+  return t('chat:panel.roundSavedFiles', { defaultValue: '已保存{{files}}', files: formatFileList(t, files, language) });
+}
+
+/** The same saved facts in a live error, an author stop and the persisted round. */
+export function formatRoundDelivery(
+  t: TFunction, written: RoundWrittenFile[], unwritten: RoundWrittenFile[], language: string | undefined,
+): string {
+  return [
+    written.length ? formatSavedFiles(t, written, language) : null,
+    unwritten.length ? t('chat:panel.roundUnwrittenFiles', {
+      defaultValue: '未确认保存{{files}}', files: formatFileList(t, unwritten.map(file => ({ ...file, words: null })), language),
+    }) : null,
+  ].filter(Boolean).join(' · ');
 }

@@ -93,7 +93,7 @@ import { StreamActivityLine } from "./StreamActivityLine";
 import { createProseCounter, isWriteToolResult } from "../lib/agentRoundProgress";
 import { LeaveWhileGeneratingDialog } from "./LeaveWhileGeneratingDialog";
 import { useQuotaRefreshAfterLeave } from "../hooks/useQuotaRefreshAfterLeave";
-import { formatSavedFiles, hasSubstantiveDisplayItems, parseRoundStopOutcome, type RoundWrittenFile } from "../lib/chatRoundEnd";
+import { formatRoundDelivery, hasSubstantiveDisplayItems, parseRoundStopOutcome, type RoundWrittenFile } from "../lib/chatRoundEnd";
 import type { QuotaResponse } from "../types/subscription";
 
 const parseMessageStatusCardsFromMetadata = (metadataRaw?: string | null): Message["statusCards"] | undefined => {
@@ -491,6 +491,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     counted: boolean;
     /** The files the server says this round wrote (done.written_files); empty from older servers. */
     writtenFiles: RoundWrittenFile[];
+    unwrittenFiles?: RoundWrittenFile[];
   } | null>(null);
   /**
    * What this round has done so far, for the stop note and the leave dialog: a write
@@ -1051,6 +1052,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
         timestamp: new Date(),
         statusCards: statusCards.length > 0 ? statusCards : undefined,
         toolResults,
+        stopOutcome: completionMeta?.deliveryOutcome,
         displayItems: finishedItems.length ? finishedItems : undefined,
         feedbackUnavailable: endedEarly && !assistantMessageId ? true : undefined,
       };
@@ -1081,6 +1083,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
         wroteFiles: wroteFiles || writtenFiles.length > 0,
         counted: charged && producedOutput,
         writtenFiles,
+        unwrittenFiles: completionMeta?.unwrittenFiles,
       });
     }
 
@@ -1418,7 +1421,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
         t('chat:panel.userStopped', { defaultValue: '已停止' }),
         // Names the files like the end-of-round line after a refresh (RoundEndNote) does.
         userStop.writtenFiles.length > 0
-          ? formatSavedFiles(t, userStop.writtenFiles, i18n?.language)
+          ? formatRoundDelivery(t, userStop.writtenFiles, userStop.unwrittenFiles ?? [], i18n?.language)
           : userStop.wroteFiles ? t('chat:panel.userStoppedSaved', { defaultValue: '已写入的内容已保存' }) : null,
         // Counts only with real output (server rule); Pro has no daily count to mention.
         userStop.counted && showDailyCount
@@ -2510,7 +2513,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
                           : t('chat:panel.streamErrorTitle')}
                       </p>
                       {!isAiQuotaLimit && (
-                        <p className="text-[hsl(var(--warning-text))] text-sm break-words">{error}</p>
+                        <p className="text-[hsl(var(--warning-text))] text-sm break-words whitespace-pre-line">{error}</p>
                       )}
                       {retryable && lastRetryRequestRef.current?.projectId === currentProjectId && (
                         <button

@@ -686,6 +686,9 @@ async def test_stop_after_chapter_body_was_written_is_charged_and_keeps_files(
 
     _token, project, user = await _login_with_project(client, db_session)
     message_id, placeholder, filled, _older = _seed_round(db_session, project, user)
+    filled.content = "雨还在下。"
+    db_session.add(filled)
+    db_session.commit()
 
     async def frames():
         yield _sse("session_started", {"session_id": "s1"})
@@ -695,7 +698,7 @@ async def test_stop_after_chapter_body_was_written_is_charged_and_keeps_files(
         await asyncio.sleep(30)
 
     with (
-        patch("api.agent.get_agent_service", return_value=_FakeService(frames, message_id)),
+        patch("api.agent.get_agent_service", return_value=_FakeService(frames, message_id, {filled.id: 4})),
         patch("api.agent.quota_service.reserve_ai_conversation", return_value=_CHARGED_PERIOD),
         patch("api.agent.quota_service.release_ai_conversation", return_value=True) as refund,
     ):
@@ -723,6 +726,7 @@ async def test_stop_after_chapter_body_was_written_is_charged_and_keeps_files(
         "charged": True,
         "saved_output": True,
         "written_files": [{"id": filled.id, "title": "第2章 入宅", "words": 4}],
+        "unwritten_files": [{"id": placeholder.id, "title": placeholder.title}],
     }
 
 
@@ -832,6 +836,36 @@ async def test_disconnect_after_a_chapter_was_written_records_which_chapter(
     assert outcome["charged"] is True
     assert outcome["saved_output"] is True
     assert outcome["written_files"] == [{"id": filled.id, "title": "第2章 入宅", "words": 12}]
+
+
+@pytest.mark.integration
+async def test_complete_delivery_keeps_normal_done_without_round_warning(client, db_session):
+    from models import ChatMessage
+
+    _token, project, user = await _login_with_project(client, db_session)
+    message_id, empty, filled, _older = _seed_round(db_session, project, user)
+    for file in (empty, filled):
+        file.content = "雨还在下。"
+        db_session.add(file)
+    db_session.commit()
+
+    async def frames():
+        for file in (empty, filled):
+            yield _sse("tool_result", {"tool_name": "create_file", "status": "success",
+                                      "data": {"id": file.id, "title": file.title, "content": file.content, "file_type": "draft"}})
+        yield _sse("done", {"assistant_message_id": message_id})
+
+    with (
+        patch("api.agent.get_agent_service", return_value=_FakeService(frames, message_id)),
+        patch("api.agent.quota_service.reserve_ai_conversation", return_value=_CHARGED_PERIOD),
+    ):
+        response = await _stream(db_session, user, project, None)
+        text = "".join([frame async for frame in response.body_iterator])
+        if agent_api._round_outcome_tasks:
+            await asyncio.gather(*agent_api._round_outcome_tasks)
+    assert _frame_data(text, "done") == {"assistant_message_id": message_id}
+    db_session.expire_all()
+    assert "stop_outcome" not in json.loads(db_session.get(ChatMessage, message_id).message_metadata or "{}")
 
 
 @pytest.mark.integration
@@ -1073,7 +1107,7 @@ async def test_stop_done_uses_confirmed_save_count_or_omits_pending_count(client
         await asyncio.sleep(30)
 
     with (
-        patch("api.agent.get_agent_service", return_value=_FakeService(frames, message_id if receipt_ready else None, {filled.id: count_words(body)} if receipt_ready else {})),
+        patch("api.agent.get_agent_service", return_value=_FakeService(frames, message_id if receipt_ready else None, {filled.id: count_words(body)})),
         patch("api.agent.quota_service.reserve_ai_conversation", return_value=_CHARGED_PERIOD),
     ):
         response = await _stream(db_session, user, project, None)
@@ -1348,3 +1382,45 @@ async def test_delivered_terminal_is_not_duplicated_after_consumer_deadline(clie
         text = "".join(delivered)
         assert text.count(f"event: {terminal_kind}") == 1
         assert "ERR_AGENT_RUN_TIMEOUT" not in text
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("terminal", ["error", "done"])
+async def test_partial_delivery_is_identical_live_and_after_history_reload(client, db_session, terminal):
+    from models import ChatMessage
+
+    _token, project, user = await _login_with_project(client, db_session)
+    message_id, empty, filled, _older = _seed_round(db_session, project, user)
+    filled.content = "雨还在下。"
+    db_session.add(filled)
+    db_session.commit()
+
+    async def frames():
+        yield _sse("tool_result", {"tool_name": "create_file", "status": "success",
+                                  "data": {"id": filled.id, "title": filled.title, "content": filled.content, "file_type": "draft"}})
+        yield _create_file_result(empty)
+        yield _sse(terminal, {"assistant_message_id": message_id} if terminal == "done" else
+                   {"message": "Upstream timed out", "code": "ERR_AGENT_UPSTREAM_TIMEOUT", "retryable": True})
+
+    with (
+        patch("api.agent.get_agent_service", return_value=_FakeService(frames, message_id)),
+        patch("api.agent.quota_service.reserve_ai_conversation", return_value=_CHARGED_PERIOD),
+    ):
+        response = await _stream(db_session, user, project, None)
+        text = "".join([frame async for frame in response.body_iterator])
+        if agent_api._round_outcome_tasks:
+            await asyncio.gather(*agent_api._round_outcome_tasks)
+    error = _frame_data(text, terminal)
+    assert error["written_files"][0]["id"] == filled.id
+    assert error["unwritten_files"] == [{"id": empty.id, "title": empty.title}]
+    if terminal == "error":
+        assert error["code"] == "ERR_AGENT_UPSTREAM_TIMEOUT"
+        assert error["retryable"] is True
+        assert _frame_data(text, "done") is None
+    db_session.expire_all()
+    outcome = json.loads(db_session.get(ChatMessage, message_id).message_metadata)["stop_outcome"]
+    assert outcome["reason"] == ("error" if terminal == "error" else "incomplete")
+    assert outcome["written_files"] == error["written_files"]
+    assert outcome["unwritten_files"] == error["unwritten_files"]
+    assert outcome["saved_output"] is True
+    assert outcome["charged"] is True

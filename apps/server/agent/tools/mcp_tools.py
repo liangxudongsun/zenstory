@@ -54,7 +54,12 @@ from agent.tools.file_ops.serialization import (
     serialize_file,
 )
 from agent.tools.permissions import NotFoundError
-from config.project_notes import ProjectNotesMerge, merge_project_notes, split_project_notes
+from config.project_notes import (
+    ProjectNotesMerge,
+    merge_project_notes,
+    presented_project_proposals,
+    split_project_notes,
+)
 from config.project_status import PROJECT_STATUS_MAX_LENGTHS
 from utils.logger import get_logger, log_with_context
 from utils.title_sequence import extract_chapter_like_sequence_number, parse_chinese_number
@@ -2608,9 +2613,9 @@ def _author_quotes_arg(raw: Any) -> list[str]:
 def _merge_notes_by_source(project_id: str, normalized_args: dict[str, Any]) -> ProjectNotesMerge:
     """把 update_project 的 notes / proposals 合进现有备注，按来源分区（见 config/project_notes）。
 
-    「作者确认」只收作者原话撑得住的条目，逐条核对：那一条得是 author_quotes 里某句
-    逐字出现在作者本轮消息里的原话本身（或其中连续的一段）。拿不到作者原话（不是应用内
-    对话）时不核对，和以前一样照单记下。
+    新条目逐条核对作者原话；已有提议也可核对作者对上一轮同批列表的明确引用。
+    上一轮列表由服务端历史上下文提供，不能由工具参数自报。拿不到作者原话
+    （不是应用内对话）时不核对，和以前一样照单记下。
     """
     from models import Project
 
@@ -2624,12 +2629,23 @@ def _merge_notes_by_source(project_id: str, normalized_args: dict[str, Any]) -> 
     )
     notes_arg = normalized_args.get("notes")
     proposals_arg = normalized_args.get("proposals")
+    context = ToolContext._get_context()
+    previous_context = context.get("author_previous_offer_context", ())
+    # 历史 helper 会省略空 assistant：只有原回复与前一条作者消息都在，或已有从
+    # assistant 抽出的选项作来源依据时，第一段才可作为上一轮 AI 的展示原文。
+    previous_reply = (
+        previous_context[0]
+        if previous_context and (len(previous_context) > 1 or context.get("author_previous_offer"))
+        else ""
+    )
     merged = merge_project_notes(
         existing,
         notes=notes_arg if isinstance(notes_arg, str) else None,
         proposals=proposals_arg if isinstance(proposals_arg, str) else None,
         author_quotes=_author_quotes_arg(normalized_args.get("author_quotes")),
         author_messages=author_messages,
+        # 保留上一轮完整列表及原索引，不截取收尾、不按当前提议筛选或重排。
+        previous_proposals=presented_project_proposals(previous_reply),
     )
     if merged.downgraded:
         log_with_context(
@@ -2820,10 +2836,10 @@ def _update_project_sync(args: dict[str, Any]) -> dict[str, Any]:
         if downgraded_notes:
             result["notes_recorded_as_proposals"] = downgraded_notes
             result["notes_note"] = (
-                "这些条目不是作者本轮的原话（逐条核对：一条得是 author_quotes 里某句作者原话本身或其中连续的一段），"
+                "这些条目未核对到作者本轮原话或对上一轮同批提议的明确确认，"
                 "已记在备注的「AI 提议·待作者确认」里，不算作者定下的设定：" + "；".join(downgraded_notes)
                 + "。如果作者确实这样说过，用作者的原话写这一条、把原话放进 author_quotes 再记一次；"
-                "是你的推断就留在提议里。"
+                "确认已有提议时照抄原提议、author_quotes 放完整确认答复；未明确同意的留在提议里。"
             )
 
         return _make_result({"status": "success", "data": result}, tool_name=tool_name)

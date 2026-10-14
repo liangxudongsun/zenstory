@@ -32,6 +32,7 @@ import { api, tryRefreshToken, getAccessToken, clearAuthStorage, getApiBase, res
 import { debugContext } from "./debugContext";
 import { resolveApiErrorMessage, toUserErrorMessage, translateError } from "./errorHandler";
 import { logger } from "./logger";
+import { formatRoundDelivery, parseWrittenFiles } from "./chatRoundEnd";
 import i18n from "./i18n";
 import { createAgentStreamTelemetry, type AgentStreamTelemetry } from "./agentStreamTelemetry";
 
@@ -122,6 +123,8 @@ type StreamErrorEventData = {
   code?: string;
   retryable?: boolean;
   reason?: string;
+  written_files?: unknown;
+  unwritten_files?: unknown;
 };
 
 /**
@@ -149,6 +152,14 @@ export interface StreamDoneData {
   stop_reason?: string;
   produced_output?: boolean;
   written_files?: { id?: string; title?: string; words?: number }[];
+  unwritten_files?: { id?: string; title?: string }[];
+}
+
+function streamErrorForAuthor(data: StreamErrorEventData): string {
+  const message = toUserErrorMessage(selectStreamErrorMessage(data));
+  const delivery = formatRoundDelivery(i18n.t, parseWrittenFiles(data.written_files),
+    parseWrittenFiles(data.unwritten_files), i18n.language);
+  return delivery ? `${message}\n${delivery}` : message;
 }
 
 
@@ -814,7 +825,7 @@ export function streamAgentRequest(
               const data = event.data as StreamErrorEventData;
               receivedTerminalEvent = true;
               callbacks.onError?.(
-                toUserErrorMessage(selectStreamErrorMessage(data)),
+                streamErrorForAuthor(data),
                 data.code,
                 data.retryable,
               );
@@ -848,7 +859,7 @@ export function streamAgentRequest(
               const data = event.data as StreamErrorEventData;
               receivedTerminalEvent = true;
               callbacks.onError?.(
-                toUserErrorMessage(selectStreamErrorMessage(data)),
+                streamErrorForAuthor(data),
                 data.code,
                 data.retryable,
               );

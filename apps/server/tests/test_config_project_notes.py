@@ -6,6 +6,7 @@ from config.project_notes import (
     CONFIRMED_HEADER,
     PROPOSALS_HEADER,
     merge_project_notes,
+    presented_project_proposals,
     split_project_notes,
     verified_author_quotes,
 )
@@ -174,3 +175,130 @@ def test_merge_proposal_is_not_promoted_by_a_bare_agreement():
     sections = split_project_notes(merged.text)
     assert sections.confirmed == []
     assert sections.proposals == ["魂灯有代价：点一次少活一年"]
+
+
+_BATCH = ['主角不会游泳', '魂灯点一次少活一年', '女主第五章才出场']
+_SHOWN_BATCH = list(enumerate(_BATCH, start=1))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ('reply', 'accepted'),
+    [
+        ('确认第1、3条', [0, 2]),
+        ('确认第一、三条', [0, 2]),
+        ('1', [0]),
+        ('第2条', [1]),
+        ('确认以上全部提议', [0, 1, 2]),
+        ('全部确认。', [0, 1, 2]),
+        ('Confirm all proposals.', [0, 1, 2]),
+        ('Confirm 1 and 3', [0, 2]),
+    ],
+)
+def test_merge_author_can_reference_exact_current_presented_proposal_batch(reply, accepted):
+    merged = merge_project_notes(
+        PROPOSALS_HEADER + '\n' + '\n'.join(_BATCH),
+        notes='\n'.join(_BATCH), proposals=None,
+        author_quotes=[reply], author_messages=[reply], previous_proposals=_SHOWN_BATCH,
+    )
+    sections = split_project_notes(merged.text)
+    assert sections.confirmed == [_BATCH[index] for index in accepted]
+    assert sections.proposals == [entry for index, entry in enumerate(_BATCH) if index not in accepted]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('reply', [
+    '好', '可以', '谢谢', '确认以上全部提议？', '确认第1条？',
+    '不要确认第1条', '不确认全部提议', '确认第1条，但第2条不要',
+    '确认第1条\n1. 另一份清单', '确认第4条', '确认第1、4条',
+])
+def test_merge_does_not_guess_ambiguous_negative_or_unrelated_batch_consent(reply):
+    merged = merge_project_notes(
+        PROPOSALS_HEADER + '\n' + '\n'.join(_BATCH),
+        notes='\n'.join(_BATCH), proposals=None,
+        author_quotes=[reply], author_messages=[reply], previous_proposals=_SHOWN_BATCH,
+    )
+    assert split_project_notes(merged.text).confirmed == []
+    assert split_project_notes(merged.text).proposals == _BATCH
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('shown', [
+    None,
+    [(1, _BATCH[0])],
+    [(1, _BATCH[0]), (2, _BATCH[1]), (3, '女主第三章才出场')],
+    [(1, _BATCH[0]), (2, _BATCH[0]), (3, _BATCH[2])],
+    [(2, _BATCH[0]), (3, _BATCH[1]), (4, _BATCH[2])],
+])
+def test_merge_reference_cannot_confirm_missing_changed_or_different_proposal_batch(shown):
+    reply = '确认以上全部提议'
+    merged = merge_project_notes(
+        PROPOSALS_HEADER + '\n' + '\n'.join(_BATCH),
+        notes='\n'.join(_BATCH), proposals=None,
+        author_quotes=[reply], author_messages=[reply], previous_proposals=shown,
+    )
+    assert split_project_notes(merged.text).confirmed == []
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(('messages', 'quotes'), [
+    (['继续写'], ['确认以上全部提议']),
+    (['不要确认第1条'], ['确认第1条']),
+    (['确认以上全部提议', '先不确认'], ['确认以上全部提议']),
+    (['确认第1条，但第2条不要'], ['确认第1条']),
+])
+def test_merge_reference_needs_complete_current_author_response_not_model_claim(messages, quotes):
+    merged = merge_project_notes(
+        PROPOSALS_HEADER + '\n' + '\n'.join(_BATCH),
+        notes='\n'.join(_BATCH), proposals=None,
+        author_quotes=quotes, author_messages=messages, previous_proposals=_SHOWN_BATCH,
+    )
+    assert split_project_notes(merged.text).confirmed == []
+
+
+@pytest.mark.unit
+def test_merge_reference_cannot_confirm_new_inference_riding_with_selected_proposal():
+    reply = '确认第1条'
+    merged = merge_project_notes(
+        PROPOSALS_HEADER + '\n' + '\n'.join(_BATCH),
+        notes=_BATCH[0] + '\n主角其实是前朝王子', proposals=None,
+        author_quotes=[reply], author_messages=[reply], previous_proposals=_SHOWN_BATCH,
+    )
+    sections = split_project_notes(merged.text)
+    assert sections.confirmed == [_BATCH[0]]
+    assert '主角其实是前朝王子' in sections.proposals
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('lead', ['待确认提议如下：', '请确认以下提议：', 'Pending proposals:', 'Please confirm the following proposals:'])
+def test_presented_proposals_preserves_full_list_and_ignores_topic_headings(lead):
+    reply = lead + '\n**一、人物**\n1. 主角不会游泳\n**二、道具**\n2. 魂灯点一次少活一年\n说明：请在对话中确认。'
+    assert presented_project_proposals(reply) == [(1, _BATCH[0]), (2, _BATCH[1])]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('reply', [
+    '这轮做了：\n1. 主角不会游泳\n2. 魂灯点一次少活一年',
+    '待确认提议已全部确认，本轮完成：\n1. 主角不会游泳\n2. 魂灯点一次少活一年',
+    '待确认提议仍保留。\n这次改好了。\n要我怎么走：\n1. 主角不会游泳\n2. 魂灯点一次少活一年',
+    'Pending proposals are already confirmed:\n1. 主角不会游泳\n2. 魂灯点一次少活一年',
+    '1. 主角不会游泳\n2. 魂灯点一次少活一年',
+    '待确认提议如下：\n1. 主角不会游泳\n3. 魂灯点一次少活一年',
+    '待确认提议如下：\n1. 主角不会游泳\n2. 魂灯点一次少活一年\n下一步：\n1. 继续写',
+])
+def test_presented_proposals_rejects_reports_and_incomplete_or_multiple_lists(reply):
+    assert presented_project_proposals(reply) == []
+
+
+@pytest.mark.unit
+def test_complex_revisions_and_remaining_confirmation_do_not_guess_old_proposal_scope():
+    reply = '魂灯改为不消耗寿命，主角改为会游泳，除了我说的修改其余全部确定'
+    new_rule = '魂灯改为不消耗寿命'
+    merged = merge_project_notes(
+        PROPOSALS_HEADER + '\n' + '\n'.join(_BATCH),
+        notes='\n'.join([*_BATCH, new_rule]), proposals=None,
+        author_quotes=[reply], author_messages=[reply], previous_proposals=_SHOWN_BATCH,
+    )
+    sections = split_project_notes(merged.text)
+    assert sections.confirmed == [new_rule]
+    assert sections.proposals == _BATCH

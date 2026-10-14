@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { CirclePause } from 'lucide-react';
-import { formatSavedFiles, type RoundStopOutcome } from '../lib/chatRoundEnd';
+import { formatRoundDelivery, type RoundStopOutcome } from '../lib/chatRoundEnd';
 
 /**
  * The grey end-of-round line on a stopped / interrupted assistant message after a refresh,
@@ -11,18 +11,19 @@ import { formatSavedFiles, type RoundStopOutcome } from '../lib/chatRoundEnd';
  */
 export function RoundEndNote({ outcome, showDailyCount }: { outcome: RoundStopOutcome; showDailyCount: boolean }) {
   const { t, i18n } = useTranslation(['chat']);
-  const savedText = outcome.writtenFiles.length > 0
-    ? formatSavedFiles(t, outcome.writtenFiles, i18n?.language)
+  const savedText = outcome.writtenFiles.length > 0 || outcome.unwrittenFiles?.length
+    ? formatRoundDelivery(t, outcome.writtenFiles, outcome.unwrittenFiles ?? [], i18n?.language)
     : t('chat:panel.userStoppedSaved', { defaultValue: '已写入的内容已保存' });
+  const dailyCount = showDailyCount && outcome.reason !== 'incomplete';
   const parts = [
-    outcome.reason === 'user_stopped'
+    outcome.reason === 'incomplete' ? null : outcome.reason === 'user_stopped'
       ? t('chat:panel.userStopped', { defaultValue: '已停止' })
       : t('chat:panel.roundInterrupted', { defaultValue: '已中断' }),
-    !outcome.charged && showDailyCount
+    !outcome.charged && dailyCount
       ? t('chat:panel.roundNotCounted', { defaultValue: '未计入今日 AI 消息' })
       : null,
-    outcome.charged && outcome.savedOutput ? savedText : null,
-    outcome.charged && showDailyCount
+    (outcome.charged && outcome.savedOutput) || outcome.unwrittenFiles?.length ? savedText : null,
+    outcome.charged && dailyCount
       ? t('chat:panel.userStoppedCounted', { defaultValue: '本条计入今日 AI 消息' })
       : null,
     outcome.removedFiles.length > 0
@@ -38,7 +39,7 @@ export function RoundEndNote({ outcome, showDailyCount }: { outcome: RoundStopOu
       className="mt-2 inline-flex items-center gap-1.5 text-xs text-[hsl(var(--text-secondary))]"
       data-testid="round-end-note"
     >
-      <CirclePause size={14} className="shrink-0" />
+      {outcome.reason !== 'incomplete' && <CirclePause size={14} className="shrink-0" />}
       <span>{parts.join(' · ')}</span>
     </div>
   );

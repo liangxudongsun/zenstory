@@ -12,7 +12,8 @@ notes 仍是一段纯文本（AI 记忆面板里的一个文本框，不需要�
 
 写入（agent 的 update_project）由 :func:`merge_project_notes` 决定每条进哪一块：
 已在「作者确认」或「未标来源」里的照旧；其余条目逐条核对，只有那一条本身就是作者
-本轮原话（:func:`_quote_supports_entry`）才进「作者确认」，否则记成 AI 提议。
+本轮原话（:func:`_quote_supports_entry`），或作者明确引用上一轮呈现的同批固定提议，
+才进「作者确认」，否则记成 AI 提议。
 注入上下文时 :func:`render_project_notes` 把三块分开渲染、标题行后面附说明；
 :func:`split_project_notes` 认得这些渲染出来的标题行，模型把上下文里的备注块照抄回来时
 分区不变。作者在面板里怎么改都行，解析只认这几种标题行。
@@ -233,6 +234,96 @@ def _clean_entry(entry: str) -> str:
     return cleaned or entry.strip()
 
 
+def presented_project_proposals(reply: str) -> list[tuple[int, str]]:
+    """备注专用：完整提取明确待确认列表，主题标题不作选项，文件授权解析不受影响。"""
+    lines = re.sub(r"\*\*|__|`|^#+\s*", "", reply or "", flags=re.MULTILINE).splitlines()
+    shown: list[tuple[int, str]] = []
+    lead: list[str] = []
+    for line in lines:
+        match = re.match(r"^\s*(\d+)[.、)）]\s*(.+?)\s*$", line)
+        if match:
+            shown.append((int(match.group(1)), match.group(2)))
+        elif not shown:
+            lead.append(line)
+    pending_marker = re.compile(
+        r"待(?:作者)?确认|请确认(?:以下|下列)的?(?:提议|条目|设定)"
+        r"|pending\s+(?:proposals|(?:author\s+)?confirmation)"
+        r"|please\s+confirm\s+(?:the\s+)?(?:following\s+)?proposals",
+        re.IGNORECASE,
+    )
+    lead = [line.strip() for line in lead if line.strip()]
+    # 允许「一、世界」这类主题标题；较早提到待确认、不代表末尾“下一步”列表也是它。
+    while (
+        lead
+        and re.match(r"^[一二三四五六七八九十]+[、.．]", lead[-1])
+        and not pending_marker.search(lead[-1])
+    ):
+        lead.pop()
+    introduction = lead[-1] if lead else ""
+    if not pending_marker.search(introduction):
+        return []
+    # 待确认内容只在完成报告里被提到，不等于报告中的列表就是那批提议。
+    if re.search(
+        r"(?:已(?:经)?(?:全部)?(?:完成|确认)|这轮做了|本轮完成|改动如下|完成报告)"
+        r"|already\s+(?:confirmed|completed)|completed\s+(?:work|report)|changes\s+made",
+        introduction, re.IGNORECASE,
+    ):
+        return []
+    if [index for index, _ in shown] != list(range(1, len(shown) + 1)):
+        return []
+    return shown
+
+
+def _confirmed_proposal_references(
+    proposals: list[str],
+    presented: list[tuple[int, str]] | None,
+    author_quotes: list[str] | None,
+    author_messages: list[str],
+) -> set[str]:
+    """只解析明确编号 / 全批确认；编号来自服务端抽取的上一轮选项，不来自工具参数。"""
+    keys = [_entry_key(entry) for line in proposals for entry in _split_line(line)[1]]
+    shown = [(index, _entry_key(text)) for index, text in (presented or [])]
+    # 必须是当前尚未确认的同一整批；新增、删减、改写、重复或截断时不猜所指。
+    if (
+        not keys
+        or len(keys) != len(set(keys))
+        or [index for index, _ in shown] != list(range(1, len(keys) + 1))
+        or len(shown) != len(keys)
+        or {key for _, key in shown} != set(keys)
+        or not author_messages
+    ):
+        return set()
+    # 核对完整的最新答复，不能从「不要确认第1条」摘出「确认第1条」作为授权。
+    reply = author_messages[-1]
+    if "?" in reply or "？" in reply or not any(
+        _normalize(quote) == _normalize(reply) for quote in (author_quotes or [])
+    ):
+        return set()
+    bare = _normalize(reply)
+    if bare in {
+        "全部确认", "确认全部", "确认全部提议", "确认以上全部提议", "以上提议全部确认",
+        "confirmall", "confirmallproposals",
+    }:
+        return set(keys)
+    # 小而明确的选择合同，不把「好」、客套、带条件或另一份清单的答复解释为确认。
+    selection = _CN_NUMERAL_RUN_RE.sub(
+        lambda match: _cn_numeral_value(match.group(0)),
+        re.sub(r"\s+", "", reply).lower().strip("。.!！"),
+    )
+    match = re.fullmatch(
+        r"(?:确认|同意|选|选择|confirm(?:proposals?)?|select)?"
+        r"(?P<indices>第?[1-9]\d*(?:条|项)?"
+        r"(?:(?:[、,，和及与]|and)第?[1-9]\d*(?:条|项)?)*)",
+        selection,
+    )
+    if not match:
+        return set()
+    indices = {int(number) for number in re.findall(r"\d+", match.group("indices"))}
+    if not indices.issubset({index for index, _ in shown}):
+        return set()
+    return {key for index, key in shown if index in indices}
+
+
 def merge_project_notes(
     existing: str | None,
     *,
@@ -240,6 +331,7 @@ def merge_project_notes(
     proposals: str | None,
     author_quotes: list[str] | None,
     author_messages: list[str] | None,
+    previous_proposals: list[tuple[int, str]] | None = None,
 ) -> ProjectNotesMerge:
     """按来源合并 update_project 传来的 notes / proposals，返回要存的整段文本。
 
@@ -249,6 +341,8 @@ def merge_project_notes(
       逐字出现在 ``author_messages`` 里、并且就是这一条本身的原话（见
       :func:`_quote_supports_entry`），这一条才进「作者确认」，否则记成 AI 提议。
       一句原话只给它自己那条作保，同一次调用里的其他条目各自核对。
+      已有提议可按上一轮完整呈现的同批编号确认；``previous_proposals`` 仅接收服务端
+      从上一轮回复抽取的全部编号项，当前列表有增删改时不据此确认。
     - ``proposals`` 是 AI 提议块的全部内容（整体替换）；不传时保留原有提议。
       已经进了「作者确认」的条目从提议里去掉。
     - ``notes`` 传空串且没传 ``proposals``：整个字段清空（和以前一样）。
@@ -271,8 +365,13 @@ def merge_project_notes(
         if unverifiable
         else [_normalize(quote) for quote in verified_author_quotes(author_quotes, author_messages or [])]
     )
+    referenced_keys = _confirmed_proposal_references(
+        current.proposals, previous_proposals, author_quotes, author_messages or []
+    )
 
     def backed_by_author_words(key: str) -> bool:
+        if key in referenced_keys:
+            return True
         is_proposal = key in proposal_keys
         return any(
             _quote_supports_entry(key, quote_key, is_proposal=is_proposal) for quote_key in quote_keys

@@ -39,6 +39,7 @@
     "removedFilesJoiner": "\", \"",
     "unanswered": "This message didn't get a reply.",
     "roundSavedFiles": "Saved {{files}}",
+    "roundUnwrittenFiles": "Save not confirmed: {{files}}",
     "roundSavedFile": "\"{{title}}\"",
     "roundSavedFileWords": "\"{{title}}\" ({{words}} words)",
     "roundSavedFilesJoiner": ", ",

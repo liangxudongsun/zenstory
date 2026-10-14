@@ -221,6 +221,11 @@ has verified every consumer. Railway's checked-in
 TOML does not prove active cloud configuration; read back start command,
 readiness, drain window and source SHA from the provider.
 
+For a coordinated staging cutover, use the bounded authenticated GET probe and
+separate SSE/write/accounting checks in
+[staging cutover validation](staging-cutover-validation.md). Its read-only
+receipt does not itself certify provider source binding or uninterrupted SSE.
+
 Prefect process-worker shutdown does not wait for active flow processes in the
 pinned 3.6.28 version. Before a production worker release, pause `zenstory-pool`,
 confirm there are no pending/running/cancelling/paused flows or processing
