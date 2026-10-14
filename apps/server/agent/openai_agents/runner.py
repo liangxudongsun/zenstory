@@ -11,6 +11,10 @@ import time
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
+from agent.core.output_truncation import (
+    OUTPUT_TRUNCATED_HISTORY,
+    trailing_output_truncations,
+)
 from agent.core.progress_channel import reset_progress_emitter, set_progress_emitter
 from agent.core.run_meter import AgentRunMeter
 from agent.core.stream_errors import (
@@ -322,6 +326,8 @@ def normalize_messages_for_openai_agents(messages: MessageList) -> MessageList:
             continue
 
         text = extract_text_from_message_content(message.get("content"))
+        if role == "assistant" and message.get("stop_reason") == OUTPUT_TRUNCATED_STOP_REASON:
+            text = f"{text}\n\n{OUTPUT_TRUNCATED_HISTORY}".strip()
         if not text.strip():
             continue
 
@@ -695,6 +701,11 @@ async def run_openai_agents_streaming_agent(
     （writing_graph 每个请求建一个、跨 agent run 共享）；都没有时本次 run 自建一个。
     重复读取守卫同理取 state["repeat_read_guard"]。
     """
+    # Snapshot the persisted conversation before per-agent replay strips metadata.
+    # Keep it across same-request handoffs, which are not separate author turns.
+    state.setdefault(
+        "previous_output_truncations", trailing_output_truncations(list(state.get("messages") or []))
+    )
     api_messages = build_history_messages(state)
     assistant_text_parts: list[str] = []
     thinking_text_parts: list[str] = []
@@ -1172,9 +1183,12 @@ async def run_openai_agents_streaming_agent(
                     "usage": _usage_dict_from_result(result),
                 },
             )
+            truncation_count = state["previous_output_truncations"] + 1
             yield StreamEvent(
                 type=StreamEventType.ERROR,
-                data=output_truncated_error().as_event_data(agent_type=agent_type),
+                data=output_truncated_error(repeated=truncation_count > 1).as_event_data(
+                    agent_type=agent_type, output_truncation_count=truncation_count
+                ),
             )
             return
 

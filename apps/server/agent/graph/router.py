@@ -782,6 +782,7 @@ def resume_route_after_exhaustion(state: WritingState) -> dict[str, Any] | None:
             "workflow_type": workflow_type,
             "reason": "resume_after_exhaustion",
             "confidence": 1.0,
+            **({"previous_stop_reason": stop_reason} if stop_reason == "output_truncated" else {}),
             **scope_fields,
         },
     }

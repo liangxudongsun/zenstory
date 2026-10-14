@@ -106,6 +106,8 @@ class WritingState(TypedDict, total=False):
     scope_directive: str | None
     # 用户明确要求本轮不改文件：tools_adapter 对写文件工具的调用一律拒绝执行。
     read_only: bool
+    resume_from_output_truncation: bool
+    previous_output_truncations: int
     # 作者的要求太笼统（「帮我优化一下」）：本轮先问清楚改哪里，写文件工具一律拒绝执行
     # （graph/author_scope.py；tools_adapter 用另一套拒绝说明）。
     clarify_first: bool

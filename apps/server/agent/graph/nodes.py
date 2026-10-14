@@ -90,6 +90,11 @@ async def run_streaming_agent(
     if scope_directive:
         system_prompt = f"{system_prompt}\n\n## 本轮用户范围约束 [最高优先级]\n\n{scope_directive}"
 
+    if state.get("resume_from_output_truncation"):
+        from agent.core.output_truncation import OUTPUT_TRUNCATED_RESUME
+
+        system_prompt = f"{system_prompt}\n\n## 截断后的本轮交付\n\n{OUTPUT_TRUNCATED_RESUME}"
+
     # 快速模式（前端「更快出结果」）：WRITER_PROMPT 的送审规则在这一轮不适用。
     # writing_graph 也会丢弃 writer → quality_reviewer 的交接，这里先让模型知道，
     # 免得它白白调用一次 handoff_to_agent。
