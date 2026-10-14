@@ -501,6 +501,10 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
    */
   const newChatAfterStopRef = useRef(false);
   const [newChatPending, setNewChatPending] = useState(false);
+  const creatingSessionRef = useRef<number | null>(null);
+  const [isCreatingSession, setIsCreatingSession] = useState(false);
+  const sessionRecoveryBlockedRef = useRef<string | null>(null);
+  const [sessionRecoveryError, setSessionRecoveryError] = useState<string | null>(null);
   const pendingMaterialClearRef = useRef(false);
   const pendingQuoteClearRef = useRef(false);
   const currentAgentSessionIdRef = useRef<string | null>(null);
@@ -637,6 +641,10 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
   }, [refreshNextStep]);
   useEffect(() => {
     currentProjectIdRef.current = currentProjectId;
+    creatingSessionRef.current = null;
+    setIsCreatingSession(false);
+    sessionRecoveryBlockedRef.current = null;
+    setSessionRecoveryError(null);
     return () => {
       currentProjectIdRef.current = null;
       newSessionRequestSeqRef.current += 1;
@@ -1380,7 +1388,11 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
    * @param projectId - The ID of the project to load chat history for
    */
   // Load chat history when project changes
-  const loadChatHistory = useCallback(async (projectId: string): Promise<Message[] | null> => {
+  const loadChatHistory = useCallback(async (projectId: string, recoverSession = false): Promise<Message[] | null> => {
+    if (recoverSession) {
+      sessionRecoveryBlockedRef.current = projectId;
+      setSessionRecoveryError(null);
+    }
     const requestId = ++historyRequestSeqRef.current;
     setIsLoadingHistory(true);
     try {
@@ -1414,6 +1426,11 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
       });
 
       setMessages(loadedMessages);
+      if (recoverSession) {
+        sessionRecoveryBlockedRef.current = null;
+        setSessionRecoveryError(null);
+        currentAgentSessionIdRef.current = historyMessages.at(-1)?.session_id ?? null;
+      }
       return loadedMessages;
     } catch (err) {
       logger.error("Failed to load chat history:", err);
@@ -1421,9 +1438,14 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
       if (currentProjectIdRef.current !== projectId || requestId !== historyRequestSeqRef.current) {
         return null;
       }
-      // Don't show error to user, just start fresh
       setMessages([]);
       setFeedbackPendingMessageId(null);
+      if (recoverSession) {
+        setSessionRecoveryError(projectId);
+        return null;
+      }
+      // Opening history retains the existing empty-state behavior. A failed
+      // session mutation instead requires an explicit read before sending.
       return [];
     } finally {
       if (requestId === historyRequestSeqRef.current && currentProjectIdRef.current === projectId) {
@@ -1624,7 +1646,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     request: Omit<AgentRequest, "project_id">,
     options: { userBubble: boolean },
   ): boolean => {
-    if (sendLockRef.current || isStreaming || newChatAfterStopRef.current) return false;
+    if (sendLockRef.current || isStreaming || newChatAfterStopRef.current || creatingSessionRef.current !== null || sessionRecoveryBlockedRef.current) return false;
     // Held until the next task: by then React has re-rendered with isStreaming = true,
     // which guards every later click.
     sendLockRef.current = true;
@@ -1682,7 +1704,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     selectedSkillIds?: string[],
     extraMetadata?: Record<string, unknown>,
   ) => {
-    if (!message.trim() || isStreaming || sendLockRef.current || newChatAfterStopRef.current) return;
+    if (!message.trim() || isStreaming || sendLockRef.current || newChatAfterStopRef.current || creatingSessionRef.current !== null || sessionRecoveryBlockedRef.current) return;
 
     // Used up for today: keep the words as the draft and explain, instead of sending.
     if (aiSendBlocked) {
@@ -1839,7 +1861,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
   const inspirationSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!currentProjectId || isLoadingHistory || isStreaming) return;
+    if (!currentProjectId || isLoadingHistory || isStreaming || newChatPending || isCreatingSession || sessionRecoveryError) return;
     
     // Skip if we've already processed this project's inspiration
     if (inspirationProcessedRef.current.has(currentProjectId)) return;
@@ -1894,7 +1916,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
         inspirationSendTimerRef.current = null;
       }
     };
-  }, [currentProjectId, isLoadingHistory, isStreaming, handleSendMessage]);
+  }, [currentProjectId, isLoadingHistory, isStreaming, newChatPending, isCreatingSession, sessionRecoveryError, handleSendMessage]);
 
   /**
    * Starts a new chat session for the current project.
@@ -1903,38 +1925,53 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
    */
   // Handle new session
   const handleNewSession = async () => {
-    if (!currentProjectId) return;
+    if (!currentProjectId || creatingSessionRef.current !== null) return;
     const projectId = currentProjectId;
     const requestSeq = ++newSessionRequestSeqRef.current;
-
-    resetPendingContextClears();
-    currentAgentSessionIdRef.current = null;
-
-    // Clear AI suggestions when starting new session
+    creatingSessionRef.current = requestSeq;
+    setIsCreatingSession(true);
     setAiSuggestions([]);
     setSuggestionDisplayState("loading");
-    if (suggestionTimeoutRef.current) {
-      clearTimeout(suggestionTimeoutRef.current);
-    }
+    if (suggestionTimeoutRef.current) clearTimeout(suggestionTimeoutRef.current);
+    const ownsRequest = () => currentProjectIdRef.current === projectId && requestSeq === newSessionRequestSeqRef.current;
 
     try {
-      await createNewSession(projectId);
-      if (currentProjectIdRef.current !== projectId || requestSeq !== newSessionRequestSeqRef.current) return;
+      const created = await createNewSession(projectId);
+      if (!ownsRequest()) return;
+      resetPendingContextClears();
+      currentAgentSessionIdRef.current = created.id;
+      sessionRecoveryBlockedRef.current = null;
+      setSessionRecoveryError(null);
       historyRequestSeqRef.current += 1;
       setIsLoadingHistory(false);
       setMessages([]);
       setFeedbackPendingMessageId(null);
-      // 上一轮若被取消/出错，流式渲染残留不会被 onComplete 清理，这里一并清空。
       clearStreamItems();
       setMatchedSkills([]);
       reset();
       setQuotaRefund(null);
       setUserStop(null);
-      await requestInitialSuggestions(projectId, []);
+      // Suggestions cannot turn a committed session into a creation failure.
+      void requestInitialSuggestions(projectId, []).catch(error => {
+        logger.error("Failed to load new-session suggestions:", error);
+        if (ownsRequest()) setSuggestionDisplayState("fallback");
+      });
     } catch (err) {
       logger.error("Failed to create new session:", err);
-      if (currentProjectIdRef.current === projectId && requestSeq === newSessionRequestSeqRef.current) {
-        setSuggestionDisplayState("fallback");
+      if (!ownsRequest()) return;
+      toast.error(t("chat:panel.newSessionFailed"));
+      currentAgentSessionIdRef.current = null;
+      reset();
+      clearStreamItems();
+      setMatchedSkills([]);
+      setSuggestionDisplayState("fallback");
+      // A failed response may follow a committed creation. Read the actual
+      // active history; never replay the POST or guess that the old chat won.
+      await loadChatHistory(projectId, true);
+    } finally {
+      if (ownsRequest() && creatingSessionRef.current === requestSeq) {
+        creatingSessionRef.current = null;
+        setIsCreatingSession(false);
       }
     }
   };
@@ -2033,7 +2070,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
     await handleNewSessionRef.current();
   };
   const requestNewChat = () => {
-    if (newChatAfterStopRef.current) return;
+    if (newChatAfterStopRef.current || creatingSessionRef.current !== null) return;
     if (!isStreaming) {
       void handleNewSession();
       return;
@@ -2256,10 +2293,12 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
           </button>
           <button
             onClick={requestNewChat}
+            disabled={isCreatingSession || newChatPending}
+            aria-busy={isCreatingSession}
             className={`flex items-center justify-center text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))] hover:bg-[hsl(var(--bg-tertiary))] rounded transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-primary)/0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-[hsl(var(--bg-primary))] ${isMobile ? 'p-2 min-h-[44px] min-w-[44px]' : 'p-1.5 min-h-0 min-w-0'}`}
             title={t('chat:panel.newSession')}
           >
-            <Plus size={isMobile ? 18 : 16} />
+            {isCreatingSession ? <><Loader2 size={isMobile ? 18 : 16} className="animate-spin" /><span className="sr-only" role="status">{t("chat:panel.creatingSession")}</span></> : <Plus size={isMobile ? 18 : 16} />}
           </button>
         </div>
       </div>
@@ -2268,6 +2307,12 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
       {/* data-testid: message-list - Message container for message display tests */}
       <div ref={messagesScrollContainerRef} className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden" data-testid="message-list">
         <div className={`py-3 ${isMobile ? 'px-2 pb-2' : 'px-3'}`}>
+          {sessionRecoveryError === currentProjectId && (
+            <div role="alert" className="mb-3 rounded-lg border border-[hsl(var(--border-color))] bg-[hsl(var(--bg-secondary))] p-3 text-sm">
+              <p>{t("chat:panel.sessionRecoveryFailed")}</p>
+              <button type="button" className="btn-secondary mt-2 min-h-11" disabled={isLoadingHistory} onClick={() => { if (currentProjectId) void loadChatHistory(currentProjectId, true); }}>{t("common:retry")}</button>
+            </div>
+          )}
           {isLoadingHistory ? (
             <div className="h-[200px] flex flex-col items-center justify-center text-[hsl(var(--text-secondary))]">
               <Loader2 size={32} className="mb-4 animate-spin opacity-50" />
@@ -2536,7 +2581,7 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
             onSend={handleSendMessage}
             // Allow drafting while AI is streaming/thinking, but prevent sending until it finishes.
             disabled={isLoadingHistory}
-            sendDisabled={isStreaming || isThinking || isLoadingHistory || newChatPending}
+            sendDisabled={isStreaming || isThinking || isLoadingHistory || newChatPending || isCreatingSession || sessionRecoveryError === currentProjectId}
             // Quota used up: drafting stays possible; send / Enter explains instead of sending.
             onBlockedSend={aiSendBlocked ? () => setShowQuotaUpgradeModal(true) : undefined}
             // Waiting for the round to wrap up before a new chat: still 「正在停止…」.

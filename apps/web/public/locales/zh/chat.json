@@ -42,7 +42,10 @@
     "roundSavedFile": "《{{title}}》",
     "roundSavedFileWords": "《{{title}}》{{words}} 字",
     "roundSavedFilesJoiner": "、",
-    "roundSavedFilesMore": "{{files}}等 {{total}} 个文件"
+    "roundSavedFilesMore": "{{files}}等 {{total}} 个文件",
+    "creatingSession": "正在创建新对话",
+    "newSessionFailed": "新对话创建失败，正在同步当前对话",
+    "sessionRecoveryFailed": "暂时无法同步当前对话，请重试后再发送。草稿已保留。"
   },
   "input": {
     "placeholder": "想写什么，直接说",

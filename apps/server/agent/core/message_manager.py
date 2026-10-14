@@ -252,6 +252,9 @@ class MessageManager:
                         f"Chat session does not belong to project/user: {session_id}"
                     )
             else:
+                from services.chat_session_service import lock_active_chat_session
+
+                lock_active_chat_session(session, user_id=self.user_id, project_id=self.project_id)
                 stmt = (
                     select(ChatSession)
                     .where(
