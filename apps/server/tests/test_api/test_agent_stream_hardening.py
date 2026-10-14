@@ -1263,3 +1263,88 @@ async def test_timeout_terminal_precedes_slow_refund_and_keeps_its_final_result(
             assert _frame_data("".join(captured), "quota_refunded")["refunded"] is True
         assert logs[-1]["billing_reason"] == "run_deadline_exceeded"
         assert logs[-1]["client_disconnected"] is disconnect
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("terminal_kind", ["done", "error", "workflow_complete", "workflow_stopped"])
+@pytest.mark.parametrize("backlog", [0, 32])
+async def test_queued_terminal_cannot_suppress_delivered_deadline_terminal(client, db_session, monkeypatch, terminal_kind, backlog):
+    """Produced/queued is not delivered, including a terminal blocked by a full queue."""
+    _token, project, user = await _login_with_project(client, db_session)
+    monkeypatch.setattr(agent_api, "AGENT_RUN_WALL_CLOCK_TIMEOUT_S", 0.02)
+    gate, terminal_generated, cleanup_entered = (asyncio.Event() for _ in range(3))
+    payload = {"code": "ORIGINAL_ERROR", "error": "synthetic error"} if terminal_kind == "error" else {}
+    if terminal_kind == "workflow_stopped":
+        payload = {"reason": "synthetic_terminal_stop"}
+
+    async def frames():
+        try:
+            yield _sse("session_started", {"session_id": "queued-terminal"})
+            for _ in range(backlog):
+                yield _sse("thinking", {"text": "pending"})
+            terminal_generated.set()
+            yield _sse(terminal_kind, payload)
+            await asyncio.Event().wait()
+        finally:
+            cleanup_entered.set()
+            await gate.wait()
+
+    with (
+        patch("api.agent.get_agent_service", return_value=_FakeService(frames)),
+        patch("api.agent.quota_service.reserve_ai_conversation", return_value=_CHARGED_PERIOD),
+        patch("api.agent._refund_quota", new=AsyncMock(return_value=True)) as refund,
+    ):
+        response = await _stream(db_session, user, project, None)
+        iterator = response.body_iterator
+        delivered = [await anext(iterator)]
+        await asyncio.wait_for(terminal_generated.wait(), 0.2)
+        # Simulate consumer backpressure crossing the application deadline.
+        await asyncio.sleep(0.03)
+        next_frame = asyncio.create_task(anext(iterator))
+        try:
+            frame = await asyncio.wait_for(asyncio.shield(next_frame), 0.2)
+            delivered.append(frame)
+            assert _frame_data(frame, "error")["code"] == "ERR_AGENT_RUN_TIMEOUT"
+            await cleanup_entered.wait()
+            refund.assert_not_called()
+            assert not gate.is_set()
+        finally:
+            gate.set()
+            if not next_frame.done():
+                await asyncio.gather(next_frame, return_exceptions=True)
+            delivered.extend([frame async for frame in iterator])
+        text = "".join(delivered)
+        assert text.count("event: error") == 1
+        assert _frame_data(text, "done") is None
+        assert _frame_data(text, "workflow_complete") is None
+        assert _frame_data(text, "workflow_stopped") is None
+        refund.assert_awaited_once()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("terminal_kind", ["done", "error"])
+async def test_delivered_terminal_is_not_duplicated_after_consumer_deadline(client, db_session, monkeypatch, terminal_kind):
+    _token, project, user = await _login_with_project(client, db_session)
+    monkeypatch.setattr(agent_api, "AGENT_RUN_WALL_CLOCK_TIMEOUT_S", 0.02)
+    gate = asyncio.Event()
+    async def frames():
+        try:
+            yield _sse("session_started", {"session_id": "delivered-terminal"})
+            yield _sse(terminal_kind, {"code": "ORIGINAL_ERROR"} if terminal_kind == "error" else {})
+            await asyncio.Event().wait()
+        finally:
+            await gate.wait()
+    with (
+        patch("api.agent.get_agent_service", return_value=_FakeService(frames)),
+        patch("api.agent.quota_service.reserve_ai_conversation", return_value=_CHARGED_PERIOD),
+        patch("api.agent._refund_quota", new=AsyncMock(return_value=True)),
+    ):
+        response = await _stream(db_session, user, project, None)
+        iterator = response.body_iterator
+        delivered = [await anext(iterator), await anext(iterator)]
+        await asyncio.sleep(0.03)
+        gate.set()
+        delivered.extend([frame async for frame in iterator])
+        text = "".join(delivered)
+        assert text.count(f"event: {terminal_kind}") == 1
+        assert "ERR_AGENT_RUN_TIMEOUT" not in text

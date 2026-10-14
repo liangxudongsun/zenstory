@@ -6,7 +6,7 @@
 
 ## Decision
 
-API 提供现有 timeout error 的 frame factory；pump 观察到时限先标记 deadline、发一次取消并发出该真实终态，再等 producer。frame 与原源帧一样经 on_item 记账，已收到其他终态则不追加 timeout。后续异常路径看到已发终态，不重复发送。
+API 提供现有 timeout error 的 frame factory；pump 观察到时限先标记 deadline、发一次取消并发出该真实终态，再等 producer。frame 与原源帧一样经 on_item 记账，终态防重使用独立的 delivered_terminal_event，只在 API 将帧交给消费端前置位；producer 的 saw_terminal_event 继续只用于产物记账。已生成但仍在队列、甚至被满队列阻塞的 done/error 不能压掉截止通知：消费恢复时若已跨 deadline，发送一次真实 timeout，不再发送队列中的旧终态。已经交给消费端的终态则不追加 timeout；后续异常路径同样按交付标记防重。这是应用 yield 边界的证据，不声称网络端已确认接收。
 
 取消幂等，不因尾流断开再取消正在进行的清理。会话 lease 仍由原生产者/后台补存释放，不提前解锁。连接仍在时照旧等 producer 收尾后按真实产出结算、实际返还后才发 quota_refunded。终态后断线且 producer 未停时，用现有后台任务集合保留延后结算：先等 producer，再决定是否返还，日志在等待时 charged=null/settlement_pending=true，不虚报结算。清理后额外记真实后台结算结果；timeout 原因不被断线覆盖。慢退款等待途中断线也保留该原因和原 shield 退款。
 
@@ -18,4 +18,4 @@ API 提供现有 timeout error 的 frame factory；pump 观察到时限先标记
 
 ## Consequences
 
-观察到deadline且事件循环可运行时，终态不再被清理/退款等待吞掉。慢DB或取消仍可能晚于平台连接结束，不能承诺所有内容已保存或所有退款已送达；背景结算/补存继续持有并保持可诊断。受控 gate 测试覆盖慢取消跨模拟edge、真实内存lease排他、保存延后/失败的合成产物、慢退款、终态后断线、单次终态和结算顺序。PR186 的 onDone 回调异常诊断与前端尾流保护已有独立测试，未重复改写。
+观察到deadline且事件循环可运行时，终态不再被清理/退款等待吞掉。慢DB或取消仍可能晚于平台连接结束，不能承诺所有内容已保存或所有退款已送达；背景结算/补存继续持有并保持可诊断。受控 gate 测试覆盖慢取消跨模拟edge、真实内存lease排他、保存延后/失败的合成产物、慢退款、终态后断线、单次终态和结算顺序。另覆盖四类终态 × 空/满队列的背压、已交付终态跨截止的防重，8 个吞终态回归在修复前失败。PR186 的 onDone 回调异常诊断与前端尾流保护已有独立测试，未重复改写。

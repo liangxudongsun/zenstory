@@ -559,7 +559,7 @@ async def stream_request(
         def _deadline_terminal_frame() -> str | None:
             nonlocal deadline_exceeded
             deadline_exceeded = True
-            if tracker.saw_terminal_event:
+            if tracker.delivered_terminal_event:
                 return None
             info = run_timeout_error()
             return error_event(
@@ -674,6 +674,7 @@ async def stream_request(
         _running_streams[run_key] = _RunningStream(pump=pump, outcome=run_outcome)
         try:
             async for event in pump:
+                tracker.observe_delivery(event)
                 yield event
             # 正常收尾：先结算，退还真正落库后才告诉前端「不计入」。
             billing_reason, _, refund_applied = await _settle_billing()
@@ -699,6 +700,7 @@ async def stream_request(
                     data={"reason": USER_STOPPED_REASON, "message": USER_STOPPED_MESSAGE},
                 ).to_sse()
                 tracker.observe(stop_frame)
+                tracker.observe_delivery(stop_frame)
                 yield stop_frame
                 assistant_message_id = await run_outcome.wait_message_id(STOP_MESSAGE_ID_WAIT_S)
                 done_frame = done_event(
@@ -714,6 +716,7 @@ async def stream_request(
                     ),
                 ).to_sse()
                 tracker.observe(done_frame)
+                tracker.observe_delivery(done_frame)
                 yield done_frame
                 billing_reason, _, refund_applied = await _settle_billing()
                 if refund_applied:
@@ -751,7 +754,7 @@ async def stream_request(
                 agent_run_id=agent_run_id,
                 timeout_s=AGENT_RUN_WALL_CLOCK_TIMEOUT_S,
             )
-            if not tracker.saw_terminal_event:
+            if not tracker.delivered_terminal_event:
                 frame = error_event(
                     info.message,
                     code=info.code,
@@ -759,6 +762,7 @@ async def stream_request(
                     refundable=info.refundable,
                 ).to_sse()
                 tracker.observe(frame)
+                tracker.observe_delivery(frame)
                 with contextlib.suppress(Exception):
                     yield frame
             try:
@@ -786,7 +790,7 @@ async def stream_request(
                 user_id=user_id,
                 project_id=body.project_id,
             )
-            if not tracker.saw_terminal_event:
+            if not tracker.delivered_terminal_event:
                 frame = error_event(
                     info.message,
                     code=info.code,
@@ -794,6 +798,7 @@ async def stream_request(
                     refundable=info.refundable,
                 ).to_sse()
                 tracker.observe(frame)
+                tracker.observe_delivery(frame)
                 with contextlib.suppress(Exception):
                     yield frame
             billing_reason, _, refund_applied = await _settle_billing()
@@ -851,6 +856,7 @@ async def stream_request(
                 billing_reason=billing_reason,
                 saw_any_event=tracker.saw_any_event,
                 saw_terminal_event=tracker.saw_terminal_event,
+                delivered_terminal_event=tracker.delivered_terminal_event,
                 saw_internal_error_event=tracker.saw_error_event,
                 error_refundable=tracker.error_refundable,
                 produced_output=tracker.produced_output,
