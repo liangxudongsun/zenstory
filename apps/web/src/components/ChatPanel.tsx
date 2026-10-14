@@ -1063,13 +1063,17 @@ const ChatPanelComponent: React.FC<ChatPanelProps> = () => {
         lastAutoSuggestionKeyRef.current = suggestionKey;
         try {
           const result = await fetchAndApplySuggestions(currentProjectId, currentMessages, { allowFallback: true });
-          lastAutoSuggestionStateRef.current = result === null ? "fallback" : "ready";
+          if (currentProjectIdRef.current !== currentProjectId || lastAutoSuggestionKeyRef.current !== suggestionKey) return;
+          const displayState = result === null && aiSuggestionsRef.current.length === 0 ? "fallback" : "ready";
+          lastAutoSuggestionStateRef.current = displayState;
+          setSuggestionDisplayState(displayState);
         } catch (error) {
+          if (currentProjectIdRef.current !== currentProjectId || lastAutoSuggestionKeyRef.current !== suggestionKey) return;
           // Silent failure - suggestion is non-critical
           logger.error("Failed to fetch suggestions:", error);
-          if (aiSuggestionsRef.current.length === 0) {
-            setSuggestionDisplayState("fallback");
-          }
+          const displayState = aiSuggestionsRef.current.length === 0 ? "fallback" : "ready";
+          lastAutoSuggestionStateRef.current = displayState;
+          setSuggestionDisplayState(displayState);
         }
       }
     }, 1500);

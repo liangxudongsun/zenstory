@@ -799,7 +799,7 @@ class TestJSONParsing:
     async def test_author_directed_suggestions_are_removed_without_padding(
         self, suggest_service, test_user_with_project, db_session: Session
     ):
-        """过滤后不足 3 条时，用现有 fallback 补齐，且不重复。"""
+        """过滤不合格建议，保留有效条目，不凑数。"""
         user = test_user_with_project["user"]
         project = test_user_with_project["project"]
         suggest_service.llm.acomplete.return_value = json.dumps({

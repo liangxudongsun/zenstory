@@ -193,8 +193,11 @@ vi.mock('../../lib/toast', () => ({
 
 import { ChatPanel } from '../ChatPanel'
 import { getRecentMessages } from '../../lib/chatApi'
+import { fetchSuggestions } from '../../lib/agentApi'
 
 type StreamCallbackOptions = {
+  onStart?: () => void
+  onComplete?: (segments: unknown[], action: unknown) => Promise<void>
   onThinking?: (message: string) => void
   onSkillsMatched?: (
     skills: Array<{ id: string; name: string; trigger: string; confidence: number }>
@@ -210,7 +213,7 @@ const lastMessageListProps = () => {
 
 const lastMessageInputProps = () => {
   const calls = mockMessageInput.mock.calls as unknown as Array<
-    [{ matchedSkills?: Array<{ name: string }>; disabled?: boolean; sendDisabled?: boolean; onSend?: (message: string, skillIds?: string[]) => void }]
+    [{ aiSuggestions?: string[]; suggestionDisplayState?: string; matchedSkills?: Array<{ name: string }>; disabled?: boolean; sendDisabled?: boolean; onSend?: (message: string, skillIds?: string[]) => void }]
   >
   return calls[calls.length - 1]?.[0]
 }
@@ -218,6 +221,8 @@ const lastMessageInputProps = () => {
 describe('ChatPanel project switch stream cleanup', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.removeItem('zenstory_suggestions_cache_project-1')
+    localStorage.removeItem('zenstory_suggestions_cache_project-2')
     capturedUseAgentStream.options = null
     projectStore.currentProjectId = 'project-1'
     mockAgentStreamState.isStreaming = false
@@ -297,6 +302,54 @@ describe('ChatPanel project switch stream cleanup', () => {
 
     await act(async () => resolveB([]))
     await waitFor(() => expect(lastMessageInputProps()?.disabled).toBe(false))
+  })
+
+  it('does not let an old project result replace the current empty-ready repeat state', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      for (const id of ['project-1', 'project-2']) {
+        localStorage.setItem(`zenstory_suggestions_cache_${id}`, JSON.stringify({ suggestions: [], updatedAt: Date.now() }))
+      }
+      let finishA!: (value: string[]) => void
+      vi.mocked(fetchSuggestions)
+        .mockReturnValueOnce(new Promise(resolve => { finishA = resolve }))
+        .mockResolvedValueOnce([])
+      render(<ChatPanel />)
+      await waitFor(() => expect(lastMessageInputProps()?.suggestionDisplayState).toBe('ready'))
+      const finishRound = async () => {
+        const options = capturedUseAgentStream.options as StreamCallbackOptions
+        await act(async () => { options.onStart?.(); await options.onComplete?.([], null) })
+        await act(async () => { vi.advanceTimersByTime(1600) })
+      }
+      await finishRound()
+      expect(vi.mocked(fetchSuggestions)).toHaveBeenCalledTimes(1)
+      act(() => projectStore.setProjectId('project-2'))
+      await waitFor(() => expect(lastMessageInputProps()?.suggestionDisplayState).toBe('ready'))
+      await finishRound()
+      expect(vi.mocked(fetchSuggestions)).toHaveBeenCalledTimes(2)
+      await act(async () => { finishA([]) })
+      await finishRound()
+      expect(lastMessageInputProps()?.suggestionDisplayState).toBe('ready')
+      expect(lastMessageInputProps()?.aiSuggestions).toEqual([])
+      expect(vi.mocked(fetchSuggestions).mock.calls.map(args => args[0])).toEqual(['project-1', 'project-2'])
+    } finally { vi.useRealTimers() }
+  })
+
+  it('keeps the owned failure fallback on a same-key completion without refetching', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      localStorage.setItem('zenstory_suggestions_cache_project-1', JSON.stringify({ suggestions: [], updatedAt: Date.now() }))
+      vi.mocked(fetchSuggestions).mockRejectedValueOnce(new Error('synthetic failure'))
+      render(<ChatPanel />)
+      await waitFor(() => expect(lastMessageInputProps()?.suggestionDisplayState).toBe('ready'))
+      const options = capturedUseAgentStream.options as StreamCallbackOptions
+      for (let i = 0; i < 2; i++) {
+        await act(async () => { options.onStart?.(); await options.onComplete?.([], null) })
+        await act(async () => { vi.advanceTimersByTime(1600) })
+        expect(lastMessageInputProps()?.suggestionDisplayState).toBe('fallback')
+      }
+      expect(vi.mocked(fetchSuggestions)).toHaveBeenCalledTimes(1)
+    } finally { vi.useRealTimers() }
   })
 
   it('shows Retry only for retryable errors and replays the captured request once per click', async () => {
