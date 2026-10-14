@@ -1253,7 +1253,14 @@ describe('agentApi', () => {
       )
     })
 
-    it('returns empty array on failure', async () => {
+    it('preserves an explicitly empty successful result', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true, json: async () => ({ suggestions: [] }),
+      }))
+      expect(await fetchSuggestions('test-project')).toEqual([])
+    })
+
+    it('returns null on failure', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: false,
         status: 500,
@@ -1262,7 +1269,7 @@ describe('agentApi', () => {
 
       const result = await fetchSuggestions('test-project')
 
-      expect(result).toEqual([])
+      expect(result).toBeNull()
     })
 
     it('stays silent when the suggestion rate limit or daily cap is hit (429)', async () => {
@@ -1277,7 +1284,7 @@ describe('agentApi', () => {
 
       const result = await fetchSuggestions('test-project')
 
-      expect(result).toEqual([])
+      expect(result).toBeNull()
       expect(errorSpy).not.toHaveBeenCalled()
       errorSpy.mockRestore()
     })
@@ -1346,13 +1353,13 @@ describe('agentApi', () => {
       expect(result).toEqual(['test'])
     })
 
-    it('returns empty array on network error', async () => {
+    it('returns null on network error', async () => {
       const mockFetch = vi.fn().mockRejectedValue(new Error('Network error'))
       vi.stubGlobal('fetch', mockFetch)
 
       const result = await fetchSuggestions('test-project')
 
-      expect(result).toEqual([])
+      expect(result).toBeNull()
     })
 
     it('handles missing suggestions field', async () => {
@@ -1364,7 +1371,7 @@ describe('agentApi', () => {
 
       const result = await fetchSuggestions('test-project')
 
-      expect(result).toEqual([])
+      expect(result).toBeNull()
     })
   })
 

@@ -388,8 +388,8 @@ class TestSuggestionPrioritization:
             count=3,
         )
 
-        # Verify short suggestions filtered, fallback added to reach count
-        assert len(suggestions) == 3
+        # Valid suggestions survive without inventing extra actions
+        assert len(suggestions) == 2
         # Valid suggestions should be present
         assert "这是一个好建议" in suggestions or "另一个好建议" in suggestions
 
@@ -753,7 +753,7 @@ class TestJSONParsing:
         """Test parsing empty response."""
         suggestions = suggest_service._parse_json_suggestions("")
 
-        assert suggestions == []
+        assert suggestions is None
 
     def test_parse_missing_suggestions_key(self, suggest_service):
         """Test parsing JSON without suggestions key."""
@@ -761,7 +761,7 @@ class TestJSONParsing:
 
         suggestions = suggest_service._parse_json_suggestions(response)
 
-        assert suggestions == []
+        assert suggestions is None
 
     def test_validate_suggestions_filters_non_list(self, suggest_service):
         """Test validation filters non-list suggestions."""
@@ -796,12 +796,10 @@ class TestJSONParsing:
         assert suggestions == ["按方案 A 写全文", "把第二章结尾改得更紧"]
 
     @pytest.mark.asyncio
-    async def test_author_directed_suggestions_are_replaced_by_fallbacks(
+    async def test_author_directed_suggestions_are_removed_without_padding(
         self, suggest_service, test_user_with_project, db_session: Session
     ):
         """过滤后不足 3 条时，用现有 fallback 补齐，且不重复。"""
-        from agent.suggest_service import FALLBACK_SUGGESTIONS_ZH
-
         user = test_user_with_project["user"]
         project = test_user_with_project["project"]
         suggest_service.llm.acomplete.return_value = json.dumps({
@@ -815,10 +813,7 @@ class TestJSONParsing:
             count=3,
         )
 
-        assert len(suggestions) == 3
-        assert suggestions[0] == "按方案 A 写全文"
-        assert all(s in FALLBACK_SUGGESTIONS_ZH for s in suggestions[1:])
-        assert len(set(suggestions)) == 3
+        assert suggestions == ["按方案 A 写全文"]
         assert not any("用户" in s or "拍板" in s for s in suggestions)
 
 
@@ -1102,8 +1097,8 @@ class TestEdgeCases:
             count=5,  # Request 5
         )
 
-        # Should pad with fallback suggestions
-        assert len(suggestions) == 5
+        # One relevant suggestion is a valid complete result
+        assert len(suggestions) == 1
         assert "唯一的建议" in suggestions
 
     @pytest.mark.asyncio
@@ -1290,3 +1285,32 @@ class TestConfigurationConstants:
         from agent.suggest_service import MIN_SUGGESTION_LENGTH
 
         assert MIN_SUGGESTION_LENGTH == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+@pytest.mark.parametrize("response, expected", [
+    ('{"suggestions": []}', []), ('[]', []),
+    ('```json\n{"suggestions": []}\n```', []),
+    ('{"suggestions": ["只改第二段"]}', ["只改第二段"]),
+])
+async def test_valid_zero_to_three_results_are_not_padded(suggest_service, response, expected):
+    suggest_service.llm.acomplete.return_value = response
+    result = await suggest_service.generate_suggestions(
+        session=MagicMock(), project_id="synthetic-project", count=3,
+        recent_messages=[{"role": "user", "content": "三项修改做完即结束"}],
+    )
+    assert result == expected
+    assert suggest_service.llm.acomplete.await_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+@pytest.mark.parametrize("response", ['not json', '{}', '{"suggestions": "bad"}'])
+async def test_invalid_result_keeps_failure_fallback(suggest_service, response):
+    suggest_service.llm.acomplete.return_value = response
+    result = await suggest_service.generate_suggestions(
+        session=MagicMock(), project_id="synthetic-project",
+        recent_messages=[{"role": "user", "content": "先给三项建议，不要改文件"}],
+    )
+    assert result == suggest_service._get_fallback_suggestions(3)
