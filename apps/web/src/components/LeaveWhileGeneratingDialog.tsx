@@ -84,7 +84,7 @@ export function LeaveWhileGeneratingDialog({
     <div className="modal-overlay flex items-center justify-center p-4" onClick={onStay} role="presentation">
       <div
         ref={dialogRef}
-        className="modal w-full max-w-[400px] animate-scale-in"
+        className="modal ui-sans-headings w-full max-w-[400px] max-h-[calc(100dvh-2rem)] overflow-y-auto animate-scale-in"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         tabIndex={-1}
@@ -93,30 +93,30 @@ export function LeaveWhileGeneratingDialog({
         aria-describedby={descriptionId}
         data-testid={newChat ? 'new-chat-while-generating-dialog' : 'leave-while-generating-dialog'}
       >
-        <div className="flex items-start gap-3 mb-4">
-          <div className="flex-shrink-0 text-[hsl(var(--warning))]">
-            <AlertCircle className="w-10 h-10" />
+        <div className="mb-4 flex items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[hsl(var(--warning)/0.1)] text-[hsl(var(--warning-text))]">
+            <AlertCircle className="h-5 w-5" aria-hidden="true" />
           </div>
-          <div className="flex-1 pt-1">
-            <h2 id={titleId} className="text-lg font-semibold text-[hsl(var(--text-primary))]">
+          <div className="min-w-0 flex-1">
+            <h2 id={titleId} className="break-words text-lg font-semibold leading-snug text-[hsl(var(--text-primary))]">
               {title}
             </h2>
           </div>
         </div>
         <div className="mb-6">
-          <p id={descriptionId} className="text-sm text-[hsl(var(--text-secondary))] leading-relaxed">
+          <p id={descriptionId} className="break-words text-sm leading-relaxed text-[hsl(var(--text-secondary))]">
             {message}
           </p>
         </div>
-        <div className="flex justify-end gap-3">
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-3">
           {newChat ? (
             <>
-              <Button variant="secondary" onClick={onLeave} data-testid="new-chat-dialog-confirm">
+              <Button size="touch" className="w-full sm:w-auto" variant="secondary" onClick={onLeave} data-testid="new-chat-dialog-confirm">
                 {roundEnded
                   ? t('chat:newChatWhileGenerating.confirmEnded', { defaultValue: '开始新对话' })
                   : t('chat:newChatWhileGenerating.confirm', { defaultValue: '停止并开始新对话' })}
               </Button>
-              <Button variant="primary" onClick={onStay} data-leave-dialog-stay="" data-testid="new-chat-dialog-stay">
+              <Button size="touch" className="w-full sm:w-auto" variant="primary" onClick={onStay} data-leave-dialog-stay="" data-testid="new-chat-dialog-stay">
                 {roundEnded
                   ? t('chat:newChatWhileGenerating.cancel', { defaultValue: '取消' })
                   : t('chat:leaveWhileGenerating.stay', { defaultValue: '继续等' })}
@@ -124,10 +124,10 @@ export function LeaveWhileGeneratingDialog({
             </>
           ) : (
             <>
-              <Button variant="secondary" onClick={onLeave} data-testid="leave-dialog-leave">
+              <Button size="touch" className="w-full sm:w-auto" variant="secondary" onClick={onLeave} data-testid="leave-dialog-leave">
                 {t('chat:leaveWhileGenerating.leave', { defaultValue: '离开' })}
               </Button>
-              <Button variant="primary" onClick={onStay} data-leave-dialog-stay="" data-testid="leave-dialog-stay">
+              <Button size="touch" className="w-full sm:w-auto" variant="primary" onClick={onStay} data-leave-dialog-stay="" data-testid="leave-dialog-stay">
                 {roundEnded
                   ? t('chat:leaveWhileGenerating.stayEnded', { defaultValue: '留在这里' })
                   : t('chat:leaveWhileGenerating.stay', { defaultValue: '继续等' })}
