@@ -1,11 +1,9 @@
 import type { ProjectType } from "../types";
 
 /**
- * The project type a visitor picked before they had an account (landing page
- * type card) or declared during onboarding (short-story / screenwriter
- * persona). The dashboard opens on this tab so the first project matches it.
- *
- * Stored device-wide rather than per user: the landing page has no user yet.
+ * Account-owned creation memory, plus a one-time anonymous landing-page choice.
+ * Authentication claims an explicit anonymous choice before its UI mounts; an
+ * unowned legacy device value must never become another account's preference.
  * Storage failures (private mode, quota, blocked site data) only lose the
  * preference; the dashboard then falls back to "novel".
  */
@@ -17,26 +15,31 @@ const PREFERABLE_PROJECT_TYPES: readonly ProjectType[] = ["novel", "short", "scr
 interface StoredPreferredProjectType {
   type: ProjectType;
   ts: number;
+  source?: "entry";
 }
+
+const storageKey = (userId?: string | null) => userId
+  ? `${PREFERRED_PROJECT_TYPE_STORAGE_KEY}:${userId}`
+  : PREFERRED_PROJECT_TYPE_STORAGE_KEY;
 
 export function isPreferableProjectType(value: unknown): value is ProjectType {
   return typeof value === "string" && PREFERABLE_PROJECT_TYPES.includes(value as ProjectType);
 }
 
-export function setPreferredProjectType(type: ProjectType): void {
+export function setPreferredProjectType(type: ProjectType, userId?: string | null): void {
   if (!isPreferableProjectType(type)) return;
   try {
-    const record: StoredPreferredProjectType = { type, ts: Date.now() };
-    localStorage.setItem(PREFERRED_PROJECT_TYPE_STORAGE_KEY, JSON.stringify(record));
+    const record: StoredPreferredProjectType = { type, ts: Date.now(), ...(!userId ? { source: "entry" as const } : {}) };
+    localStorage.setItem(storageKey(userId), JSON.stringify(record));
   } catch {
     // Preference is a convenience; losing it is harmless.
   }
 }
 
-export function getPreferredProjectType(now: number = Date.now()): ProjectType | null {
+function readPreference(userId?: string | null, now: number = Date.now()): StoredPreferredProjectType | null {
   let raw: string | null;
   try {
-    raw = localStorage.getItem(PREFERRED_PROJECT_TYPE_STORAGE_KEY);
+    raw = localStorage.getItem(storageKey(userId));
   } catch {
     return null;
   }
@@ -52,19 +55,32 @@ export function getPreferredProjectType(now: number = Date.now()): ProjectType |
       now - parsed.ts > PREFERRED_PROJECT_TYPE_TTL_MS ||
       parsed.ts - now > PREFERRED_PROJECT_TYPE_TTL_MS
     ) {
-      clearPreferredProjectType();
+      clearPreferredProjectType(userId);
       return null;
     }
-    return parsed.type;
+    return parsed as StoredPreferredProjectType;
   } catch {
-    clearPreferredProjectType();
+    clearPreferredProjectType(userId);
     return null;
   }
 }
 
-export function clearPreferredProjectType(): void {
+export function getPreferredProjectType(userId?: string | null, now: number = Date.now()): ProjectType | null {
+  return readPreference(userId, now)?.type ?? null;
+}
+
+export function claimPreferredProjectType(userId: string): void {
+  if (!userId) return;
+  const entry = readPreference();
+  // Older records mixed prior accounts with anonymous entry. Their owner is
+  // unknowable; only a newly explicit public-entry choice can be transferred.
+  if (entry?.source === "entry") setPreferredProjectType(entry.type, userId);
+  clearPreferredProjectType();
+}
+
+export function clearPreferredProjectType(userId?: string | null): void {
   try {
-    localStorage.removeItem(PREFERRED_PROJECT_TYPE_STORAGE_KEY);
+    localStorage.removeItem(storageKey(userId));
   } catch {
     // Nothing to clean up when storage is unavailable.
   }

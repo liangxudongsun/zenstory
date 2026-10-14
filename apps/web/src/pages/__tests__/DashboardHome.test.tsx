@@ -275,6 +275,7 @@ describe('DashboardHome featured inspirations section', () => {
     mockGetRecommendations.mockImplementation(() => Promise.resolve(mockPersonaRecommendations))
     vi.mocked(projectApi.getTemplates).mockResolvedValue(null)
     localStorage.removeItem(PREFERRED_PROJECT_TYPE_STORAGE_KEY)
+    localStorage.removeItem(`${PREFERRED_PROJECT_TYPE_STORAGE_KEY}:${defaultMockUser.id}`)
     localStorage.removeItem(`zenstory_held_dashboard_idea:${defaultMockUser.id}`)
     vi.spyOn(subscriptionApi, 'getQuota').mockResolvedValue(quotaWith(2))
   })
@@ -858,7 +859,7 @@ describe('DashboardHome featured inspirations section', () => {
     expect(enDashboard.hero.defaultName).toBe('writer')
   })
   it('opens on the project type picked on the landing page and keeps it after creating', async () => {
-    setPreferredProjectType('screenplay')
+    setPreferredProjectType('screenplay', defaultMockUser.id)
 
     const { unmount } = renderDashboardHome()
 
@@ -868,7 +869,7 @@ describe('DashboardHome featured inspirations section', () => {
       expect(mockCreateProject).toHaveBeenCalledWith(expect.any(String), undefined, 'screenplay')
       expect(mockNavigate).toHaveBeenCalledWith('/project/project-created')
     })
-    expect(getPreferredProjectType()).toBe('screenplay')
+    expect(getPreferredProjectType(defaultMockUser.id)).toBe('screenplay')
     unmount()
 
     // Coming back to the dashboard: the screenwriter is not switched to 长篇小说.
@@ -894,7 +895,7 @@ describe('DashboardHome featured inspirations section', () => {
   })
 
   it('keeps the preferred type when project creation fails', async () => {
-    setPreferredProjectType('short')
+    setPreferredProjectType('short', defaultMockUser.id)
     mockCreateProject.mockRejectedValueOnce(new ApiError(500, 'boom'))
 
     renderDashboardHome()
@@ -903,12 +904,12 @@ describe('DashboardHome featured inspirations section', () => {
     await waitFor(() => {
       expect(mockCreateProject).toHaveBeenCalledWith(expect.any(String), undefined, 'short')
     })
-    expect(getPreferredProjectType()).toBe('short')
+    expect(getPreferredProjectType(defaultMockUser.id)).toBe('short')
   })
 
   it('falls back to novel when the stored preference is stale or invalid', async () => {
     localStorage.setItem(
-      PREFERRED_PROJECT_TYPE_STORAGE_KEY,
+      `${PREFERRED_PROJECT_TYPE_STORAGE_KEY}:${defaultMockUser.id}`,
       JSON.stringify({ type: 'screenplay', ts: Date.now() - PREFERRED_PROJECT_TYPE_TTL_MS - 1000 }),
     )
     const { unmount } = renderDashboardHome()
@@ -918,7 +919,7 @@ describe('DashboardHome featured inspirations section', () => {
     })
     unmount()
 
-    localStorage.setItem(PREFERRED_PROJECT_TYPE_STORAGE_KEY, JSON.stringify({ type: 'poem', ts: Date.now() }))
+    localStorage.setItem(`${PREFERRED_PROJECT_TYPE_STORAGE_KEY}:${defaultMockUser.id}`, JSON.stringify({ type: 'poem', ts: Date.now() }))
     renderDashboardHome()
     fireEvent.click(screen.getByTestId('create-project-button'))
     await waitFor(() => {
@@ -989,7 +990,7 @@ describe('DashboardHome featured inspirations section', () => {
 describe('first work entry', () => {
   beforeEach(() => { vi.clearAllMocks(); mockFirstWork.get.mockResolvedValue(firstWorkState()); mockFirstWork.initialize.mockReset(); mockLanguage = 'zh-CN'; mockUser = defaultMockUser; mockProjects = []; mockProjectsLoading = false; mockDashboardOnboardingFlags.todayActionPlanEnabled = false; mockDashboardOnboardingFlags.firstDayActivationGuideEnabled = false; mockUseFeaturedInspirations.mockReturnValue(mockFeaturedState); vi.spyOn(subscriptionApi, 'getQuota').mockResolvedValue({ ai_conversations: { used: 0, limit: 3, reset_at: null } } as QuotaResponse); localStorage.clear() })
   it('initializes pending work with the existing type preference and opens its exact manuscript', async () => {
-    setPreferredProjectType('screenplay')
+    setPreferredProjectType('screenplay', defaultMockUser.id)
     mockFirstWork.get.mockResolvedValue(firstWorkState('pending'))
     mockFirstWork.initialize.mockResolvedValue({ ...firstWorkState('created'), project_id: 'first-project', file_id: 'first-script', available: true, static_guidance: true })
     renderDashboardHome()

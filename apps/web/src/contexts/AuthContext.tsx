@@ -10,6 +10,7 @@ import { getEntrySource } from '../lib/entrySource';
 import { getLocale } from '../lib/i18n-helpers';
 import { saveOAuthPlanIntent, type PlanIntent } from '../lib/authFlow';
 import { clearPendingUpgradeFunnelEvents } from '../lib/upgradeAnalytics';
+import { claimPreferredProjectType } from '../lib/preferredProjectType';
 
 export interface User {
   id: string;
@@ -150,7 +151,12 @@ const attemptTokenRefresh = async (
 };
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUserState] = useState<User | null>(null);
+  const setUser = React.useCallback((next: User | null) => {
+    // Bind a one-time public entry before the new identity's subtree mounts.
+    if (next) claimPreferredProjectType(next.id);
+    setUserState(next);
+  }, []);
   const [loading, setLoading] = useState(true);
   const previousUserIdRef = React.useRef<string | null>(null);
   const authGenerationRef = React.useRef(0);
@@ -276,7 +282,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return () => {
       authGenerationRef.current += 1;
     };
-  }, [ownsSession]);
+  }, [ownsSession, setUser]);
 
   // Keep auth state in sync when API client clears tokens (same-tab)
   useEffect(() => {
@@ -290,7 +296,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return () => {
       window.removeEventListener('auth:logout', onLogout as EventListener);
     };
-  }, []);
+  }, [setUser]);
 
   useEffect(() => {
     if (loading) return;

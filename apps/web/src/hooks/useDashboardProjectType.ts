@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import type { Project, ProjectType } from "../types";
 import { parseUTCDate } from "../lib/dateUtils";
+import { useAuth } from "../contexts/AuthContext";
 import {
   getPreferredProjectType,
   isPreferableProjectType,
@@ -25,8 +26,8 @@ function latestProjectType(projects: readonly Project[]): ProjectType | null {
 /**
  * Which project type the dashboard creation tabs open on.
  *
- * 1. A stored preference (landing-page card, onboarding persona, or the type
- *    of the last project created on this device).
+ * 1. The current account's preference (claimed public entry, onboarding
+ *    persona, or the type of its last created project).
  * 2. Otherwise the type of the author's most recently active project, so a
  *    screenwriter signing in on a new device does not land on 长篇小说.
  * 3. Otherwise 长篇小说.
@@ -36,8 +37,10 @@ function latestProjectType(projects: readonly Project[]): ProjectType | null {
  * the next default instead of clearing it.
  */
 export function useDashboardProjectType(projects: readonly Project[]) {
+  const { user } = useAuth();
+  const userId = user?.id;
   const [choice, setChoice] = useState<{ type: ProjectType; source: Source }>(() => {
-    const preferred = getPreferredProjectType();
+    const preferred = getPreferredProjectType(userId);
     return preferred ? { type: preferred, source: "preference" } : { type: "novel", source: "default" };
   });
   const recentType = useMemo(() => latestProjectType(projects), [projects]);
@@ -49,8 +52,8 @@ export function useDashboardProjectType(projects: readonly Project[]) {
   }, []);
 
   const rememberCreatedType = useCallback((type: ProjectType) => {
-    setPreferredProjectType(type);
-  }, []);
+    setPreferredProjectType(type, userId);
+  }, [userId]);
 
   return { activeTab, setActiveTab, rememberCreatedType };
 }

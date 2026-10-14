@@ -83,6 +83,7 @@ const EXPERIENCE_LEVELS: PersonaExperienceLevel[] = ["beginner", "intermediate",
  * author's first project is the kind they write.
  */
 const PERSONA_PROJECT_TYPES: Partial<Record<PersonaId, ProjectType>> = {
+  serial: "novel",
   short_story: "short",
   screenwriter: "screenplay",
 };
@@ -323,11 +324,11 @@ export default function OnboardingPersonaPage() {
         throw new Error("Persona onboarding save returned no profile");
       }
 
-      if (!skip && !getPreferredProjectType()) {
+      if (!skip && !getPreferredProjectType(user.id)) {
         const impliedType = selectedPersonas
           .map((id) => PERSONA_PROJECT_TYPES[id])
           .find((type): type is ProjectType => Boolean(type));
-        if (impliedType) setPreferredProjectType(impliedType);
+        if (impliedType) setPreferredProjectType(impliedType, user.id);
       }
 
       savePersonaOnboardingData(user.id, {
