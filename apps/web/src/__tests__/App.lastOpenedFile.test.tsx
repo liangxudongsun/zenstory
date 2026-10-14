@@ -86,6 +86,10 @@ vi.mock("../lib/onboardingPersonaApi", async () => {
   };
 });
 vi.mock("../lib/ssoRedirect", () => ({ handleSsoRedirect: vi.fn() }));
+vi.mock("../lib/firstWorkApi", async () => ({
+  ...await vi.importActual<typeof import("../lib/firstWorkApi")>("../lib/firstWorkApi"),
+  firstWorkApi: { get: vi.fn(async () => ({ status: "ineligible", project_id: null, static_guidance: false })) },
+}));
 vi.mock("../lib/logger", () => ({ logger: { log: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("../lib/api", () => ({ fileApi: { get: state.fileGet } }));
 

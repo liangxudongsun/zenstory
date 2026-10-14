@@ -10,6 +10,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, render as rtlRender, screen, waitFor, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
+vi.mock('../../contexts/AuthContext', () => ({
+  useAuth: () => ({ user: { id: 'test-user' } }),
+}))
+vi.mock('../../lib/firstWorkApi', async original => ({
+  ...await original<typeof import('../../lib/firstWorkApi')>(),
+  firstWorkApi: { get: vi.fn(async () => ({
+    status: 'ineligible', project_id: null, file_id: null, available: false, static_guidance: false,
+    opened_at: null, first_manual_write_at: null, first_ai_requested_at: null,
+  })) },
+}))
+
 // ChatPanel reads the quota query (shared with QuotaBadge), so it needs a QueryClient.
 const render = (ui: React.ReactElement) =>
   rtlRender(
