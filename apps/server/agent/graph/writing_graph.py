@@ -1671,6 +1671,10 @@ async def run_writing_workflow_streaming(
             if isinstance(routing_metadata, dict)
             else ""
         )
+        state["resume_from_output_truncation"] = (
+            routing_metadata.get("previous_stop_reason") == "output_truncated"
+            and routing_metadata.get("reason") == "resume_after_exhaustion"
+        )
         scope_directive = _build_scope_directive(routing_metadata)
         if scope_directive:
             state["scope_directive"] = scope_directive
