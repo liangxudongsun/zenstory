@@ -19,7 +19,7 @@ for (const language of ['zh', 'en']) {
       ? '每天 3 条 AI 消息、最多 3 个项目，先把开头写出来。'
       : '3 AI messages a day and up to 3 projects — enough to get your opening down.', { exact: true })).toBeAttached();
     await page.goto('/pricing');
-    await expect(page.getByText(language === 'zh' ? '3 条/天' : '3 /day', { exact: true })).toBeVisible();
+    await expect(page.getByText(language === 'zh' ? '3 条/天' : '3/day', { exact: true })).toBeVisible();
     await expect(page.getByText(language === 'zh'
       ? '免费版每天 3 条 AI 消息，够你先写起来；要日更连载，再开 Pro。'
       : 'Free gives you 3 AI messages a day to get started. Writing daily? Get Pro.', { exact: true })).toBeVisible();
