@@ -33,3 +33,16 @@ def require_inspirations_enabled() -> None:
     """Hide inspiration routes when the module is disabled."""
     if not is_inspirations_enabled():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+
+def get_first_work_rollout_percent() -> int:
+    """Zero disables new enrollment/initialization; malformed values stay closed."""
+    try:
+        percent = int(os.getenv("FIRST_WORK_ONBOARDING_ROLLOUT_PERCENT", "0"))
+    except (TypeError, ValueError):
+        return 0
+    return percent if 0 <= percent <= 100 else 0
+
+
+def is_first_work_onboarding_enabled() -> bool:
+    return get_first_work_rollout_percent() > 0

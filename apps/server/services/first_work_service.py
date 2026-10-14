@@ -1,6 +1,7 @@
 """One transactional, model-free starting workspace for newly registered authors."""
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime
 
@@ -8,6 +9,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, col, select, update
 
 from config.datetime_utils import utcnow
+from config.feature_flags import get_first_work_rollout_percent, is_first_work_onboarding_enabled
 from core.error_codes import ErrorCode
 from core.error_handler import APIException
 from models import File, Project, User, UserPersonaProfile, WorkspaceOnboarding
@@ -28,8 +30,16 @@ class FirstWorkState(BaseModel):
     first_ai_requested_at: datetime | None = None
 
 
+def should_enroll_new_user(user_id: str) -> bool:
+    percent = get_first_work_rollout_percent()
+    bucket = int.from_bytes(hashlib.sha256(f"first-work-v1:{user_id}".encode()).digest()[:8], "big") % 100
+    return bucket < percent
+
+
 def enroll_new_user(session: Session, user: User) -> None:
     """Stage qualification in the same transaction as a genuinely new account."""
+    if not should_enroll_new_user(user.id):
+        return
     session.flush()  # The new user must exist before its FK row; still one transaction.
     session.add(WorkspaceOnboarding(user_id=user.id))
 
@@ -50,7 +60,10 @@ def _state(session: Session, record: WorkspaceOnboarding | None) -> FirstWorkSta
 
 
 def get_first_work_state(session: Session, user_id: str) -> FirstWorkState:
-    return _state(session, session.get(WorkspaceOnboarding, user_id))
+    record = session.get(WorkspaceOnboarding, user_id)
+    if record is not None and record.status == "pending" and not is_first_work_onboarding_enabled():
+        return FirstWorkState(status="disabled")
+    return _state(session, record)
 
 
 def consume_for_author_project(session: Session, user_id: str | None) -> None:
@@ -66,6 +79,9 @@ def initialize_first_work(
     session: Session, user_id: str, *, preferred_type: str | None = None, lang: str = "zh",
 ) -> FirstWorkState:
     from services.project_service import stage_project_with_default_folders
+
+    if not is_first_work_onboarding_enabled():
+        return get_first_work_state(session, user_id)
 
     try:
         # The shared creation gate also serializes manual/Agent/inspiration

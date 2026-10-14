@@ -51,6 +51,7 @@ async def test_register_success(client: AsyncClient):
 @pytest.mark.integration
 async def test_register_creates_free_subscription_and_quota(client: AsyncClient, db_session, monkeypatch):
     """Registration should bootstrap free subscription + usage quota records."""
+    monkeypatch.setenv("FIRST_WORK_ONBOARDING_ROLLOUT_PERCENT", "100")
     from models import User
     from models.subscription import SubscriptionPlan, UsageQuota, UserSubscription
 

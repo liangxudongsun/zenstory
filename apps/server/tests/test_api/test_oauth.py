@@ -227,6 +227,7 @@ async def test_google_oauth_callback_bootstraps_subscription_and_quota(
     client: AsyncClient, db_session, monkeypatch
 ):
     """New OAuth users should get free subscription + quota records."""
+    monkeypatch.setenv("FIRST_WORK_ONBOARDING_ROLLOUT_PERCENT", "100")
     from sqlmodel import select
 
     from api.oauth import OAUTH_STATE_COOKIE_NAME, _encode_oauth_state

@@ -311,7 +311,9 @@ class DashboardStatsResponse(BaseModel):
     total_users: int
     active_users: int
     new_users_today: int
-    total_projects: int
+    total_projects: int = Field(description="All persisted project rows, including automatic initialization and soft deletes")
+    author_created_projects: int = Field(description="Project rows created by author actions, excluding automatic first-work initialization")
+    auto_initialized_projects: int = Field(description="Project rows originating from first-work initialization; not an activation metric")
     total_inspirations: int
     pending_inspirations: int
     # Paid (non-free) subscriptions whose period has not ended.

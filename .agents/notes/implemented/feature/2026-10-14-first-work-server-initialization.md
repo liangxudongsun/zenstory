@@ -6,9 +6,9 @@
 
 ## Decision
 
-服务端新增 WorkspaceOnboarding：只在密码/OAuth 真正新建账号的同一事务写资格行，现有账号无行，不按可变时间或回调 new_user 猜测。复用 persona profile 的完成/跳过事实；新资格 pending 且无 profile 时，不让旧七天窗口代替显式完成/跳过。首次正常工作台 POST 初始化复用套餐项目创建 owner gate；项目、现有类型模板目录、一份空正文/剧本文件与结果一次提交，失败全回滚。保存结果原始 id（不做删除级联 FK），明确 skipped_existing；手动/Agent/copy 创建在同一 owner gate 消费资格，硬删除也不重新获资格。
+服务端新增单一 FIRST_WORK_ONBOARDING_ROLLOUT_PERCENT，默认0关闭，非法/越界值也关闭；显式1..100时仅在密码/OAuth真正新建账号时按稳定user id采样，并在同一事务写 WorkspaceOnboarding 资格行。已入资格不因后续比例变化重算，登录与启用不回填旧号。关闭门只暂停新增资格和pending初始化；已初始化作品继续保留静态0模型保护。复用 persona profile 的完成/跳过事实；新资格 pending 且无 profile 时，不让旧七天窗口代替显式完成/跳过。首次正常工作台 POST 初始化复用套餐项目创建 owner gate；项目、现有类型模板目录、一份空正文/剧本文件与结果一次提交，失败全回滚。保存结果原始 id（不做删除级联 FK），明确 skipped_existing；手动/Agent/copy 创建在同一 owner gate 消费资格，硬删除也不重新获资格。
 
-不向 Project 重复加来源列：初始化结果的 project_id 是持久来源关系，文件沿用 JSON metadata 标记 first_work。自动初始化不写 project_created，后台主动作品数排除该关系；既有正文进度按实际非空字数不计空文件。独立记录真实打开、非空手动保存和额度接受后的主动 AI 时间，不收稿件或提示词。API 建议入口在该作品首次主动 AI 前返回合法空数组，不创建模型服务、不动 AI 用量。
+不向 Project 重复加来源列：初始化结果的 project_id 是持久来源关系，文件沿用 JSON metadata 标记 first_work。自动初始化不写 project_created，后台 total_projects 保留全部实际行口径，另以同一聚合快照提供 author_created_projects 与 auto_initialized_projects，明确来源分项且不把自动数当激活；既有正文进度按实际非空字数不计空文件。独立记录真实打开、非空手动保存和额度接受后的主动 AI 时间，不收稿件或提示词。API 建议入口在该作品首次主动 AI 前返回合法空数组，不创建模型服务、不动 AI 用量。
 
 本 PR 只提供服务端资格、幂等初始化、读取/真实打开接口与模型建议守卫。前端工作台主入口、编辑器静态提示、初次建议加载抑制和聚焦将在依赖 PR 接入；本记录不把尚未接入的用户界面宣称为已交付。
 
@@ -24,4 +24,4 @@
 
 ## Verification
 
-先添加初始化合同14项失败回归，再实现。现有类型模板、老账号/未验证/无引导、原子失败、软硬删除、手动建后硬删除和套餐上限等回归通过。新增真实 HTTP 覆盖0模型/0新增用量、3条已耗尽时保存、显式接受任务2→3、AI审阅不算手动首写、持久资格超出旧窗口；password与mock Google注册实际落资格行。PostgreSQL观察真实Lock等待，覆盖两标签、手动创建先赢、中途失败后重试；与既有容量套件22项串行通过并加入CI同一lane。父版本schema fixture（SQLModel创建并stamp20261014_090000）到新迁移up/down/up真实通过，旧账号零回填；历史迁移链不支持从完全空库起步，不将其冒充本次证明。所有模型边界mock，无真实模型费用；尚无staging/UI/转化效果证据。
+先添加初始化合同14项失败回归，再实现。现有类型模板、老账号/未验证/无引导、原子失败、软硬删除、手动建后硬删除和套餐上限等回归通过。新增真实 HTTP 覆盖0模型/0新增用量、3条已耗尽时保存、显式接受任务2→3、AI审阅不算手动首写、持久资格超出旧窗口；password与mock Google注册实际落资格行。PostgreSQL观察真实Lock等待，覆盖两标签、手动创建先赢、中途失败后重试；与既有容量套件22项串行通过并加入CI同一lane。父版本schema fixture（SQLModel创建并stamp20261014_090000）到新迁移up/down/up真实通过，旧账号零回填；历史迁移链不支持从完全空库起步，不将其冒充本次证明。默认/0/非法比例不入资格、不回填、稳定10%采样、资格不重算、关门后已有静态保护与物理/来源统计8项回归先红再绿。所有模型边界mock，无真实模型费用；尚无staging/UI/转化效果证据。

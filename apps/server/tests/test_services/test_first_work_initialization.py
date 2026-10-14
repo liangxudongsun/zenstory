@@ -12,6 +12,11 @@ from services.project_progress import get_projects_progress
 from services.project_service import create_project_with_default_folders
 
 
+@pytest.fixture(autouse=True)
+def enabled_first_work_rollout(monkeypatch):
+    monkeypatch.setenv("FIRST_WORK_ONBOARDING_ROLLOUT_PERCENT", "100")
+
+
 def service():
     return import_module("services.first_work_service")
 
@@ -155,3 +160,28 @@ def test_default_work_obeys_project_capacity_without_spending_ai(db_session):
     assert caught.value.status_code == 402
     assert count(db_session, Project) == count(db_session, File) == 0
     assert service().get_first_work_state(db_session, user.id).status == "pending"
+
+
+@pytest.mark.parametrize("rollout", [None, "0", "-1", "101", "invalid"])
+def test_default_off_and_invalid_rollout_never_enrolls_or_backfills(db_session, monkeypatch, rollout):
+    if rollout is None:
+        monkeypatch.delenv("FIRST_WORK_ONBOARDING_ROLLOUT_PERCENT", raising=False)
+    else:
+        monkeypatch.setenv("FIRST_WORK_ONBOARDING_ROLLOUT_PERCENT", rollout)
+    user = seed(db_session)
+    from models import WorkspaceOnboarding
+    assert db_session.get(WorkspaceOnboarding, user.id) is None
+    monkeypatch.setenv("FIRST_WORK_ONBOARDING_ROLLOUT_PERCENT", "100")
+    assert service().initialize_first_work(db_session, user.id).status == "ineligible"
+    assert count(db_session, Project) == 0
+
+
+def test_rollout_sampling_is_stable_and_persisted_qualification_is_not_recomputed(db_session, monkeypatch):
+    monkeypatch.setenv("FIRST_WORK_ONBOARDING_ROLLOUT_PERCENT", "10")
+    choose = service().should_enroll_new_user
+    first = [choose(f"synthetic-sample-{index}") for index in range(1000)]
+    assert 50 < sum(first) < 150 and first == [choose(f"synthetic-sample-{i}") for i in range(1000)]
+    monkeypatch.setenv("FIRST_WORK_ONBOARDING_ROLLOUT_PERCENT", "100")
+    user = seed(db_session)
+    monkeypatch.setenv("FIRST_WORK_ONBOARDING_ROLLOUT_PERCENT", "1")
+    assert service().initialize_first_work(db_session, user.id).status == "created"

@@ -33,6 +33,11 @@ def owned_engine():
         engine.dispose()
 
 
+@pytest.fixture(autouse=True)
+def enabled_first_work_rollout(monkeypatch):
+    monkeypatch.setenv("FIRST_WORK_ONBOARDING_ROLLOUT_PERCENT", "100")
+
+
 def seed(engine):
     with Session(engine) as session:
         suffix = uuid4().hex

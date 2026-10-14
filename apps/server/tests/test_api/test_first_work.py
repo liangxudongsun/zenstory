@@ -3,12 +3,18 @@ from datetime import timedelta
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
+import pytest
 from sqlmodel import select
 
 from config.datetime_utils import utcnow
 from models import ActivationEvent, Project, UsageQuota, User, UserPersonaProfile, WorkspaceOnboarding
 from services.core.auth_service import create_access_token
 from services.first_work_service import enroll_new_user, initialize_first_work
+
+
+@pytest.fixture(autouse=True)
+def enabled_first_work_rollout(monkeypatch):
+    monkeypatch.setenv("FIRST_WORK_ONBOARDING_ROLLOUT_PERCENT", "100")
 
 
 def author(session):
@@ -72,11 +78,13 @@ async def test_author_project_rename_and_source_statistics_are_separate(client, 
     db_session.add(user)
     db_session.commit()
     stats = await client.get("/api/admin/dashboard/stats", headers=headers)
-    assert stats.status_code == 200 and stats.json()["total_projects"] == 0
+    assert stats.status_code == 200 and stats.json()["total_projects"] == 1
+    assert stats.json()["author_created_projects"] == 0 and stats.json()["auto_initialized_projects"] == 1
     manual = await client.post("/api/v1/projects", headers=headers, json={"name": "主动作品"})
     assert manual.status_code == 200
     stats = await client.get("/api/admin/dashboard/stats", headers=headers)
-    assert stats.json()["total_projects"] == 1
+    assert stats.json()["total_projects"] == 2
+    assert stats.json()["author_created_projects"] == 1 and stats.json()["auto_initialized_projects"] == 1
 
 
 async def test_explicit_accepted_task_ends_static_guidance_and_uses_existing_quota(client, db_session, monkeypatch):
@@ -126,3 +134,23 @@ async def test_persisted_new_registration_waits_for_explicit_onboarding_even_aft
     result = await client.post("/api/v1/workspace/first-work", headers=headers, json={})
     assert result.json()["status"] == "waiting_onboarding"
     assert db_session.exec(select(Project)).all() == []
+
+
+async def test_closing_rollout_keeps_created_work_static_and_pending_work_uninitialized(client, db_session, monkeypatch):
+    created_user, _, created_headers = author(db_session)
+    created = initialize_first_work(db_session, created_user.id)
+    pending_user, _, pending_headers = author(db_session)
+    monkeypatch.setenv("FIRST_WORK_ONBOARDING_ROLLOUT_PERCENT", "0")
+    pending = await client.post("/api/v1/workspace/first-work", headers=pending_headers, json={})
+    assert pending.json()["status"] == "disabled"
+    assert db_session.exec(select(Project).where(Project.owner_id == pending_user.id)).all() == []
+    repeated = await client.post("/api/v1/workspace/first-work", headers=created_headers, json={})
+    assert repeated.json()["project_id"] == created.project_id and repeated.json()["static_guidance"] is True
+    model = MagicMock(generate_suggestions=AsyncMock())
+    monkeypatch.setattr("agent.suggest_service.get_suggest_service", lambda: model)
+    response = await client.post("/api/v1/agent/suggest", headers=created_headers, json={"project_id": created.project_id})
+    assert response.json() == {"suggestions": []}
+    model.generate_suggestions.assert_not_called()
+    monkeypatch.setenv("FIRST_WORK_ONBOARDING_ROLLOUT_PERCENT", "100")
+    resumed = await client.post("/api/v1/workspace/first-work", headers=pending_headers, json={})
+    assert resumed.json()["status"] == "created"

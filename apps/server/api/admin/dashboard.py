@@ -108,9 +108,12 @@ def get_dashboard_stats(
     ).one()
 
     # Total projects
-    total_projects = session.exec(select(func.count()).select_from(Project).where(
-        ~Project.id.in_(select(WorkspaceOnboarding.project_id).where(WorkspaceOnboarding.project_id.is_not(None)))
-    )).one()
+    total_projects, auto_initialized_projects = session.exec(
+        select(func.count(func.distinct(Project.id)), func.count(func.distinct(WorkspaceOnboarding.project_id)))
+        .select_from(Project)
+        .outerjoin(WorkspaceOnboarding, WorkspaceOnboarding.project_id == Project.id)
+    ).one()
+    author_created_projects = total_projects - auto_initialized_projects
 
     total_inspirations = 0
     pending_inspirations = 0
@@ -178,6 +181,8 @@ def get_dashboard_stats(
         active_users=active_users,
         new_users_today=new_users_today,
         total_projects=total_projects,
+        author_created_projects=author_created_projects,
+        auto_initialized_projects=auto_initialized_projects,
         total_inspirations=total_inspirations,
         pending_inspirations=pending_inspirations,
         active_subscriptions=active_subscriptions,
