@@ -298,7 +298,7 @@ export default function AdminDashboard() {
 
                 </div>
 
-                {(upgradeFunnel.surfaces?.length ?? 0) > 0 && (
+                {(upgradeFunnel.surfaces?.length ?? 0) > 0 ? (
                   <div className="space-y-2">
                     <div tabIndex={0} className="overflow-x-auto rounded-md border border-[hsl(var(--separator-color)/0.45)]">
                       <table className="w-full min-w-[640px] text-sm" aria-label={t('admin:dashboard.upgradeSurfaceBreakdown', '升级入口展示分类')}>
@@ -321,81 +321,81 @@ export default function AdminDashboard() {
                       </table>
                     </div>
                   </div>
-                )}
+                ) : (
+                  <div className="space-y-2">
+                    {allUpgradeSources.length > 0 && (
+                      <div className="text-xs text-[hsl(var(--text-secondary))]">
+                        {t('admin:dashboard.upgradeSourceCount', {
+                          count: allUpgradeSources.length,
+                          defaultValue: `来源数：${allUpgradeSources.length}`,
+                        })}
+                      </div>
+                    )}
 
-                <div className="space-y-2">
-                  {allUpgradeSources.length > 0 && (
-                    <div className="text-xs text-[hsl(var(--text-secondary))]">
-                      {t('admin:dashboard.upgradeSourceCount', {
-                        count: allUpgradeSources.length,
-                        defaultValue: `来源数：${allUpgradeSources.length}`,
-                      })}
-                    </div>
-                  )}
+                    {allUpgradeSources.length === 0 && (
+                      <p className="text-sm text-[hsl(var(--text-secondary))]">
+                        {t('common:noData')}
+                      </p>
+                    )}
 
-                  {allUpgradeSources.length === 0 && (
-                    <p className="text-sm text-[hsl(var(--text-secondary))]">
-                      {t('common:noData')}
-                    </p>
-                  )}
-
-                  {allUpgradeSources.length > 0 && (
-                    <div tabIndex={0} className="overflow-x-auto rounded-md border border-[hsl(var(--separator-color)/0.45)]">
-                      <table className="w-full min-w-[760px] text-sm">
-                        <thead className="bg-[hsl(var(--bg-tertiary))] text-[hsl(var(--text-secondary))]">
-                          <tr>
-                            <th className="px-3 py-2 text-left font-medium">
-                              {t('admin:dashboard.upgradeSource', '来源')}
-                            </th>
-                            <th className="px-3 py-2 text-right font-medium">
-                              {t('admin:dashboard.upgradeExpose', '曝光')}
-                            </th>
-                            <th className="px-3 py-2 text-right font-medium">
-                              {t('admin:dashboard.upgradeClick', '点击')}
-                            </th>
-                            <th className="px-3 py-2 text-right font-medium">
-                              {t('admin:dashboard.upgradePageArrival', '页面到达')}
-                            </th>
-
-
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {visibleUpgradeSources.map((item) => (
-                            <tr key={item.source} className="border-t border-[hsl(var(--separator-color)/0.35)]">
-                              <td className="px-3 py-2 text-[hsl(var(--text-primary))] truncate max-w-[320px]" title={item.source}>
-                                {item.source}
-                              </td>
-                              <td className="px-3 py-2 text-right text-[hsl(var(--text-primary))]">{item.exposes}</td>
-                              <td className="px-3 py-2 text-right text-[hsl(var(--text-primary))]">{item.clicks}</td>
-                              <td className="px-3 py-2 text-right text-[hsl(var(--text-primary))]">{item.conversions}</td>
+                    {allUpgradeSources.length > 0 && (
+                      <div tabIndex={0} className="overflow-x-auto rounded-md border border-[hsl(var(--separator-color)/0.45)]">
+                        <table className="w-full min-w-[760px] text-sm">
+                          <thead className="bg-[hsl(var(--bg-tertiary))] text-[hsl(var(--text-secondary))]">
+                            <tr>
+                              <th className="px-3 py-2 text-left font-medium">
+                                {t('admin:dashboard.upgradeSource', '来源')}
+                              </th>
+                              <th className="px-3 py-2 text-right font-medium">
+                                {t('admin:dashboard.upgradeExpose', '曝光')}
+                              </th>
+                              <th className="px-3 py-2 text-right font-medium">
+                                {t('admin:dashboard.upgradeClick', '点击')}
+                              </th>
+                              <th className="px-3 py-2 text-right font-medium">
+                                {t('admin:dashboard.upgradePageArrival', '页面到达')}
+                              </th>
 
 
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+                          </thead>
+                          <tbody>
+                            {visibleUpgradeSources.map((item) => (
+                              <tr key={item.source} className="border-t border-[hsl(var(--separator-color)/0.35)]">
+                                <td className="px-3 py-2 text-[hsl(var(--text-primary))] truncate max-w-[320px]" title={item.source}>
+                                  {item.source}
+                                </td>
+                                <td className="px-3 py-2 text-right text-[hsl(var(--text-primary))]">{item.exposes}</td>
+                                <td className="px-3 py-2 text-right text-[hsl(var(--text-primary))]">{item.clicks}</td>
+                                <td className="px-3 py-2 text-right text-[hsl(var(--text-primary))]">{item.conversions}</td>
 
-                  {hasMoreUpgradeSources && (
-                    <button
-                      type="button"
-                      className="text-sm text-[var(--admin-accent-text)] hover:underline"
-                      onClick={() => setShowAllUpgradeSources((prev) => !prev)}
-                    >
-                      {showAllUpgradeSources
-                        ? t('admin:dashboard.upgradeShowTopSources', {
-                            count: MAX_VISIBLE_SOURCES,
-                            defaultValue: `仅显示前 ${MAX_VISIBLE_SOURCES} 个`,
-                          })
-                        : t('admin:dashboard.upgradeShowAllSources', {
-                            count: allUpgradeSources.length,
-                            defaultValue: `查看全部（${allUpgradeSources.length}）`,
-                          })}
-                    </button>
-                  )}
-                </div>
+
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {hasMoreUpgradeSources && (
+                      <button
+                        type="button"
+                        className="text-sm text-[var(--admin-accent-text)] hover:underline"
+                        onClick={() => setShowAllUpgradeSources((prev) => !prev)}
+                      >
+                        {showAllUpgradeSources
+                          ? t('admin:dashboard.upgradeShowTopSources', {
+                              count: MAX_VISIBLE_SOURCES,
+                              defaultValue: `仅显示前 ${MAX_VISIBLE_SOURCES} 个`,
+                            })
+                          : t('admin:dashboard.upgradeShowAllSources', {
+                              count: allUpgradeSources.length,
+                              defaultValue: `查看全部（${allUpgradeSources.length}）`,
+                            })}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

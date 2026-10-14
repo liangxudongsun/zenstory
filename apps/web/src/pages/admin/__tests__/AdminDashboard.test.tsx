@@ -120,14 +120,38 @@ describe('AdminDashboard', () => {
   });
 
   it('separates surface views, distinct users, clicks and page arrivals from payment', async () => {
-    mockGetUpgradeFunnelStats.mockResolvedValue({ window_days: 7, totals: {expose: 12, click: 6, conversion: 2}, sources: [], surfaces: [{source: 'chat_quota_blocked', surface: 'card', exposes: 12, exposed_users: 4, clicks: 6, clicking_users: 3, page_arrivals: 2}] });
+    const source = 'synthetic_upgrade_surface';
+    mockGetUpgradeFunnelStats.mockResolvedValue({ window_days: 7, totals: {expose: 12, click: 6, conversion: 2}, sources: [{source, exposes: 12, clicks: 6, conversions: 2}], surfaces: [{source, surface: 'card', exposes: 12, exposed_users: 4, clicks: 6, clicking_users: 3, page_arrivals: 2}] });
     render(<AdminDashboard />, { wrapper: createWrapper() });
     const table = await screen.findByRole('table', {name: '升级入口展示分类'});
     expect(table).toHaveTextContent('12 / 4');
     expect(table).toHaveTextContent('6 / 3');
-    expect(table).toHaveTextContent('chat_quota_blocked');
+    expect(table).toHaveTextContent(source);
+    expect(screen.getAllByText(source)).toHaveLength(1);
     expect(within(table).getByRole('columnheader', { name: '页面到达' })).toBeInTheDocument();
     expect(within(table).getByRole('cell', { name: '2', exact: true })).toBeInTheDocument();
+  });
+
+  it('does not show a legacy empty state beneath detailed surface rows', async () => {
+    mockGetUpgradeFunnelStats.mockResolvedValue({ totals: {expose: 1, click: 0, conversion: 0}, sources: [], surfaces: [{source: 'synthetic_surface_only', surface: 'card', exposes: 1, exposed_users: 1, clicks: 0, clicking_users: 0, page_arrivals: 0}] });
+    render(<AdminDashboard />, { wrapper: createWrapper() });
+    await screen.findByRole('table', {name: '升级入口展示分类'});
+    const section = screen.getByRole('heading', {name: 'admin:dashboard.upgradeEntryEvents'}).parentElement!;
+    expect(within(section).queryByText('common:noData')).not.toBeInTheDocument();
+  });
+
+  it.each([{surfaces: undefined}, {surfaces: []}])('keeps the complete source table when detailed surfaces are $surfaces', async ({surfaces}) => {
+    const sources = Array.from({ length: 9 }, (_, index) => ({ source: `legacy_synthetic_${index}`, exposes: index + 10, clicks: index + 1, conversions: index }));
+    mockGetUpgradeFunnelStats.mockResolvedValue({ totals: {expose: 20, click: 10, conversion: 4}, sources, surfaces });
+    render(<AdminDashboard />, { wrapper: createWrapper() });
+    expect(await screen.findByText('legacy_synthetic_0')).toBeInTheDocument();
+    expect(screen.queryByRole('table', {name: '升级入口展示分类'})).not.toBeInTheDocument();
+    expect(screen.queryByText('legacy_synthetic_8')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name: '查看全部（9）'}));
+    const row = screen.getByText('legacy_synthetic_8').closest('tr')!;
+    expect(within(row).getAllByRole('cell').map(cell => cell.textContent)).toEqual(['legacy_synthetic_8', '18', '9', '8']);
+    fireEvent.click(screen.getByRole('button', {name: '仅显示前 8 个'}));
+    expect(screen.queryByText('legacy_synthetic_8')).not.toBeInTheDocument();
   });
 
   it('puts cohort growth before account totals and does not display independent event ratios', async () => {
