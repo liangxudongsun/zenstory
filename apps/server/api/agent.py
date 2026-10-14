@@ -40,7 +40,7 @@ from agent.core.round_outcome import (
 )
 from agent.core.sse_pump import SSEStreamPump, StreamDeadlineExceeded, StreamStoppedByUser
 from agent.core.steering import SteeringSessionBusyError
-from agent.core.stream_billing import StreamBillingTracker, quota_refunded_frame
+from agent.core.stream_billing import StreamBillingTracker, _parse_sse, quota_refunded_frame
 from agent.core.stream_errors import (
     classify_stream_exception,
     log_stream_exception,
@@ -572,10 +572,30 @@ async def stream_request(
         settlement: tuple[str, bool, bool] | None = None
         # 本轮写进了正文的文件：停止 / 断线的终态列给作者（见 round_outcome.RoundWrittenFiles）。
         written_files = RoundWrittenFiles()
+        error_delivery: dict[str, Any] = {}
+        partial_delivery: dict[str, Any] = {}
 
         def _observe_frame(frame: Any) -> None:
             tracker.observe(frame)
             written_files.observe(frame)
+
+        def _with_delivery(frame: str) -> str:
+            nonlocal error_delivery, partial_delivery
+            if deadline_exceeded or not frame.startswith(("event: error\n", "event: done\n")):
+                return frame
+            event, data = _parse_sse(frame)
+            # A deadline must be delivered before asynchronous capture cleanup.
+            # Never classify its still-pending file writes as unfinished here.
+            if not isinstance(data, dict):
+                return frame
+            delivery = written_files.delivery(final_word_counts=run_outcome.saved_file_word_counts)
+            if event == "done":
+                if not delivery.get("unwritten_files"):
+                    return frame
+                partial_delivery = delivery
+                return StreamEvent(type=EventType.DONE, data={**data, **delivery}).to_sse()
+            error_delivery = delivery
+            return StreamEvent(type=EventType.ERROR, data={**data, **delivery}).to_sse()
 
         def _deadline_terminal_frame() -> str | None:
             nonlocal deadline_exceeded
@@ -645,6 +665,7 @@ async def stream_request(
             charged_now: bool,
             pending_refund: asyncio.Task[bool] | None,
             removed: list[dict[str, str]],
+            delivery: dict[str, Any] | None = None,
         ) -> None:
             # 停止 / 断线一轮的收尾：断线时等后台退还落定，退还了才移除空白占位文件；
             # 然后把终态写回这一轮的助手消息，刷新、重进项目后作者看得到。
@@ -661,6 +682,10 @@ async def stream_request(
             message_id = await run_outcome.wait_message_id(ROUND_OUTCOME_MESSAGE_ID_WAIT_S)
             if not message_id:
                 return
+            if delivery is None:
+                delivery = written_files.delivery(final_word_counts=run_outcome.saved_file_word_counts)
+                if not delivery.get("written_files"):
+                    delivery.pop("unwritten_files", None)
             await _offload(
                 record_round_outcome,
                 message_id,
@@ -670,13 +695,14 @@ async def stream_request(
                     charged=charged,
                     saved_output=tracker.write_succeeded,
                     removed_files=removed,
-                    written_files=written_files.files(final_word_counts=run_outcome.saved_file_word_counts),
+                    **delivery,
                 ),
             )
 
-        def _schedule_round_outcome(refund_applied: bool) -> None:
+        def _schedule_round_outcome(refund_applied: bool, *, stop_kind: str | None = None,
+                                    delivery: dict[str, Any] | None = None) -> None:
             # 不能挂起（断线路径在 GeneratorExit 里调用）：只排后台任务。
-            stop_kind = STOP_KIND_USER_STOPPED if user_stopped else STOP_KIND_CLIENT_DISCONNECTED
+            stop_kind = stop_kind or (STOP_KIND_USER_STOPPED if user_stopped else STOP_KIND_CLIENT_DISCONNECTED)
             charged_now = not refund_applied
             # 退还已在连接上落定时不再等它（也不再移除一次占位文件）；还没落定的
             # （断线、或等待途中被取消）由收尾任务等真实结果。
@@ -684,7 +710,7 @@ async def stream_request(
             try:
                 task = asyncio.get_running_loop().create_task(
                     _finalize_stopped_round(
-                        stop_kind, charged_now, pending_refund, list(removed_files)
+                        stop_kind, charged_now, pending_refund, list(removed_files), delivery
                     )
                 )
             except RuntimeError:
@@ -695,6 +721,7 @@ async def stream_request(
         _running_streams[run_key] = _RunningStream(pump=pump, outcome=run_outcome)
         try:
             async for event in pump:
+                event = _with_delivery(event)
                 tracker.observe_delivery(event)
                 yield event
             # 正常收尾：先结算，退还真正落库后才告诉前端「不计入」。
@@ -724,6 +751,12 @@ async def stream_request(
                 tracker.observe_delivery(stop_frame)
                 yield stop_frame
                 assistant_message_id = await run_outcome.wait_message_id(STOP_MESSAGE_ID_WAIT_S)
+                delivery = written_files.delivery(final_word_counts=run_outcome.saved_file_word_counts)
+                if not delivery.get("written_files"):
+                    delivery.pop("unwritten_files", None)
+                if not assistant_message_id:
+                    for item in delivery.get("written_files", []):
+                        item.pop("words", None)
                 done_frame = done_event(
                     assistant_message_id=assistant_message_id,
                     session_id=tracker.session_id,
@@ -731,10 +764,7 @@ async def stream_request(
                     produced_output=tracker.produced_output,
                     # 与之后落库的 stop_outcome.written_files 同一份：停止当场的说明
                     # 就能写明保存了哪些文件，不必等刷新。
-                    written_files=written_files.files(
-                        final_word_counts=run_outcome.saved_file_word_counts,
-                        include_words=bool(assistant_message_id),
-                    ),
+                    **delivery,
                 ).to_sse()
                 tracker.observe(done_frame)
                 tracker.observe_delivery(done_frame)
@@ -785,7 +815,7 @@ async def stream_request(
                 tracker.observe(frame)
                 tracker.observe_delivery(frame)
                 with contextlib.suppress(Exception):
-                    yield frame
+                    yield _with_delivery(frame)
             try:
                 billing_reason, _, refund_applied = await _settle_billing()
                 if refund_applied:
@@ -821,7 +851,7 @@ async def stream_request(
                 tracker.observe(frame)
                 tracker.observe_delivery(frame)
                 with contextlib.suppress(Exception):
-                    yield frame
+                    yield _with_delivery(frame)
             billing_reason, _, refund_applied = await _settle_billing()
             if refund_applied:
                 with contextlib.suppress(Exception):
@@ -860,6 +890,10 @@ async def stream_request(
                 client_disconnected and not tracker.saw_terminal_event and knows_stop_contract
             ):
                 _schedule_round_outcome(refund_applied)
+            elif error_delivery and knows_stop_contract:
+                _schedule_round_outcome(refund_applied, stop_kind="error", delivery=error_delivery)
+            elif partial_delivery and knows_stop_contract:
+                _schedule_round_outcome(refund_applied, stop_kind="incomplete", delivery=partial_delivery)
 
             # 每次 run 一行结构化摘要：模型、token、调用次数、LLM 耗时、结束原因、计费。
             # 取消/时限路径上 process_stream 的收尾在后台进行，摘要字段可能不全。

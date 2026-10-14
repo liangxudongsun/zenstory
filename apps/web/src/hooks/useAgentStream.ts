@@ -14,7 +14,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { produce } from "immer";
 import i18n from "../lib/i18n";
-import { parseWrittenFiles, type RoundWrittenFile } from "../lib/chatRoundEnd";
+import { parseWrittenFiles, type RoundWrittenFile, type RoundStopOutcome } from "../lib/chatRoundEnd";
 import { useImmer } from "use-immer";
 import {
   sendSteeringRequest,
@@ -90,6 +90,8 @@ export interface StreamCompletionMeta {
    * in `stop_outcome.written_files`. Absent when the server named none (or is older).
    */
   writtenFiles?: RoundWrittenFile[];
+  unwrittenFiles?: RoundWrittenFile[];
+  deliveryOutcome?: RoundStopOutcome;
 }
 
 export interface UseAgentStreamOptions {
@@ -1360,12 +1362,21 @@ export function useAgentStream(
                   if (writtenFiles.length > 0) {
                     completionMeta.writtenFiles = writtenFiles;
                   }
+                  const unwrittenFiles = parseWrittenFiles(data.unwritten_files);
+                  if (unwrittenFiles.length > 0) completionMeta.unwrittenFiles = unwrittenFiles;
+                } else {
+                  const unwrittenFiles = parseWrittenFiles(data.unwritten_files);
+                  if (unwrittenFiles.length > 0) {
+                    const writtenFiles = parseWrittenFiles(data.written_files);
+                    completionMeta.deliveryOutcome = { reason: 'incomplete', charged: true,
+                      savedOutput: writtenFiles.length > 0, removedFiles: [], writtenFiles, unwrittenFiles };
+                  }
                 }
                 if (
                   completionMeta.assistantMessageId ||
                   completionMeta.sessionId ||
                   completionMeta.confirmedFileMutation !== undefined ||
-                  completionMeta.stoppedByAuthor
+                  completionMeta.stoppedByAuthor || completionMeta.deliveryOutcome
                 ) {
                   onComplete?.(segmentsRef.current, applyAction || null, completionMeta);
                 } else {

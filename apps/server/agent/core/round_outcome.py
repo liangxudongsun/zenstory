@@ -47,8 +47,8 @@ class RunOutcome:
     # 作者停止时编辑器里还有没存下的字的文件（前端停止前的保存失败或超时，随 /stop 送来）：
     # 这一轮被退还时不当作空白占位文件移除，见 :meth:`removable`。
     keep_file_ids: set[str] = field(default_factory=set)
-    # 取消时补存的正文包含控制标记尾部缓冲，可能比已发出的 file_content 更长。
-    # None 表示该文件补存失败；消息 id 交回前由 service 填入保存回执。
+    # 最后确认保存的整篇字数；取消补存可能包含尚未发出的控制标记尾部缓冲。
+    # None 表示尚无成功保存；后续失败不能抹去之前已保存的正文回执。
     saved_file_word_counts: dict[str, int | None] = field(default_factory=dict)
     _message_id: asyncio.Future[str | None] | None = field(default=None, repr=False)
 
@@ -84,7 +84,7 @@ class RunOutcome:
 
 
 # RoundWrittenFiles 关心的帧；其余帧（content、thinking、心跳……）不解析 JSON。
-_WRITTEN_FILE_EVENTS: frozenset[str] = frozenset({"tool_result", "file_created", "file_content"})
+_WRITTEN_FILE_EVENTS: frozenset[str] = frozenset({"tool_call", "tool_result", "file_created", "file_content"})
 _FOLDER_FILE_TYPE = "folder"
 
 
@@ -109,6 +109,9 @@ class RoundWrittenFiles:
       覆盖保护拒绝落库（见 agent/stream_adapter.py），这里不把它列成「已保存」。
     - ``parallel_execute`` 的子任务帧、``delete_file``、``update_project`` 不带可列给作者的
       文件，不在列表里；这类一轮仍有 ``saved_output``，前端照旧只说「已写入的内容已保存」。
+
+    ``delivery`` 用工具实际写入或 StreamAdapter 保存回执确认正文；本轮新建空壳在
+    终态仍无确认写入时列为未写入，不把创建过程中的空壳当作失败。
     """
 
     _files: dict[str, _WrittenFile] = field(default_factory=dict)
@@ -116,6 +119,9 @@ class RoundWrittenFiles:
     _titles: dict[str, str] = field(default_factory=dict)
     # 复用时本来就有正文的文件：流式残稿不一定落库。
     _kept_bodies: set[str] = field(default_factory=set)
+    _created_empty: dict[str, str] = field(default_factory=dict)
+    _tool_writes: set[str] = field(default_factory=set)
+    _delete_targets: dict[str, str] = field(default_factory=dict)
 
     def observe(self, frame: Any) -> None:
         if not isinstance(frame, str) or not frame.startswith("event:"):
@@ -125,7 +131,13 @@ class RoundWrittenFiles:
             return
         _, data = parse_sse_frame(frame)
         payload = data if isinstance(data, dict) else {}
-        if event_type == "file_created":
+        if event_type == "tool_call":
+            arguments = payload.get("arguments")
+            if payload.get("tool_name") == "delete_file" and isinstance(arguments, dict):
+                tool_id, file_id = payload.get("tool_use_id"), arguments.get("id")
+                if isinstance(tool_id, str) and tool_id and isinstance(file_id, str) and file_id:
+                    self._delete_targets[tool_id] = file_id
+        elif event_type == "file_created":
             self._remember_title(payload.get("file_id"), payload.get("title"))
         elif event_type == "file_content":
             self._observe_chunk(payload)
@@ -161,6 +173,16 @@ class RoundWrittenFiles:
             if file_id in self._files and not self._files[file_id].title:
                 self._files[file_id].title = title
 
+    def delivery(self, *, final_word_counts: dict[str, int | None]) -> dict[str, Any]:
+        """本轮确认写入与新建后尚未写入的文件；流式正文必须有真实保存回执。"""
+        written = [item for item in self.files(final_word_counts=final_word_counts)
+                   if item["id"] in self._tool_writes or final_word_counts.get(item["id"], 0)]
+        written_ids = {item["id"] for item in written}
+        unwritten = [{"id": fid, "title": title} for fid, title in self._created_empty.items()
+                     if fid not in written_ids]
+        return {**({"written_files": written} if written else {}),
+                **({"unwritten_files": unwritten} if unwritten else {})}
+
     def _entry(self, file_id: str) -> _WrittenFile:
         if file_id not in self._files:
             self._files[file_id] = _WrittenFile(title=self._titles.get(file_id, ""))
@@ -176,6 +198,14 @@ class RoundWrittenFiles:
         self._entry(file_id).body += chunk
 
     def _observe_tool_result(self, payload: dict[str, Any]) -> None:
+        if payload.get("tool_name") == "delete_file":
+            file_id = self._delete_targets.pop(payload.get("tool_use_id"), None)
+            if payload.get("status") == "success" and payload.get("data") is True and file_id:
+                self._created_empty.pop(file_id, None)
+                self._files.pop(file_id, None)
+                self._titles.pop(file_id, None)
+                self._tool_writes.discard(file_id)
+            return
         if payload.get("status") != "success":
             return
         tool_name = payload.get("tool_name")
@@ -195,6 +225,9 @@ class RoundWrittenFiles:
                 return
             if content.strip():
                 self._entry(file_id).body += content
+                self._tool_writes.add(file_id)
+            else:
+                self._created_empty[file_id] = str(data.get("title") or "")
         elif tool_name == "edit_file":
             mutation_applied = data.get("mutation_applied")
             edits_applied = data.get("edits_applied")
@@ -206,6 +239,7 @@ class RoundWrittenFiles:
                 return
             self._remember_title(file_id, data.get("title"))
             self._entry(file_id).edited = True
+            self._tool_writes.add(file_id)
 
 
 def _reused_file_had_body(data: dict[str, Any], content: str) -> bool:
@@ -303,6 +337,7 @@ def build_stop_outcome(
     saved_output: bool,
     removed_files: list[dict[str, str]] | None = None,
     written_files: list[dict[str, Any]] | None = None,
+    unwritten_files: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """落库到 message_metadata.stop_outcome 的结构（前端 RoundEndNote 读取）。
 
@@ -319,6 +354,8 @@ def build_stop_outcome(
         outcome["removed_files"] = titles
     if written_files:
         outcome["written_files"] = written_files
+    if unwritten_files:
+        outcome["unwritten_files"] = unwritten_files
     return outcome
 
 

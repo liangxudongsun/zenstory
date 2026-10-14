@@ -277,6 +277,45 @@ def _written(*frames: str) -> list[dict]:
     return files.files()
 
 
+def test_partial_delivery_uses_save_receipts_not_create_shells_or_stream_end():
+    files = RoundWrittenFiles()
+    files.observe(_created("filled", "林舟"))
+    files.observe(_frame("file_content", {"file_id": "filled", "chunk": "林舟推开门。"}))
+    files.observe(_frame("file_content_end", {"file_id": "filled"}))
+    files.observe(_created("empty", "周念"))
+    files.observe(_frame("file_content_end", {"file_id": "empty"}))
+    assert files.delivery(final_word_counts={"filled": 5}) == {
+        "written_files": [{"id": "filled", "title": "林舟", "words": 5}],
+        "unwritten_files": [{"id": "empty", "title": "周念"}],
+    }
+    # Even file_content_end does not prove the attempted body was persisted.
+    assert files.delivery(final_word_counts={"filled": None}) == {
+        "unwritten_files": [{"id": "filled", "title": "林舟"}, {"id": "empty", "title": "周念"}],
+    }
+    # A later confirmed write completes the same file; initial empty create is
+    # never an error, and a fully written round has no unfinished-file warning.
+    files.observe(_frame("file_content", {"file_id": "empty", "chunk": "周念关上门。"}))
+    assert "unwritten_files" not in files.delivery(final_word_counts={"filled": 5, "empty": 5})
+
+
+def test_partial_delivery_does_not_invent_work_for_old_or_deleted_files():
+    files = RoundWrittenFiles()
+    files.observe(_created("old", "已有角色", reused_existing=True))
+    files.observe(_created("folder", "目录", file_type="folder"))
+    files.observe(_created("deleted", "作者不再需要"))
+    files.observe(_frame("tool_call", {"tool_name": "delete_file", "tool_use_id": "delete-1", "arguments": {"id": "deleted"}}))
+    files.observe(_frame("tool_result", {"tool_name": "delete_file", "tool_use_id": "delete-1", "status": "success", "data": True}))
+    assert files.delivery(final_word_counts={"deleted": 5}) == {}
+
+
+def test_partial_delivery_keeps_placeholder_when_delete_did_not_apply():
+    files = RoundWrittenFiles()
+    files.observe(_created("empty", "周念"))
+    files.observe(_frame("tool_call", {"tool_name": "delete_file", "tool_use_id": "delete-1", "arguments": {"id": "empty"}}))
+    files.observe(_frame("tool_result", {"tool_name": "delete_file", "tool_use_id": "delete-1", "status": "success", "data": False}))
+    assert files.delivery(final_word_counts={}) == {"unwritten_files": [{"id": "empty", "title": "周念"}]}
+
+
 def test_written_files_list_a_chapter_created_with_its_body_and_its_word_count():
     """create_file 直接带正文（U088 那种「第2章写进去了、回复只剩一句开场白」）：列出标题与编辑器口径的字数。"""
     assert _written(_created("ch-2", "第2章 入宅", "雨还在下。Rain 落在窗上。")) == [

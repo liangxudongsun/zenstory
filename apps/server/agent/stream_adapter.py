@@ -154,6 +154,7 @@ class StreamAdapter:
         self._fatal_stream_error = False
         self._file_mutated = False
         self._abort_capture: tuple[str, int, asyncio.Task[bool]] | None = None
+        self._saved_file_word_counts: dict[str, int | None] = {}
         # 图发来 CHAT_HOLD begin 之后的对话文字（StreamProcessor 判定为对话的部分，
         # 正文不扣）：等图决定丢掉（discard）还是在下一个边界事件前放出。
         self._chat_hold_active = False
@@ -171,6 +172,7 @@ class StreamAdapter:
         """Reset adapter state for new conversation turn."""
         self._stream_processor.reset()
         self._abort_capture = None
+        self._saved_file_word_counts.clear()
         self._pending_file_write = None
         self._content_started = False
         self._current_tool_calls.clear()
@@ -949,10 +951,18 @@ class StreamAdapter:
             self._persist_active_capture_in_background()
         capture = self._abort_capture
         if capture is None:
-            return {}
+            return self.get_saved_file_word_counts()
         file_id, words, task = capture
         saved = await asyncio.shield(task)
-        return {file_id: words if saved else None}
+        if saved:
+            self._saved_file_word_counts[file_id] = words
+        else:
+            self._saved_file_word_counts.setdefault(file_id, None)
+        return self.get_saved_file_word_counts()
+
+    def get_saved_file_word_counts(self) -> dict[str, int | None]:
+        """保存回执；收到结束标记或正文 chunk 本身不代表落库成功。"""
+        return dict(self._saved_file_word_counts)
 
     async def _flush_active_capture(self) -> AsyncIterator[SSEEvent]:
         """收尾仍在进行中的流式捕获，并发出对应的 SSE 事件。
@@ -1163,8 +1173,13 @@ class StreamAdapter:
             )
             if saved and content_changed and record_mutation:
                 self._file_mutated = True
+            if saved:
+                self._saved_file_word_counts[file_id] = count_words(content)
+            else:
+                self._saved_file_word_counts.setdefault(file_id, None)
             return saved
         except TimeoutError:
+            self._saved_file_word_counts.setdefault(file_id, None)
             log_with_context(
                 logger,
                 40,  # ERROR
@@ -1174,6 +1189,7 @@ class StreamAdapter:
             )
             return False
         except Exception as e:
+            self._saved_file_word_counts.setdefault(file_id, None)
             log_with_context(
                 logger,
                 40,  # ERROR

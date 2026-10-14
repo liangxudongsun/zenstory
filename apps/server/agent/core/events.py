@@ -189,6 +189,8 @@ class ErrorEventData(BaseModel):
             "the billing tracker uses it to recognise runaway stops."
         ),
     )
+    written_files: list[dict[str, Any]] | None = None
+    unwritten_files: list[dict[str, Any]] | None = None
 
 
 class DoneEventData(BaseModel):
@@ -232,6 +234,7 @@ class DoneEventData(BaseModel):
             "([{id, title, words?}], same as message_metadata.stop_outcome.written_files)"
         ),
     )
+    unwritten_files: list[dict[str, Any]] | None = None
 
 
 class ToolCallEventData(BaseModel):
@@ -419,7 +422,7 @@ def error_event(
             retryable=retryable,
             refundable=refundable,
             reason=reason,
-        ).model_dump()
+        ).model_dump(exclude={"written_files", "unwritten_files"})
     )
 
 
@@ -433,6 +436,7 @@ def done_event(
     stop_reason: str | None = None,
     produced_output: bool | None = None,
     written_files: list[dict[str, Any]] | None = None,
+    unwritten_files: list[dict[str, Any]] | None = None,
 ) -> StreamEvent:
     """Create a done event."""
     data = DoneEventData(
@@ -445,9 +449,10 @@ def done_event(
         stop_reason=stop_reason,
         produced_output=produced_output,
         written_files=written_files or None,
+        unwritten_files=unwritten_files or None,
     ).model_dump()
-    # 只有作者停止的一轮才带这几个字段（written_files 还要非空），其余 done 帧保持原样。
-    for key in ("stop_reason", "produced_output", "written_files"):
+    # 只有提供这些可选回执时才带字段，其余 done 帧保持原样。
+    for key in ("stop_reason", "produced_output", "written_files", "unwritten_files"):
         if data.get(key) is None:
             data.pop(key, None)
     return StreamEvent(type=EventType.DONE, data=data)

@@ -39,6 +39,7 @@
     "removedFilesJoiner": "》《",
     "unanswered": "这条消息没有收到回复。",
     "roundSavedFiles": "已保存{{files}}",
+    "roundUnwrittenFiles": "未确认保存{{files}}",
     "roundSavedFile": "《{{title}}》",
     "roundSavedFileWords": "《{{title}}》{{words}} 字",
     "roundSavedFilesJoiner": "、",

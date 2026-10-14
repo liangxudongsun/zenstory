@@ -30,6 +30,20 @@ describe('RoundEndNote (stopped / interrupted round after a refresh)', () => {
   }
 
   it.each([
+    [
+      { reason: 'incomplete', charged: true, saved_output: true,
+        written_files: [{ id: 'filled', title: '林舟', words: 120 }],
+        unwritten_files: [{ id: 'empty', title: '周念' }] },
+      true,
+      '已保存《林舟》120 字 · 未确认保存《周念》',
+    ],
+    [
+      { reason: 'error', charged: true, saved_output: true,
+        written_files: [{ id: 'filled', title: '林舟', words: 120 }],
+        unwritten_files: [{ id: 'empty', title: '周念' }] },
+      true,
+      '已中断 · 已保存《林舟》120 字 · 未确认保存《周念》 · 本条计入今日 AI 消息',
+    ],
     [{ reason: 'user_stopped', charged: false, saved_output: false }, true, '已停止 · 未计入今日 AI 消息'],
     // Same wording as the live stop note, so a refresh does not drop "counted".
     [{ reason: 'user_stopped', charged: true, saved_output: true }, true, '已停止 · 已写入的内容已保存 · 本条计入今日 AI 消息'],

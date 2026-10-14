@@ -1296,6 +1296,7 @@ class TestAgentServiceProcessStream:
         self, mock_agent_service, test_user_with_project, db_session: Session
     ):
         """Stream error events should persist partial history for recovery, but NOT emit done."""
+        from agent.core.round_outcome import RunOutcome
         from agent.core.workflow_events import StreamEvent, StreamEventType
 
         service, _ = mock_agent_service
@@ -1306,7 +1307,11 @@ class TestAgentServiceProcessStream:
             yield StreamEvent(type=StreamEventType.TEXT, data={"text": "partial reply"})
             yield StreamEvent(type=StreamEventType.ERROR, data={"error": "workflow failed"})
 
-        with patch("agent.service.run_writing_workflow_streaming") as mock_workflow:
+        outcome = RunOutcome()
+        with (
+            patch("agent.service.run_writing_workflow_streaming") as mock_workflow,
+            patch("agent.stream_adapter.StreamAdapter.get_saved_file_word_counts", return_value={"saved-file": 12, "failed-file": None}),
+        ):
             mock_workflow.return_value = mock_error_stream()
 
             events: list[str] = []
@@ -1315,8 +1320,11 @@ class TestAgentServiceProcessStream:
                 user_id=str(user.id),
                 message="hello",
                 session=db_session,
+                run_outcome=outcome,
             ):
                 events.append(event)
+                if "event: error" in event:
+                    assert outcome.saved_file_word_counts == {"saved-file": 12, "failed-file": None}
 
         assert any("event: error" in event for event in events)
         assert not any("event: done" in event for event in events)
@@ -1332,6 +1340,7 @@ class TestAgentServiceProcessStream:
         assert any(m.role == "user" and m.content == "hello" for m in persisted_messages)
         assert any(m.role == "assistant" and m.content == "partial reply" for m in persisted_messages)
         partial_assistant = next(m for m in persisted_messages if m.role == "assistant")
+        assert await outcome.wait_message_id(0.1) == partial_assistant.id
         assert json.loads(partial_assistant.message_metadata or "{}")["display_events"] == [
             {"type": "content", "content": "partial reply"}
         ]

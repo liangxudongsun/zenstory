@@ -1270,6 +1270,8 @@ class AgentService:
                         continue
 
                     # Yield SSE event
+                    if event_type == "error" and run_outcome is not None:
+                        run_outcome.saved_file_word_counts.update(stream_adapter.get_saved_file_word_counts())
                     yield event.to_sse()
 
                     if event_type not in {"content", "thinking_content"}:
@@ -1490,6 +1492,7 @@ class AgentService:
                 history_save_task.add_done_callback(_consume_history_save_error)
                 assistant_message_id = await asyncio.shield(history_save_task)
                 if run_outcome is not None:
+                    run_outcome.saved_file_word_counts.update(stream_adapter.get_saved_file_word_counts())
                     run_outcome.resolve_message_id(assistant_message_id)
                 if pending_done_payload is not None:
                     refs_candidate = pending_done_payload.get("refs")
@@ -1624,6 +1627,9 @@ class AgentService:
                 project_id=project_id,
                 user_id=user_id,
             )
+            adapter = usage_source.get("adapter")
+            if run_outcome is not None and adapter is not None:
+                run_outcome.saved_file_word_counts.update(adapter.get_saved_file_word_counts())
             yield error_event(
                 error_info.message,
                 code=error_info.code,
@@ -1696,9 +1702,11 @@ class AgentService:
                             or _has_assistant_payload()
                         ):
                             try:
-                                await _finish_history_write(
+                                saved_id = await _finish_history_write(
                                     _save_partial_history_sync, assistant_stop_reason
                                 )
+                                if run_outcome is not None:
+                                    run_outcome.resolve_message_id(saved_id)
                             except Exception as exc:
                                 log_with_context(
                                     logger,

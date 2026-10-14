@@ -866,11 +866,13 @@ describe('useAgentStream', () => {
             { id: 'ch-2', title: '人物' },
             { id: 'ch-3', title: '' },
           ],
+          unwritten_files: [{ id: 'ch-4', title: '周念' }],
         })
       })
       expect(onComplete).toHaveBeenCalledWith(expect.any(Array), null, expect.objectContaining({
         stoppedByAuthor: true,
         writtenFiles: [{ title: '雨夜', words: 1039 }, { title: '人物', words: null }],
+        unwrittenFiles: [{ title: '周念', words: null }],
       }))
     })
 

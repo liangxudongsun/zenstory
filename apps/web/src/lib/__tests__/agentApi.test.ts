@@ -617,6 +617,22 @@ describe('agentApi', () => {
       expect(onError).not.toHaveBeenCalled()
     })
 
+    it.each(["\n\n", ""])("keeps confirmed partial delivery in the existing error for SSE suffix %j", async suffix => {
+      const onError = vi.fn()
+      const payload = { message: 'Upstream timed out', code: 'ERR_AGENT_UPSTREAM_TIMEOUT', retryable: true,
+        written_files: [{ id: 'filled', title: 'Lin Zhou', words: 120 }],
+        unwritten_files: [{ id: 'empty', title: 'Zhou Nian' }] }
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true,
+        body: createMockStream([`event: error\ndata: ${JSON.stringify(payload)}${suffix}`]) }))
+      streamAgentRequest({ project_id: 'test-project', message: 'Write two character sheets' }, { onError })
+      await vi.waitFor(() => expect(onError).toHaveBeenCalledTimes(1))
+      expect(onError.mock.calls[0][0]).toContain('Lin Zhou')
+      expect(onError.mock.calls[0][0]).toContain('Zhou Nian')
+      expect(onError.mock.calls[0][0]).toContain('120')
+      expect(onError.mock.calls[0].slice(1)).toEqual(['ERR_AGENT_UPSTREAM_TIMEOUT', true])
+      expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1)
+    })
+
     it('calls onError on network failure', async () => {
       const onError = vi.fn()
       const mockFetch = vi.fn().mockRejectedValue(new Error('Network error'))

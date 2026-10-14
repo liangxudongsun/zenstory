@@ -2074,3 +2074,31 @@ async def test_held_pair_prefix_is_released_before_next_create_file():
     assert saved == [("ch-1", "第一章正文"), ("ch-2", "第二章正文")]
     assert _chat_text(rounds) == "\n<fi"
     assert adapter._stream_processor.is_active is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("saved", [True, False])
+async def test_delivery_receipt_uses_actual_save_result_and_resets_between_rounds(monkeypatch, saved):
+    from utils.text_metrics import count_words
+    adapter = create_stream_adapter(project_id="p", user_id="u", process_file_markers=True)
+    monkeypatch.setattr(adapter, "_save_file_content_sync", lambda _id, _content: (saved, saved))
+    body = "雨还在下。"
+    assert await adapter._save_file_content("f", body) is saved
+    assert adapter.get_saved_file_word_counts() == {"f": count_words(body) if saved else None}
+    adapter.reset()
+    assert adapter.get_saved_file_word_counts() == {}
+
+
+@pytest.mark.asyncio
+async def test_delivery_receipt_keeps_last_saved_body_when_later_write_fails(monkeypatch):
+    from utils.text_metrics import count_words
+    adapter = create_stream_adapter(project_id="p", user_id="u", process_file_markers=True)
+    results = iter([(False, False), (True, True), (False, False), (True, True)])
+    monkeypatch.setattr(adapter, "_save_file_content_sync", lambda _id, _content: next(results))
+    await adapter._save_file_content("f", "未保存")
+    assert adapter.get_saved_file_word_counts() == {"f": None}
+    await adapter._save_file_content("f", "已保存")
+    await adapter._save_file_content("f", "这一次更长的写入失败")
+    assert adapter.get_saved_file_word_counts() == {"f": count_words("已保存")}
+    await adapter._save_file_content("f", "后来真正保存的完整正文")
+    assert adapter.get_saved_file_word_counts() == {"f": count_words("后来真正保存的完整正文")}
