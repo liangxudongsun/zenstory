@@ -5,10 +5,16 @@ import asyncio
 import os
 
 import resend
+from email_validator import validate_email
+from resend.exceptions import ValidationError
 
 from utils.logger import get_logger, log_with_context
 
 logger = get_logger(__name__)
+
+
+class InvalidRecipientError(Exception):
+    """The provider explicitly rejected the recipient, rather than the sender/configuration."""
 
 # Initialize Resend with API key
 RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
@@ -197,7 +203,7 @@ async def send_verification_email(
         # Send email using Resend
         params = {
             "from": f"ZenStory <{RESEND_FROM_EMAIL}>",
-            "to": [email],
+            "to": [validate_email(email, check_deliverability=False).ascii_email or email],
             "subject": email_content['title'],
             "html": html_content,
         }
@@ -236,4 +242,12 @@ async def send_verification_email(
             error=str(e),
             error_type=type(e).__name__,
         )
+        if (
+            isinstance(e, ValidationError)
+            and purpose == EMAIL_PURPOSE_REGISTRATION
+            and str(e.code) in {"400", "422"}
+            and e.error_type == "validation_error"
+            and e.message.lower().startswith("invalid `to` field")
+        ):
+            raise InvalidRecipientError("Recipient address was rejected") from e
         return False

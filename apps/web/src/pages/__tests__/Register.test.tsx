@@ -152,6 +152,22 @@ describe("Register", () => {
     });
   };
 
+  it("does not claim mail was sent when the account exists but delivery failed", async () => {
+    mockGetRegistrationPolicy.mockResolvedValue({ invite_code_optional: true, variant: 'global_optional', rollout_percent: 100 });
+    mockRegister.mockResolvedValueOnce({ email: 'test@example.com', email_verified: false, verification_sent: false });
+    const user = userEvent.setup();
+    renderWithRoute('/register?plan=pro');
+    await waitFor(() => expect(screen.getByTestId('invite-code-input')).toHaveAttribute('data-required', 'false'));
+    fillRegistrationFields();
+    await acceptTerms(user);
+    await user.click(screen.getByRole('button', { name: 'auth:register.submit' }));
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/verify-email?plan=pro', {
+      state: { email: 'test@example.com', verificationSent: false },
+    }));
+    expect(mockToastSuccess).not.toHaveBeenCalled();
+    expect(mockToastError).not.toHaveBeenCalled();
+  });
+
   it("reads plan and prefilled invite code from URL", async () => {
     renderWithRoute("/register?plan=pro&code=abcd1234");
 

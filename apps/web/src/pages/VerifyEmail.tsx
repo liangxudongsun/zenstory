@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Mail, AlertCircle, CheckCircle } from "../components/icons";
 import { useAuth } from "../contexts/AuthContext";
@@ -15,7 +15,8 @@ interface VerifyEmailProps {
 
 export default function VerifyEmail({ email, planIntent }: VerifyEmailProps) {
   const navigate = useNavigate();
-  const { t } = useTranslation(['auth']);
+  const location = useLocation();
+  const { t, i18n } = useTranslation(['auth']);
   const { verifyEmail, resendVerification } = useAuth();
   const normalizedEmail = email.trim();
   const hasEmail = normalizedEmail.length > 0;
@@ -44,6 +45,12 @@ export default function VerifyEmail({ email, planIntent }: VerifyEmailProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [deliveryPending, setDeliveryPending] = useState(
+    (location.state as { verificationSent?: boolean } | null)?.verificationSent === false,
+  );
+  const [correctingEmail, setCorrectingEmail] = useState(false);
+  const [newEmail, setNewEmail] = useState('');
+  const [registrationPassword, setRegistrationPassword] = useState('');
 
   const [cooldown, setCooldown] = useState(60);
   const [codeTtl, setCodeTtl] = useState(300);
@@ -256,6 +263,7 @@ export default function VerifyEmail({ email, planIntent }: VerifyEmailProps) {
     try {
       await resendVerification(normalizedEmail);
       if (!ownsOperation(operation)) return;
+      setDeliveryPending(false);
       await syncVerificationStatus(() => {
         setCooldown(60);
         setCodeTtl(300);
@@ -284,6 +292,34 @@ export default function VerifyEmail({ email, planIntent }: VerifyEmailProps) {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
+  const handleCorrectEmail = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const operation = beginOperation();
+    if (!operation) return;
+    cancelAutomaticSubmit();
+    setError('');
+    try {
+      const result = await authApi.correctRegistrationEmail({
+        email: normalizedEmail, password: registrationPassword, new_email: newEmail.trim(),
+        language: i18n?.language?.startsWith('en') ? 'en' : 'zh',
+      });
+      if (!ownsOperation(operation)) return;
+      setRegistrationPassword('');
+      setCorrectingEmail(false);
+      setDeliveryPending(false);
+      setCode(['', '', '', '', '', '']);
+      const path = planIntent ? `/verify-email?plan=${encodeURIComponent(planIntent)}` : '/verify-email';
+      navigate(path, { replace: true, state: { email: result.email, verificationSent: true } });
+    } catch (err) {
+      if (ownsOperation(operation)) setError(err instanceof Error ? err.message : t('auth:errors.resendFailed'));
+    } finally {
+      if (ownsOperation(operation)) {
+        activeOperationRef.current = null;
+        setLoading(false);
+      }
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[hsl(var(--bg-primary))] flex flex-col">
       <PublicHeader variant="auth" />
@@ -300,13 +336,13 @@ export default function VerifyEmail({ email, planIntent }: VerifyEmailProps) {
                 )}
               </div>
               <h1 className="text-2xl font-bold text-[hsl(var(--text-primary))] mb-2">
-                {success ? t('auth:verifyEmail.successTitle') : t('auth:verifyEmail.title')}
+                {correctingEmail ? t('auth:verifyEmail.changeEmail') : success ? t('auth:verifyEmail.successTitle') : t('auth:verifyEmail.title')}
               </h1>
               <p className="text-[hsl(var(--text-secondary))] text-sm break-words">
-                {success
+                {correctingEmail ? t('auth:verifyEmail.changeEmailHint') : success
                   ? t('auth:verifyEmail.successSubtitle')
                   : hasEmail
-                    ? t('auth:verifyEmail.subtitle', { email: normalizedEmail })
+                    ? deliveryPending ? t('auth:verifyEmail.deliveryPending', { email: normalizedEmail }) : t('auth:verifyEmail.subtitle', { email: normalizedEmail })
                     : t('auth:verifyEmail.missingEmailSubtitle')
                 }
               </p>
@@ -319,9 +355,29 @@ export default function VerifyEmail({ email, planIntent }: VerifyEmailProps) {
               </div>
             )}
 
-            {!success && hasEmail && (
+            {!success && hasEmail && correctingEmail && (
+              <form onSubmit={handleCorrectEmail} className="space-y-4">
+                <div>
+                  <label htmlFor="registration-new-email" className="mb-2 block text-sm font-medium">{t('auth:verifyEmail.newEmail')}</label>
+                  <input id="registration-new-email" type="text" inputMode="email" autoComplete="email" required disabled={loading}
+                    value={newEmail} onChange={event => setNewEmail(event.target.value)}
+                    className="w-full rounded-xl border border-[hsl(var(--border-color))] bg-[hsl(var(--bg-tertiary))] p-3 text-base" />
+                </div>
+                <div>
+                  <label htmlFor="registration-password" className="mb-2 block text-sm font-medium">{t('auth:verifyEmail.registrationPassword')}</label>
+                  <input id="registration-password" type="password" autoComplete="current-password" required disabled={loading}
+                    value={registrationPassword} onChange={event => setRegistrationPassword(event.target.value)}
+                    className="w-full rounded-xl border border-[hsl(var(--border-color))] bg-[hsl(var(--bg-tertiary))] p-3 text-base" />
+                </div>
+                <button type="submit" disabled={loading} className="btn-primary min-h-11 w-full">{loading ? t('auth:verifyEmail.updatingEmail') : t('auth:verifyEmail.confirmChange')}</button>
+                <button type="button" disabled={loading} onClick={() => { setCorrectingEmail(false); setRegistrationPassword(''); }}
+                  className="btn-ghost min-h-11 w-full">{t('auth:verifyEmail.cancelChange')}</button>
+              </form>
+            )}
+
+            {!success && hasEmail && !correctingEmail && (
               <>
-                <div className="grid grid-cols-6 gap-1.5 sm:gap-2 mb-6">
+                {!deliveryPending && <><div className="grid grid-cols-6 gap-1.5 sm:gap-2 mb-6">
                   {code.map((digit, index) => (
                     <input
                       key={index}
@@ -350,6 +406,7 @@ export default function VerifyEmail({ email, planIntent }: VerifyEmailProps) {
                     )}
                   </p>
                 </div>
+                </>}
 
                 <button
                   type="button"
@@ -365,6 +422,10 @@ export default function VerifyEmail({ email, planIntent }: VerifyEmailProps) {
                 </button>
 
                 <div className="mt-6 text-center">
+                  <button type="button" disabled={loading} onClick={() => { cancelAutomaticSubmit(); setCorrectingEmail(true); setError(''); }}
+                    className="min-h-11 rounded-lg px-3 text-sm text-[hsl(var(--text-primary))]">
+                    {t('auth:verifyEmail.changeEmail')}
+                  </button>
                   <button
                     type="button"
                     onClick={() => navigate(loginLink)}

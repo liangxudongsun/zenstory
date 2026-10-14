@@ -2,6 +2,7 @@
 
 import urllib.parse
 from datetime import timedelta
+from unittest.mock import AsyncMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -41,6 +42,7 @@ async def test_auth_bootstrap_sql_failure_keeps_committed_user_and_continuation(
         pytest.fail("test's real unique quota violation did not occur")
 
     monkeypatch.setattr("api.auth.send_verification_code", send_mail)
+    monkeypatch.setattr("api.auth.clear_registration_verification", AsyncMock())
     target = "api.auth" if flow == "password" else "api.oauth"
     monkeypatch.setattr(f"{target}._ensure_user_free_subscription_and_quota", failed_bootstrap)
     if flow == "oauth-existing":

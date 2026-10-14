@@ -2,6 +2,8 @@
 Integration tests for activation funnel tracking.
 """
 
+from unittest.mock import AsyncMock
+
 import pytest
 from httpx import AsyncClient
 from sqlmodel import Session, select
@@ -61,6 +63,7 @@ async def test_register_records_signup_activation_event(client: AsyncClient, db_
         return True, None
 
     monkeypatch.setattr("api.auth.send_verification_code", _fake_send_verification_code)
+    monkeypatch.setattr("api.auth.clear_registration_verification", AsyncMock())
 
     response = await client.post(
         "/api/auth/register",

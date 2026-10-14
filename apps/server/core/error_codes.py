@@ -49,6 +49,7 @@ class ErrorCode:
     AUTH_INVITE_CODE_REQUIRED = "ERR_AUTH_INVITE_CODE_REQUIRED"
     AUTH_REGISTRATION_FAILED = "ERR_AUTH_REGISTRATION_FAILED"
     AUTH_RESEND_FAILED = "ERR_AUTH_RESEND_FAILED"
+    AUTH_EMAIL_UNDELIVERABLE = "ERR_AUTH_EMAIL_UNDELIVERABLE"
     AUTH_RATE_LIMIT_EXCEEDED = "ERR_AUTH_RATE_LIMIT_EXCEEDED"
     AUTH_PASSWORD_RESET_CODE_INVALID = "ERR_AUTH_PASSWORD_RESET_CODE_INVALID"
     AUTH_PASSWORD_RESET_TOO_MANY_REQUESTS = "ERR_AUTH_PASSWORD_RESET_TOO_MANY_REQUESTS"
@@ -214,6 +215,7 @@ ERROR_MESSAGES = {
         "ERR_AUTH_INVITE_CODE_REQUIRED": "请输入邀请码",
         "ERR_AUTH_REGISTRATION_FAILED": "注册失败，请稍后重试",
         "ERR_AUTH_RESEND_FAILED": "验证码发送失败，请稍后重试",
+        "ERR_AUTH_EMAIL_UNDELIVERABLE": "无法向这个邮箱发送验证码，请检查并修改邮箱地址",
         "ERR_AUTH_RATE_LIMIT_EXCEEDED": "请求过于频繁，请稍后重试",
         "ERR_AUTH_PASSWORD_RESET_CODE_INVALID": "验证码错误或已过期，请重新输入或重新发送",
         "ERR_AUTH_PASSWORD_RESET_TOO_MANY_REQUESTS": "操作太频繁了，请过几分钟再试",
@@ -338,6 +340,7 @@ ERROR_MESSAGES = {
         "ERR_AUTH_INVITE_CODE_REQUIRED": "Invite code is required",
         "ERR_AUTH_REGISTRATION_FAILED": "Registration failed, please try again later",
         "ERR_AUTH_RESEND_FAILED": "Failed to send verification code, please try again later",
+        "ERR_AUTH_EMAIL_UNDELIVERABLE": "We cannot send a code to this email. Check and correct the address.",
         "ERR_AUTH_RATE_LIMIT_EXCEEDED": "Too many requests, please try again later",
         "ERR_AUTH_PASSWORD_RESET_CODE_INVALID": "That code is wrong or has expired. Check it or send a new one.",
         "ERR_AUTH_PASSWORD_RESET_TOO_MANY_REQUESTS": "Too many tries. Please wait a few minutes and try again.",

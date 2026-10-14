@@ -20,6 +20,7 @@
   "ERR_AUTH_INVITE_CODE_REQUIRED": "请输入邀请码",
   "ERR_AUTH_REGISTRATION_FAILED": "注册失败，请稍后重试",
   "ERR_AUTH_RESEND_FAILED": "验证码发送失败，请稍后重试",
+  "ERR_AUTH_EMAIL_UNDELIVERABLE": "无法向这个邮箱发送验证码，请检查并修改邮箱地址",
   "ERR_AUTH_RATE_LIMIT_EXCEEDED": "操作太频繁，请稍后再试",
   "ERR_AUTH_PASSWORD_RESET_CODE_INVALID": "验证码错误或已过期，请重新输入或重新发送",
   "ERR_AUTH_PASSWORD_RESET_TOO_MANY_REQUESTS": "操作太频繁了，请过几分钟再试",
