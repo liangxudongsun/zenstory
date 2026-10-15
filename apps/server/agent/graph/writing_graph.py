@@ -714,7 +714,7 @@ async def _review_auto_checks(file_ids: list[str]) -> tuple[list[str], list[str]
     return None
 
 
-# 送审内容的总预算（_format_review_payload 按它截头尾）。
+# 送审内容的总预算；先逐文件分配，避免拼接后截掉中间整章。
 REVIEW_PAYLOAD_MAX_CHARS = 9000
 # 只附改动段时，改动前后各带多少字符的原文（按整行对齐）。
 _REVIEW_CHANGED_CONTEXT_CHARS = 600
@@ -735,7 +735,9 @@ def _changed_span(before: str, after: str) -> tuple[int, int] | None:
     return start, end_after
 
 
-def _review_payload_block(title: str, content: str, before: str | None) -> str:
+def _review_payload_block(
+    title: str, content: str, before: str | None, *, max_chars: int = REVIEW_PAYLOAD_MAX_CHARS
+) -> str:
     """一个文件的送审块：系统标注（文件名 + 编辑器字数）+ 正文或本请求改动的那一段。
 
     - 字数由系统按编辑器口径算好：审稿人「第一行报文件名和字数」「篇幅是否达标」不必为了
@@ -747,25 +749,44 @@ def _review_payload_block(title: str, content: str, before: str | None) -> str:
     """
     words = count_words(content)
     body = content.strip()
+    header = f"[《{title}》编辑器字数 {words}]\n"
     span = _changed_span(before, content) if before and before.strip() else None
-    if span is None or len(body) <= REVIEW_PAYLOAD_MAX_CHARS:
-        return f"[《{title}》编辑器字数 {words}]\n{body}"
+    if span is None or len(header) + len(body) <= max_chars:
+        return f"{header}{body}"
     start, end = span
-    context_start = max(0, start - _REVIEW_CHANGED_CONTEXT_CHARS)
+
+    def excerpt_note(leading_words: int, trailing_words: int) -> str:
+        return (
+            f"[《{title}》编辑器字数 {words}。下面是本请求改动的部分和前后少量原文；"
+            f"它前面的 {leading_words} 字、后面的 {trailing_words} 字"
+            "本请求没有改动，没有附上，核对前文事实时再读取]\n"
+        )
+
+    # 先为标注和改动本身预留空间；邻接旧文不能挤掉真正的新改句。
+    note_budget = len(excerpt_note(words, words))
+    compact_note = "[本请求改动片段；其余原文没有附上，请读取文件核对]\n"
+    if note_budget >= max_chars:
+        note_budget = len(compact_note)
+    body_budget = max(0, max_chars - note_budget)
+    if not body_budget:
+        return compact_note[:max_chars]
+    changed = content[start:end]
+    context_chars = min(_REVIEW_CHANGED_CONTEXT_CHARS, max(0, body_budget - len(changed)) // 2)
+    context_start = max(0, start - context_chars)
     line_break = content.find("\n", context_start, start)
     if context_start > 0 and line_break != -1:
         context_start = line_break + 1
-    context_end = min(len(content), end + _REVIEW_CHANGED_CONTEXT_CHARS)
+    context_end = min(len(content), end + context_chars)
     line_break = content.rfind("\n", end, context_end)
     if context_end < len(content) and line_break != -1:
         context_end = line_break
-    excerpt = content[context_start:context_end].strip()
-    note = (
-        f"[《{title}》编辑器字数 {words}。下面是本请求改动的部分和前后少量原文；"
-        f"它前面的 {count_words(content[:context_start])} 字、后面的 {count_words(content[context_end:])} 字"
-        "本请求没有改动，没有附上，核对前文事实时再读取]"
+    excerpt = _format_review_payload(content[context_start:context_end], max_chars=body_budget)
+    note = excerpt_note(
+        count_words(content[:context_start]), count_words(content[context_end:])
     )
-    return f"{note}\n{excerpt}"
+    if len(note) > note_budget:
+        note = compact_note
+    return f"{note}{excerpt}"
 
 
 def _collect_review_payload_text(file_ids: list[str]) -> str | None:
@@ -785,26 +806,55 @@ def _collect_review_payload_text(file_ids: list[str]) -> str | None:
 
     with ToolContext.short_lived_session() as session:
         rows = session.exec(
-            select(File.id, File.title, File.content).where(
+            select(File.id, File.title, File.content, File.updated_at).where(
                 File.project_id == project_id,
                 File.id.in_(file_ids),
                 File.file_type.in_(CONTENT_FILE_TYPES),
                 File.is_deleted.is_(False),
             )
         ).all()
-    files = {row.id: (row.title or "", row.content or "") for row in rows if (row.content or "").strip()}
-    ordered = [file_id for file_id in file_ids if file_id in files]
+    files = {
+        row.id: (row.title or "", row.content or "", row.updated_at)
+        for row in rows
+        if (row.content or "").strip()
+    }
+    ordered = list(dict.fromkeys(file_id for file_id in file_ids if file_id in files))
     if not ordered:
         return None
-    blocks = [
-        _review_payload_block(files[file_id][0], files[file_id][1], ToolContext.pre_write_content(file_id))
+    prefix = ""
+    if len(ordered) > 1:
+        counts = "、".join(f"《{files[file_id][0]}》{count_words(files[file_id][1])}" for file_id in ordered)
+        prefix = f"[本请求写过的正文（编辑器字数）：{counts}]\n\n"
+    sources = [
+        f'[来源 id={file_id} updated_at={files[file_id][2].isoformat()}；'
+        f"省略内容用 query_files(id={file_id}) 读取后再核对]"
         for file_id in ordered
     ]
-    if len(ordered) > 1:
-        # 多个文件拼起来超出预算时，中间几个文件的标注会被截掉；字数清单放在最前面。
-        counts = "、".join(f"《{files[file_id][0]}》{count_words(files[file_id][1])}" for file_id in ordered)
-        blocks.insert(0, f"[本请求写过的正文（编辑器字数）：{counts}]")
-    return "\n\n".join(blocks)
+    available = REVIEW_PAYLOAD_MAX_CHARS - len(prefix) - sum(len(source) + 1 for source in sources)
+    available -= 2 * (len(ordered) - 1)
+    if available <= 0:
+        # 极大批次连清单也放不下时，不把部分片段冒充完整送审正文。
+        return _format_review_payload(
+            "[本轮正文未附：文件清单超出预算，须按交接读写记录和文件清单读取正文后核对]\n"
+            + "\n".join(sources)
+        )
+    share = max(1, available // len(ordered))
+    blocks = [
+        _review_payload_block(
+            files[file_id][0], files[file_id][1], ToolContext.pre_write_content(file_id), max_chars=share
+        )
+        for file_id in ordered
+    ]
+    # 短文件先完整容纳，其余正文平分剩余预算，省略标记也在预算内。
+    allocations = [0] * len(blocks)
+    for rank, index in enumerate(sorted(range(len(blocks)), key=lambda index: len(blocks[index]))):
+        allocation = min(len(blocks[index]), available // (len(blocks) - rank))
+        allocations[index] = allocation
+        available -= allocation
+    return prefix + "\n\n".join(
+        source + "\n" + (_format_review_payload(block, max_chars=allocation) if allocation else "")
+        for source, block, allocation in zip(sources, blocks, allocations, strict=True)
+    )
 
 
 async def _review_payload_text(file_ids: list[str]) -> str | None:
@@ -1059,8 +1109,13 @@ def _format_review_payload(text: str, *, max_chars: int = REVIEW_PAYLOAD_MAX_CHA
     if max_chars <= 0 or len(normalized) <= max_chars:
         return normalized
 
-    head_chars = int(max_chars * 0.7)
-    tail_chars = max_chars - head_chars
+    # 省略标记也计入预算；先以全文字数的位数预留上界，避免外层再截断拼接结果。
+    hint_budget = len(f"\n\n...[中间省略 {count_words(normalized)} 字]...\n\n")
+    if max_chars <= hint_budget:
+        return "[正文未附，请读取文件]"[:max_chars]
+    body_budget = max_chars - hint_budget
+    head_chars = int(body_budget * 0.7)
+    tail_chars = body_budget - head_chars
     head = normalized[:head_chars].rstrip()
     tail = normalized[-tail_chars:].lstrip() if tail_chars > 0 else ""
     omitted = len(normalized) - len(head) - len(tail)
@@ -1473,6 +1528,8 @@ async def run_writing_workflow_streaming(
     current_agent_type: str | None = None
     handoff_context: str = ""
     workflow_agents: list[str] = []  # Planned agents to execute after initial
+    # 只接续同一次原计划的正文交付；计划外跳转不能借残留计划重新加入累计。
+    planned_delivery_active = True
     accumulated_content: str = ""  # Track content for auto-review threshold
     review_round: int = 0  # 跟踪 writer-quality_reviewer 循环次数
     previous_agent: str | None = None  # 跟踪上一个 agent
@@ -1486,9 +1543,8 @@ async def run_writing_workflow_streaming(
     # 交接决策，若不暂存，模型这一轮请求的目标 agent（例如 WRITER_PROMPT 强制
     # 要求的 quality_reviewer 送审）会连同 handoff_packet 一起被静默吞掉。
     deferred_handoff: dict[str, Any] | None = None
-    # 纠偏轮是被打断那一轮 writer 的延续：把上一轮的正文与写工具信号接续过来，
-    # 否则自动质检门（按本轮字数 + 是否动过写工具判定）会因为纠偏轮本身只补了
-    # 一小段而永远不触发。
+    # 纠偏/续写轮接续上一轮的正文和写入记录；计划内正文交付只接续正文
+    # 写入记录。否则前一程已经写完正文、writer 只补几字时会绕过自动质检门。
     carried_agent_content: str = ""
     carried_writer_body_writes: list[BodyWrite] = []
     # writer 送审前写给作者的文字被图丢掉了（审稿人的回复会取代它）：审稿人交回 writer
@@ -1794,8 +1850,9 @@ async def run_writing_workflow_streaming(
                     )
                     work_log_text += (
                         f"\n\n[本请求没有删除或重写的文件]: 对 {refused_labels} 的删除或整份重写被作者手改保护拒绝了"
-                        "（作者手动改过它们），文件保持原样；不要因此要求返工，"
-                        "确实要删或整份重写时在给作者的回复里问作者。"
+                        "（作者手动改过它们），文件保持原样；不要因此要求返工。"
+                        "删除请引导作者使用现有文件菜单；不要以再次聊天确认重试被保护的删除或同名覆写；"
+                        "常规文本编辑仍按现有读写保护执行。"
                     )
 
                 # 刷新文件清单
@@ -1883,7 +1940,7 @@ async def run_writing_workflow_streaming(
             clarification_stopped = False
             tool_call_exhausted = False
             invalid_handoff_stopped = False
-            # writer 本 run 写进正文类文件（draft / script）的内容，自动质检门只看它
+            # 本 run 写进正文类文件（draft / script）的内容，自动质检门只看它
             # （body_writes.py）。只认成功的写入：写工具全部失败（例如数据库被锁）时
             # 不送审，否则审稿人会把 writer 叫回来重试同一个失败的写入。
             body_tracker = BodyWriteTracker()
@@ -1891,8 +1948,22 @@ async def run_writing_workflow_streaming(
             # 真的送审时丢掉（审稿人或返修后的 writer 写唯一一份总结），不送审时原样放出。
             # 审稿只可能来自自动质检门或计划好的 quality_reviewer：两者都没有时不扣。
             reviewer_planned_next = bool(workflow_agents) and workflow_agents[0] == "quality_reviewer"
+            # 快照保留到 writer 为止的可写计划前缀；交接决策会弹出/裁剪原列表。
+            planned_body_targets = (
+                workflow_agents[: workflow_agents.index("writer") + 1]
+                if "writer" in workflow_agents else []
+            )
+            planned_body_delivery = (
+                planned_delivery_active
+                and current_agent_type != "writer"
+                and _agent_can_write_files(current_agent_type)
+                and bool(planned_body_targets)
+                and all(_agent_can_write_files(agent) for agent in planned_body_targets)
+                and routing_metadata.get("write_content") is True
+                and enable_graph_auto_review
+            )
             chat_hold_eligible = (
-                current_agent_type == "writer"
+                (current_agent_type == "writer" or planned_body_delivery)
                 and generation_mode != "fast"
                 and not read_only_request
                 and not rework_from_reviewer
@@ -1900,6 +1971,14 @@ async def run_writing_workflow_streaming(
                 and (enable_graph_auto_review or reviewer_planned_next)
             )
             chat_hold_started = False
+            # 正文可能已由计划内的上游写完：后续角色只读稿或小修，也要扣住
+            # 将被审稿取代的总结，不依赖它再次调用写工具才开始扣留。
+            if (
+                chat_hold_eligible
+                and measured_body_words(carried_writer_body_writes) >= auto_review_threshold
+            ):
+                chat_hold_started = True
+                yield StreamEvent(type=StreamEventType.CHAT_HOLD, data={"action": CHAT_HOLD_BEGIN})
             # 范围约束按这次要跑的 agent 生成：规划类角色专用的那句不给 writer / 审稿人。
             agent_scope_directive = _build_scope_directive(
                 routing_metadata, agent_type=current_agent_type
@@ -2041,7 +2120,7 @@ async def run_writing_workflow_streaming(
                         yield notice
                     yield event
 
-                if current_agent_type == "writer" and event.type in (
+                if (current_agent_type == "writer" or planned_body_delivery) and event.type in (
                     StreamEventType.TOOL_USE,
                     StreamEventType.TOOL_RESULT,
                 ):
@@ -2052,6 +2131,9 @@ async def run_writing_workflow_streaming(
                         and not chat_hold_started
                         and (
                             reviewer_planned_next
+                            # 计划里的后续角色将接手同一范围；是否丢掉这份说明仍等到
+                            # 真正交接时判断，提问或交接未执行时适配器原样释放。
+                            or planned_body_delivery
                             # create_file 的正文还没写出来，字数要等 <file> 块，可能送审。
                             or body_write.text_offset is not None
                             # edit_file / write_chapter 的字数已知：到了送审阈值才可能送审，
@@ -2077,8 +2159,8 @@ async def run_writing_workflow_streaming(
             if isinstance(updated_messages, list):
                 state["messages"] = updated_messages
 
-            # 接续上一轮被纠偏打断的 writer 产出（正文 + 写工具信号），让后面的
-            # 自动质检门、待审查内容提取看到完整的一轮写作，而不是只看到补写片段。
+            # 接续纠偏/续写或计划内交付的正文记录，让自动质检门看到完整的一轮
+            # 写作；整段文字只在纠偏/续写时接续，不拼接上游角色的聊天。
             if carried_agent_content or carried_writer_body_writes:
                 agent_content = f"{carried_agent_content}{agent_content}"
                 writer_body_writes = [*carried_writer_body_writes, *writer_body_writes]
@@ -2667,7 +2749,7 @@ async def run_writing_workflow_streaming(
             if (
                 pending_next_agent == "quality_reviewer"
                 and current_agent_type == "writer"
-                and agent_content.strip()
+                and (agent_content.strip() or writer_body_writes)
             ):
                 event_context = ""
                 if pending_handoff_event_data is not None:
@@ -2679,23 +2761,32 @@ async def run_writing_workflow_streaming(
                 # as inventory_text which includes file ids) instead of inlining the full
                 # draft body, which can reach ~9k chars and pile up across review rounds.
                 # 送审内容优先取本请求写过的正文落库后的样子（引号已规范），
-                # 没写文件或读不到时退回模型输出里的 <file> 块 / 全文。
+                # 读不到时原输出只作片段，不能冒充最新落库正文；明确补读当前文件。
                 payload_guard = _guard_from_state(state)
+                written_ids = payload_guard.written_file_ids() if payload_guard else []
                 persisted_payload = (
-                    await _review_payload_text(payload_guard.written_file_ids()) if payload_guard else None
+                    await _review_payload_text(written_ids) if payload_guard else None
                 )
                 review_payload = _format_review_payload(
                     persisted_payload or _extract_review_payload(agent_content)
                 )
+                source_note = ""
+                if written_ids and not persisted_payload:
+                    source_note = (
+                        "[当前落库正文未读取]\n"
+                        "下面仅为创作输出片段，不代表当前落库正文。"
+                        "先用 query_files 按这些文件 ID 读取当前正文后再判断事实或总结："
+                        f"{', '.join(written_ids)}。文件标题和类型见当前项目文件清单。\n\n"
+                    )
                 handoff_context = (
                     f"{base_context}\n\n"
+                    f"{source_note}"
                     f"[待审查内容]\n{review_payload}"
                 ).strip()
 
                 # 字数和篇幅要求给审稿人确定的数（I05）：writer 在 <file> 正文后面同一次回复里
                 # 写的「约N字」是还没有工具结果时的估计；作者早先说过、写进项目设定的篇幅
                 # 要求，审稿人原来只看本轮原话时看不到。
-                written_ids = payload_guard.written_file_ids() if payload_guard else []
                 review_reads = await _bounded_review_reads(
                     {
                         "body_word_counts": functools.partial(_collect_body_word_counts, written_ids),
@@ -2855,6 +2946,24 @@ async def run_writing_workflow_streaming(
             will_run_next_agent = bool(pending_next_agent) and iteration < max_iterations
 
             if (
+                planned_body_delivery
+                and chat_hold_eligible
+                and will_run_next_agent
+                and pending_next_agent in planned_body_targets
+                and body_words_written(writer_body_writes) > 0
+            ):
+                carried_writer_body_writes = writer_body_writes
+                if (
+                    chat_hold_started
+                    and not ended_with_question
+                    and body_words_written(writer_body_writes) >= auto_review_threshold
+                ):
+                    yield StreamEvent(
+                        type=StreamEventType.CHAT_HOLD,
+                        data={"action": CHAT_HOLD_DISCARD, "reason": "superseded_by_planned_writer"},
+                    )
+
+            if (
                 chat_hold_started
                 and will_run_next_agent
                 and current_agent_type == "writer"
@@ -2881,6 +2990,11 @@ async def run_writing_workflow_streaming(
             previous_agent = current_agent_type
 
             # Apply next agent decision
+            planned_delivery_active = (
+                planned_body_delivery
+                and will_run_next_agent
+                and pending_next_agent in planned_body_targets
+            )
             current_agent_type = pending_next_agent if will_run_next_agent else None
             rework_from_reviewer = (
                 previous_agent == "quality_reviewer" and current_agent_type is not None

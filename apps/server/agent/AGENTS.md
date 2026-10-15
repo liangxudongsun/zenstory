@@ -120,7 +120,7 @@ agent/
 
 每条序列之后都可能经自动质检门或显式交接进入 quality_reviewer。`plan_workflow_agents` 按用户范围裁剪：`write_content=false` 剔除 writer，`read_only=true` 整条清空。交接有三种：
 显式 `handoff_to_agent`；按 `workflow_agents` 的计划交接；自动质检门（writer 本轮写进 draft / script 的字数达到阈值后交给
-quality_reviewer）。审查最多 `MAX_REVIEW_ROUNDS` 轮，返修稿不再自动送审。
+quality_reviewer；到 writer 为止的原计划可写前缀中，同一交付的成功正文写入跨角色接续计算，中间只读程也接续；计划外跳转不纳入）。审查最多 `MAX_REVIEW_ROUNDS` 轮，返修稿不再自动送审。
 
 ### Router
 
@@ -154,9 +154,12 @@ quality_reviewer）。审查最多 `MAX_REVIEW_ROUNDS` 轮，返修稿不再自�
   quality_reviewer 时在 HANDOFF 前发 `CHAT_HOLD(discard)`，由审稿人（或返修后的 writer）写唯一总结，writer 的问题以
   `[内容创作者要问作者的问题]` 交给它们；不送审时扣着的文字在下一个 agent / 交接 / 收尾 / 出错事件前或流结束时原样放出
   （run 中途的 STEERING_RECEIVED 不放出）。CHAT_HOLD 不发给前端。[single-summary][n-summary]
+  质量门可用且作者要正文时，writer 前的原计划可写角色也按成功正文写入扣留；同一交付的累计正文达到门槛、实际沿计划前缀交接且没有收尾问题才丢弃，
+  正文记录接续给 writer。只有规划、失败写入、未执行交接和提问原样释放。[planned-body-review][n-planned-body]
 - **送审证据用落库后的事实**：送审交接附 `[本轮正文字数]`（落库后的 `count_words`）和 `[作者的篇幅要求]`
   （`review_evidence.find_length_requirements`），读取有时间上限、超时用已读到的；`[待审查内容]` 取本请求写过的正文落库后的样子，
   放不进预算的长文件只附本请求改动的那段（写入前正文由 `ToolContext.remember_pre_write_content` 记下）。
+  多文件在既有总预算内逐文件分配，每份保留来源文件 ID 与 `updated_at`；未附全文的部分明确标注，按 ID 精确 `query_files` 读取，不把省略部分当作已经核对。
   [single-summary][n-summary]、[writer-delivery-requirements][n-length]、[thinking-loop-inputs][n-thinking]
 - **自动质检门只认成功的正文写入**：按 `graph/body_writes.py` 计 draft / script 里实际写进的字数；改大纲、设定、角色和聊天文字不算；
   写入全部失败时不送审。[single-summary][n-summary]、[tool-failure-breaker][n-breaker]、[review-gating][n-review]
@@ -243,6 +246,7 @@ quality_reviewer）。审查最多 `MAX_REVIEW_ROUNDS` 轮，返修稿不再自�
 
 ## 提示词
 
+- 真实失败稿用于回归和正确反例，不把样例人物、账目、物件或情节关键词写成提示词/Agent 的特判。先定位通用的范围、输入、执行证据或权限缺口；提示策略变更须验证跨题材效果与误改，不能只证明已知样例修好了。
 - `prompts/base.py`：`get_base_prompt` 与 `UNIFIED_EXECUTION_PROTOCOL` 等共享协议。
 - `prompts/subagents.py`：`ROUTER_PROMPT`、`PLANNER_PROMPT`、`HOOK_DESIGNER_PROMPT`、`WRITER_PROMPT`、`QUALITY_REVIEWER_PROMPT`。
 - `prompts/suggestions.py`：建议生成。
@@ -295,6 +299,7 @@ quality_reviewer）。审查最多 `MAX_REVIEW_ROUNDS` 轮，返修稿不再自�
 [n-offer]: ../../../.agents/notes/implemented/bug-fix/2026-10-11-author-edit-guard-reads-the-ais-offer.md
 [n-narration]: ../../../.agents/notes/implemented/bug-fix/2026-10-09-agent-text-no-english-narration-or-glue.md
 [n-summary]: ../../../.agents/notes/implemented/bug-fix/2026-10-11-author-reply-single-summary-and-real-word-counts.md
+[n-planned-body]: ../../../.agents/notes/implemented/bug-fix/2026-10-14-planned-planner-body-review-and-summary.md
 [n-length]: ../../../.agents/notes/implemented/feature/2026-10-14-writer-delivery-author-requirements.md
 [n-thinking]: ../../../.agents/notes/implemented/bug-fix/2026-10-11-thinking-loop-contradictory-inputs.md
 [n-breaker]: ../../../.agents/notes/implemented/bug-fix/2026-10-03-agent-tool-failure-circuit-breaker.md
