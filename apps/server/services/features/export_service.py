@@ -4,6 +4,7 @@ Export service for generating downloadable content.
 Provides functions to export project content (drafts) to various formats.
 """
 import re
+from collections.abc import Iterator
 
 from sqlmodel import Session, select
 
@@ -169,10 +170,12 @@ def _sort_by_sequence(files: list[File]) -> None:
     files.sort(key=sort_key)
 
 
-def _join_files(files: list[File]) -> str:
-    return CHAPTER_SEPARATOR.join(
-        f"{f.title}\n\n{_trim_chapter_body(f.content or '')}" for f in files
-    )
+def _file_parts(files: list[File]) -> Iterator[str]:
+    for index, file in enumerate(files):
+        if index:
+            yield CHAPTER_SEPARATOR
+        yield f"{file.title}\n\n"
+        yield _trim_chapter_body(file.content or "")
 
 
 def export_drafts_to_txt(
@@ -219,6 +222,19 @@ def export_drafts_to_txt(
     Returns:
         Merged text content, or empty string when there is nothing to export
     """
+    return export_drafts_to_txt_with_outline_state(
+        session, project_id, title=title, include_outline=include_outline
+    )[0]
+
+
+def export_drafts_to_txt_with_outline_state(
+    session: Session,
+    project_id: str,
+    *,
+    title: str | None = None,
+    include_outline: bool = False,
+) -> tuple[str, bool]:
+    """Render TXT and report whether the rendered content includes outlines."""
     log_with_context(
         logger,
         20,  # INFO
@@ -244,7 +260,7 @@ def export_drafts_to_txt(
             "export_drafts_to_txt: No drafts found",
             project_id=project_id,
         )
-        return ""
+        return "", False
 
     log_with_context(
         logger,
@@ -256,17 +272,17 @@ def export_drafts_to_txt(
         content_length=sum(len(d.title or "") + len(d.content or "") for d in drafts),
     )
 
-    if not outlines:
-        body = _join_files(drafts)
-    else:
+    # Join once: chapter bodies can be large, so avoid formatting a copy of
+    # each body and then copying the full work again to add headings/title.
+    clean_title = (title or "").strip()
+    parts = [clean_title, "\n\n"] if clean_title else []
+    if outlines:
         project = session.get(Project, project_id)
         body_heading = "【剧本】" if project and project.project_type == "screenplay" else "【正文】"
-        sections = [f"【大纲】\n\n{_join_files(outlines)}"]
+        parts.append("【大纲】\n\n")
+        parts.extend(_file_parts(outlines))
         if drafts:
-            sections.append(f"{body_heading}\n\n{_join_files(drafts)}")
-        body = CHAPTER_SEPARATOR.join(sections)
+            parts.extend((CHAPTER_SEPARATOR, body_heading, "\n\n"))
+    parts.extend(_file_parts(drafts))
 
-    clean_title = (title or "").strip()
-    if clean_title:
-        return f"{clean_title}\n\n{body}"
-    return body
+    return "".join(parts), bool(outlines)

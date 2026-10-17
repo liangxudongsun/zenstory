@@ -8,7 +8,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 from services.auth import get_current_active_user
-from services.export_service import export_drafts_to_txt, get_sorted_outlines
+from services.export_service import export_drafts_to_txt_with_outline_state
 from sqlmodel import Session
 
 from core.error_codes import ErrorCode
@@ -103,7 +103,7 @@ def export_project_drafts(
             )
 
     # 3. Generate export content
-    content = export_drafts_to_txt(
+    content, has_outlines = export_drafts_to_txt_with_outline_state(
         session,
         project_id,
         title=project.name,
@@ -114,7 +114,7 @@ def export_project_drafts(
     # promising 「大纲和正文」.
     if not include_outline:
         filename = f"{project.name}_正文.txt"
-    elif get_sorted_outlines(session, project_id):
+    elif has_outlines:
         filename = f"{project.name}_大纲和正文.txt"
     else:
         filename = f"{project.name}_正文（暂无大纲）.txt"
@@ -143,14 +143,14 @@ def export_project_drafts(
     )
 
     # 4. Add UTF-8 BOM for Windows Notepad compatibility
-    content_with_bom = '\ufeff' + content
+    content = '\ufeff' + content
 
     # 5. Build filename with RFC 5987 encoding for Chinese characters
     encoded_filename = quote(filename)
 
     # 6. Return as downloadable file
     return Response(
-        content=content_with_bom.encode('utf-8'),
+        content=content.encode('utf-8'),
         media_type="text/plain; charset=utf-8",
         headers={
             "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
