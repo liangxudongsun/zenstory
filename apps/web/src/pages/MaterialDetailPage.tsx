@@ -1,13 +1,16 @@
-import { useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { materialEnumLabel } from "../lib/materialEnumLabels";
 import i18n from "../lib/i18n";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LazyMarkdown } from "../components/LazyMarkdown";
+import { MaterialReadingContent as MarkdownContent } from "../components/materials/MaterialReadingContent";
+import { DashboardSearchBar } from "../components/dashboard/DashboardSearchBar";
+import { Button } from "../components/ui/Button";
+import { IconButton } from "../components/ui/IconButton";
+import { Badge } from "../components/ui/Badge";
 import {
   ChevronLeft,
-  Search,
   Folder,
   FolderOpen,
   File,
@@ -274,12 +277,14 @@ function MaterialDetailContent({ novelId }: { novelId?: string }) {
   });
 
   const selectedChapterId = selectedItem?.type === "chapter" ? selectedItem.id : null;
-  const { data: selectedChapter, isFetching: isFetchingSelectedChapter } = useQuery({
+  const selectedChapterQuery = useQuery({
     queryKey: ["material-chapter", novelId, selectedChapterId],
     queryFn: () => materialsApi.getChapter(novelId!, selectedChapterId!),
     enabled: Boolean(novelId && selectedChapterId),
     staleTime: 30 * 1000,
   });
+
+  const { data: selectedChapter, isFetching: isFetchingSelectedChapter } = selectedChapterQuery;
 
   const { data: chapters = [] } = chaptersQuery;
   const { data: characters = [] } = charactersQuery;
@@ -479,6 +484,15 @@ function MaterialDetailContent({ novelId }: { novelId?: string }) {
     ? { ...selectedItem, data: selectedChapter }
     : selectedItem;
 
+  const handleSearchChange = (query: string) => {
+    setSearchQuery(query);
+    if (query.trim()) {
+      Object.entries(folderQueries).forEach(([folderId, folderQuery]) => {
+        if (folderVisibility[folderId] && folderQuery.isError) void folderQuery.refetch();
+      });
+    }
+  };
+
   const handleMobileBack = () => {
     setShowMobileContent(false);
   };
@@ -509,9 +523,9 @@ function MaterialDetailContent({ novelId }: { novelId?: string }) {
             : t("materials:detail.loadError", { defaultValue: "素材详情加载失败，请重试。" })}
         </p>
         {!isNotFound && (
-          <button className="btn-secondary min-h-11 px-4" onClick={() => void refetchMaterial()}>
+          <Button variant="secondary" size="touch" onClick={() => void refetchMaterial()}>
             {t("common:retry", { defaultValue: "重试" })}
-          </button>
+          </Button>
         )}
       </div>
     );
@@ -527,68 +541,45 @@ function MaterialDetailContent({ novelId }: { novelId?: string }) {
 
   return (
     <div className="viewport-shell ui-sans-headings h-dvh flex flex-col overflow-hidden bg-[hsl(var(--bg-primary))]">
-      {/* Header */}
-      <div className="shrink-0 border-b border-[hsl(var(--border-color))] bg-[hsl(var(--bg-secondary))]">
-        <div className={`flex gap-3 ${isMobile ? 'flex-col items-stretch px-3 py-2' : 'items-center justify-between px-4 py-3'}`}>
+      <header className="shrink-0 border-b border-[hsl(var(--separator-color))] bg-[hsl(var(--bg-secondary))]">
+        <div className={`flex gap-3 ${isMobile ? "flex-col px-3 py-3" : "items-center justify-between px-5 py-3"}`}>
           <div className="flex min-w-0 flex-1 items-center gap-3">
-            <button
-              type="button"
-              aria-label={t("common:back", { defaultValue: "返回" })}
+            <IconButton
+              size="touch"
+              label={t("common:back", { defaultValue: "返回" })}
+              icon={<ChevronLeft className="h-5 w-5" />}
               onClick={() => {
-                if (isMobile && showMobileContent) {
-                  handleMobileBack();
-                } else {
-                  navigate("/dashboard/materials");
-                }
+                if (isMobile && showMobileContent) handleMobileBack();
+                else navigate("/dashboard/materials");
               }}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-[hsl(var(--bg-tertiary))] transition-colors"
-            >
-              <ChevronLeft className="w-5 h-5 text-[hsl(var(--text-secondary))]" />
-            </button>
+            />
             <div className="min-w-0">
-              <h1 className={`break-words font-semibold text-[hsl(var(--text-primary))] ${isMobile ? 'text-base' : 'text-lg'}`}>
-                {isMobile && showMobileContent && selectedItem ? selectedItem.title : material.title}
+              <h1 id="material-title" className="heading-display break-words text-xl font-semibold tracking-tight text-[hsl(var(--text-primary))] md:text-2xl">
+                {material.title}
               </h1>
-              {!(isMobile && showMobileContent) && (
-                <p className="text-xs text-[hsl(var(--text-tertiary))]">
-                  {material.chapters_count || 0} {t("materials:chapters")}
-                </p>
-              )}
+              <p className="mt-0.5 text-xs text-[hsl(var(--text-secondary))]">
+                {material.chapters_count || 0} {t("materials:chapters")}
+              </p>
             </div>
           </div>
-
-          {/* Search - 在移动端内容视图隐藏 */}
           {!(isMobile && showMobileContent) && (
-            <div className={`relative ${isMobile ? 'w-full' : 'w-56 shrink-0'}`}>
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[hsl(var(--text-tertiary))]" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => {
-                  const query = e.target.value;
-                  setSearchQuery(query);
-                  if (query.trim()) {
-                    Object.entries(folderQueries).forEach(([folderId, folderQuery]) => {
-                      if (folderVisibility[folderId] && folderQuery.isError) void folderQuery.refetch();
-                    });
-                  }
-                }}
-                placeholder={t("materials:detail.searchPlaceholder")}
-                aria-label={t("materials:detail.searchPlaceholder")}
-                className="min-h-11 w-full pl-9 pr-3 py-2 rounded-lg border border-[hsl(var(--border-color))] bg-[hsl(var(--bg-primary))] text-sm focus:outline-none focus:ring-2 focus:ring-[hsl(var(--accent-primary)/0.3)]"
-              />
-            </div>
+            <DashboardSearchBar
+              value={searchQuery}
+              onChange={handleSearchChange}
+              placeholder={t("materials:detail.searchPlaceholder")}
+              className={isMobile ? "w-full" : "w-56 shrink-0 lg:w-64"}
+            />
           )}
         </div>
-      </div>
+      </header>
 
       {(material.status === "failed" || material.status === "completed_with_errors") && (
         <div
           role="alert"
           className={`shrink-0 flex flex-wrap items-center gap-3 border-b px-4 py-2.5 text-sm ${
             material.status === "failed"
-              ? "border-[hsl(var(--error)/0.3)] bg-[hsl(var(--error)/0.08)] text-[hsl(var(--error))]"
-              : "border-[hsl(var(--warning)/0.3)] bg-[hsl(var(--warning)/0.08)] text-[hsl(var(--warning))]"
+              ? "border-[hsl(var(--error)/0.3)] bg-[hsl(var(--error)/0.08)] text-[hsl(var(--error-text))]"
+              : "border-[hsl(var(--warning)/0.3)] bg-[hsl(var(--warning)/0.08)] text-[hsl(var(--warning-text))]"
           }`}
         >
           <AlertCircle className="h-4 w-4 shrink-0" />
@@ -605,87 +596,66 @@ function MaterialDetailContent({ novelId }: { novelId?: string }) {
             )}
           </span>
           {canRetry && (
-            <button
-              type="button"
+            <Button
+              variant="secondary"
+              size={isMobile ? "touch" : "sm"}
               onClick={() => void handleRetry()}
-              disabled={isRetrying}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[hsl(var(--border-color))] bg-[hsl(var(--bg-primary))] px-3 text-xs font-medium text-[hsl(var(--text-secondary))] hover:text-[hsl(var(--text-primary))] disabled:cursor-not-allowed disabled:opacity-60"
+              isLoading={isRetrying}
+              leftIcon={<RefreshCw className="h-3.5 w-3.5" />}
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${isRetrying ? "animate-spin" : ""}`} />
               {t("common:retry", { defaultValue: "重试" })}
-            </button>
+            </Button>
           )}
         </div>
       )}
 
-      {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {isMobile ? (
-          // 移动端：单栏切换布局
-          showMobileContent ? (
-            // 内容详情视图
-            <div className="flex-1 overflow-y-auto">
-              <div className="p-4">
-                {selectedContentItem ? (
-                  isFetchingSelectedChapter && selectedContentItem.type === "chapter" ? (
-                    <Loader2 className="w-5 h-5 animate-spin text-[hsl(var(--accent-primary))]" />
-                  ) : <ContentDetail item={selectedContentItem} />
-                ) : (
-                  <EmptyState material={material} />
-                )}
-              </div>
+      <main aria-labelledby="material-title" className="flex min-h-0 flex-1 overflow-hidden">
+        {(!isMobile || !showMobileContent) && (
+          <aside
+            aria-label={t("materials:detail.contents")}
+            className={`${isMobile ? "flex-1" : "w-64 shrink-0 border-r lg:w-72"} overflow-y-auto border-[hsl(var(--separator-color))] bg-[hsl(var(--bg-primary))]`}
+          >
+            <div className="px-3 py-5">
+              <h2 className="mb-3 px-2 text-xs font-medium text-[hsl(var(--text-secondary))]">
+                {t("materials:detail.contents")}
+              </h2>
+              <FileTree
+                items={filteredTree}
+                selectedId={selectedItem?.id}
+                expandedFolders={expandedFolders}
+                onItemClick={handleItemClick}
+                loadingStates={loadingStates}
+                folderErrors={folderErrors}
+                onRetryFolder={(folderId) => { void folderQueries[folderId]?.refetch(); }}
+                searchActive={Boolean(searchQuery.trim())}
+              />
             </div>
-          ) : (
-            // 文件树视图
-            <div className="flex-1 overflow-y-auto bg-[hsl(var(--bg-secondary))]">
-              <div className="p-3">
-                <FileTree
-                  items={filteredTree}
-                  selectedId={selectedItem?.id}
-                  expandedFolders={expandedFolders}
-                  onItemClick={handleItemClick}
-                  loadingStates={loadingStates}
-                  folderErrors={folderErrors}
-                  onRetryFolder={(folderId) => { void folderQueries[folderId]?.refetch(); }}
-                  searchActive={Boolean(searchQuery.trim())}
-                />
-              </div>
-            </div>
-          )
-        ) : (
-          // 桌面端：双栏布局
-          <>
-            {/* Left: File Tree */}
-            <div className="w-80 border-r border-[hsl(var(--border-color))] bg-[hsl(var(--bg-secondary))] overflow-y-auto">
-              <div className="p-4">
-                <FileTree
-                  items={filteredTree}
-                  selectedId={selectedItem?.id}
-                  expandedFolders={expandedFolders}
-                  onItemClick={handleItemClick}
-                  loadingStates={loadingStates}
-                  folderErrors={folderErrors}
-                  onRetryFolder={(folderId) => { void folderQueries[folderId]?.refetch(); }}
-                  searchActive={Boolean(searchQuery.trim())}
-                />
-              </div>
-            </div>
-
-            {/* Right: Content Details */}
-            <div className="flex-1 overflow-y-auto">
-              <div className="p-6">
-                {selectedContentItem ? (
-                  isFetchingSelectedChapter && selectedContentItem.type === "chapter" ? (
-                    <Loader2 className="w-5 h-5 animate-spin text-[hsl(var(--accent-primary))]" />
-                  ) : <ContentDetail item={selectedContentItem} />
-                ) : (
-                  <EmptyState material={material} />
-                )}
-              </div>
-            </div>
-          </>
+          </aside>
         )}
-      </div>
+        {(!isMobile || showMobileContent) && (
+          <section
+            aria-label={t("materials:detail.contentLabel")}
+            className="min-w-0 flex-1 overflow-y-auto bg-[hsl(var(--bg-secondary))]"
+          >
+            <div className="mx-auto w-full max-w-[50rem] px-5 py-7 md:px-8 md:py-10 lg:px-12">
+              {selectedContentItem ? (
+                isFetchingSelectedChapter && selectedContentItem.type === "chapter" ? (
+                  <div role="status" aria-label={t("common:loading")} className="flex min-h-40 items-center justify-center">
+                    <Loader2 className="h-5 w-5 animate-spin text-[hsl(var(--text-secondary))]" />
+                  </div>
+                ) : selectedContentItem.type === "chapter" && selectedChapterQuery.isError && !selectedChapter ? (
+                  <div role="alert" className="space-y-3 py-8 text-sm text-[hsl(var(--text-secondary))]">
+                    <p>{t("materials:detail.loadError", { defaultValue: "素材详情加载失败，请重试。" })}</p>
+                    <Button variant="secondary" size={isMobile ? "touch" : "md"} onClick={() => void selectedChapterQuery.refetch()}>
+                      {t("common:retry", { defaultValue: "重试" })}
+                    </Button>
+                  </div>
+                ) : <ContentDetail item={selectedContentItem} />
+              ) : <EmptyState material={material} />}
+            </div>
+          </section>
+        )}
+      </main>
     </div>
   );
 }
@@ -709,28 +679,28 @@ function FileTree({ items, selectedId, expandedFolders, onItemClick, loadingStat
     switch (type) {
       case "folder":
         return isExpanded ? (
-          <FolderOpen className="w-4 h-4 text-[hsl(var(--accent-primary))]" />
+          <FolderOpen className="w-4 h-4 text-current" />
         ) : (
           <Folder className="w-4 h-4 text-[hsl(var(--text-tertiary))]" />
         );
       case "chapter":
-        return <BookOpen className="w-4 h-4 text-blue-500" />;
+        return <BookOpen className="w-4 h-4 text-[hsl(var(--text-secondary))]" />;
       case "character":
-        return <User className="w-4 h-4 text-purple-500" />;
+        return <User className="w-4 h-4 text-[hsl(var(--text-secondary))]" />;
       case "story":
-        return <Sparkles className="w-4 h-4 text-amber-500" />;
+        return <Sparkles className="w-4 h-4 text-[hsl(var(--text-secondary))]" />;
       case "worldview":
-        return <Globe className="w-4 h-4 text-green-500" />;
+        return <Globe className="w-4 h-4 text-[hsl(var(--text-secondary))]" />;
       case "cheat":
-        return <Zap className="w-4 h-4 text-red-500" />;
+        return <Zap className="w-4 h-4 text-[hsl(var(--text-secondary))]" />;
       case "plot":
-        return <File className="w-4 h-4 text-cyan-500" />;
+        return <File className="w-4 h-4 text-[hsl(var(--text-secondary))]" />;
       case "storyline":
-        return <GitBranch className="w-4 h-4 text-indigo-500" />;
+        return <GitBranch className="w-4 h-4 text-[hsl(var(--text-secondary))]" />;
       case "relationship":
-        return <Users className="w-4 h-4 text-pink-500" />;
+        return <Users className="w-4 h-4 text-[hsl(var(--text-secondary))]" />;
       case "goldenfinger":
-        return <Zap className="w-4 h-4 text-yellow-500" />;
+        return <Zap className="w-4 h-4 text-[hsl(var(--text-secondary))]" />;
       default:
         return <File className="w-4 h-4 text-[hsl(var(--text-tertiary))]" />;
     }
@@ -750,11 +720,14 @@ function FileTree({ items, selectedId, expandedFolders, onItemClick, loadingStat
               onClick={() => onItemClick(item)}
               disabled={isDisabled}
               aria-disabled={isDisabled || undefined}
-              className={`w-full flex items-center gap-2 px-2 py-2.5 rounded-lg text-sm transition-colors ${
+              aria-expanded={item.type === "folder" ? isExpanded : undefined}
+              aria-current={isSelected ? "true" : undefined}
+              title={item.title}
+              className={`w-full flex items-center gap-2 px-2 py-2 min-h-10 max-md:min-h-11 rounded-lg text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--accent-primary)/0.5)] ${
                 isDisabled
                   ? "cursor-not-allowed text-[hsl(var(--text-tertiary))]"
                   : isSelected
-                  ? "bg-[hsl(var(--accent-primary)/0.1)] text-[hsl(var(--accent-primary))]"
+                  ? "bg-[hsl(var(--accent-primary)/0.08)] text-[hsl(var(--accent-primary))]"
                   : "hover:bg-[hsl(var(--bg-tertiary))] text-[hsl(var(--text-primary))] active:bg-[hsl(var(--bg-hover))]"
               }`}
               style={{ paddingLeft: `${level * 12 + 8}px` }}
@@ -787,11 +760,11 @@ function FileTree({ items, selectedId, expandedFolders, onItemClick, loadingStat
             </button>
 
             {item.type === "folder" && isExpanded && folderErrors.has(item.id) && (
-              <div className="ml-8 py-1 text-xs text-[hsl(var(--error))]">
-                <span>{t("materials:detail.folderLoadError", { defaultValue: "加载失败。" })}</span>{" "}
-                <button className="underline" onClick={() => onRetryFolder(item.id)}>
+              <div role="alert" className="ml-8 space-y-2 py-2 text-xs text-[hsl(var(--error-text))]">
+                <p>{t("materials:detail.folderLoadError", { defaultValue: "加载失败。" })}</p>
+                <Button variant="secondary" size="touch" onClick={() => onRetryFolder(item.id)}>
                   {t("common:retry", { defaultValue: "重试" })}
-                </button>
+                </Button>
               </div>
             )}
             {item.type === "folder" && isExpanded && hasChildren && !folderErrors.has(item.id) && (
@@ -814,19 +787,42 @@ function FileTree({ items, selectedId, expandedFolders, onItemClick, loadingStat
   );
 }
 
-// Markdown 内容渲染组件
-function MarkdownContent({ content, className = "" }: { content: string; className?: string }) {
+// Shared structure for the seven reference types; chapter layout stays independent.
+function DetailHeader({ id, icon, title, children }: { id: string; icon: ReactNode; title: string; children?: ReactNode }) {
   return (
-    <div className={`prose prose-sm dark:prose-invert max-w-none
-        prose-headings:text-[hsl(var(--text-primary))]
-        prose-p:text-[hsl(var(--text-primary))]
-        prose-strong:text-[hsl(var(--text-primary))]
-        prose-ul:text-[hsl(var(--text-primary))]
-        prose-ol:text-[hsl(var(--text-primary))]
-        prose-li:text-[hsl(var(--text-primary))]
-        prose-a:text-[hsl(var(--accent-primary))]
-        ${className}`}>
-      <LazyMarkdown>{content}</LazyMarkdown>
+    <header className="material-analysis-header">
+      <div className="flex items-start gap-3">
+        <span className="mt-1.5 shrink-0 text-[hsl(var(--text-secondary))]" aria-hidden="true">{icon}</span>
+        <h2 id={id} className="text-2xl font-semibold leading-snug tracking-tight text-[hsl(var(--text-primary))]">{title}</h2>
+      </div>
+      {children}
+    </header>
+  );
+}
+
+function DetailSection({ title, children }: { title: string; children: ReactNode }) {
+  const id = useId();
+  return (
+    <section className="material-analysis-section" aria-labelledby={id}>
+      <h3 id={id}>{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function DetailMetadata({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="material-analysis-fact">
+      <dt>{label}</dt>
+      <dd>{children}</dd>
+    </div>
+  );
+}
+
+function DetailTags({ values }: { values: string[] }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {values.map((value, index) => <Badge key={index} variant="neutral" size="md">{value}</Badge>)}
     </div>
   );
 }
@@ -838,26 +834,27 @@ interface ContentDetailProps {
 
 function ContentDetail({ item }: ContentDetailProps) {
   const { t } = useTranslation(["materials"]);
+  const titleId = useId();
 
   if (item.type === "chapter") {
     const chapter = item.data as MaterialChapter;
     return (
-      <div className="max-w-4xl">
+      <article className="material-detail" aria-labelledby="material-chapter-title">
         <div className="mb-6">
           <div className="flex items-center gap-2 mb-2">
-            <BookOpen className="w-5 h-5 text-blue-500" />
-            <h2 className="text-2xl font-bold text-[hsl(var(--text-primary))]">
+            <BookOpen className="w-5 h-5 text-[hsl(var(--text-secondary))]" />
+            <h2 id="material-chapter-title" className="heading-display text-2xl font-semibold leading-snug tracking-tight text-[hsl(var(--text-primary))] md:text-[28px]">
               {chapter.title}
             </h2>
           </div>
-          <div className="flex items-center gap-4 text-sm text-[hsl(var(--text-secondary))]">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[hsl(var(--text-secondary))]">
             <span>{t("materials:detail.chapterNumber")}: {chapter.chapter_number}</span>
             <span>{t("materials:detail.wordCount")}: {chapter.word_count?.toLocaleString()}</span>
           </div>
         </div>
 
         {chapter.summary && (
-          <div className="mb-6 p-4 rounded-lg bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--border-color))]">
+          <div className="mb-8 rounded-xl border border-[hsl(var(--separator-color))] bg-[hsl(var(--bg-primary))] p-4">
             <h3 className="text-sm font-semibold text-[hsl(var(--text-secondary))] mb-2">
               {t("materials:detail.summary")}
             </h3>
@@ -866,433 +863,249 @@ function ContentDetail({ item }: ContentDetailProps) {
         )}
 
         {chapter.content && (
-          <MarkdownContent content={chapter.content} />
+          <MarkdownContent content={chapter.content} className="material-reader-manuscript" />
         )}
-      </div>
+      </article>
     );
   }
 
   if (item.type === "character") {
     const character = item.data as MaterialCharacter;
-    const firstAppearanceChapter = character.first_appearance_chapter;
     return (
-      <div className="max-w-3xl">
-        <div className="mb-6">
-          <div className="flex items-center gap-2 mb-2">
-            <User className="w-5 h-5 text-purple-500" />
-            <h2 className="text-2xl font-bold text-[hsl(var(--text-primary))]">
-              {character.name}
-            </h2>
-          </div>
-          {character.aliases && character.aliases.length > 0 && (
-            <div className="flex items-center gap-2 text-sm text-[hsl(var(--text-secondary))]">
-              <span>{t("materials:detail.aliases")}:</span>
-              <span>{character.aliases.join(i18n.language === 'zh' ? '、' : ', ')}</span>
-            </div>
-          )}
-        </div>
-
+      <article className="material-detail material-analysis" aria-labelledby={titleId}>
+        <DetailHeader id={titleId} icon={<User className="w-5 h-5" />} title={character.name}>
+          <dl className="material-analysis-facts">
+            {character.archetype && (
+              <DetailMetadata label={t("materials:detail.characterArchetype")}>
+                {t(`materials:enums.archetype.${character.archetype.trim().toLowerCase()}`, { defaultValue: character.archetype })}
+              </DetailMetadata>
+            )}
+            {!!character.aliases?.length && (
+              <DetailMetadata label={t("materials:detail.aliases")}>
+                {character.aliases.join(i18n.language === 'zh' ? '、' : ', ')}
+              </DetailMetadata>
+            )}
+            {character.first_appearance_chapter != null && (
+              <DetailMetadata label={t("materials:detail.firstAppearance")}>
+                {t("materials:detail.chapter", { number: character.first_appearance_chapter })}
+              </DetailMetadata>
+            )}
+          </dl>
+        </DetailHeader>
         {character.description && (
-          <div className="mb-6">
-            <h3 className="text-sm font-semibold text-[hsl(var(--text-secondary))] mb-2">
-              {t("materials:detail.description")}
-            </h3>
+          <DetailSection title={t("materials:detail.characterOverview")}>
             <MarkdownContent content={character.description} />
-          </div>
+          </DetailSection>
         )}
-
-        {firstAppearanceChapter != null && (
-          <div className="text-sm text-[hsl(var(--text-secondary))]">
-            {t("materials:detail.firstAppearance")}: {t("materials:detail.chapter", { number: firstAppearanceChapter })}
-          </div>
-        )}
-      </div>
+      </article>
     );
   }
 
   if (item.type === "story") {
     const story = item.data as MaterialStory;
-
     const parseThemes = (themes: string | null | undefined): string[] => {
       if (!themes) return [];
-      if (typeof themes === 'string') {
-        try {
-          const parsed = JSON.parse(themes);
-          return Array.isArray(parsed) ? parsed : [themes];
-        } catch {
-          return themes.split(',').map(t => t.trim()).filter(Boolean);
-        }
+      try {
+        const parsed = JSON.parse(themes);
+        return Array.isArray(parsed) ? parsed : [themes];
+      } catch {
+        return themes.split(',').map(theme => theme.trim()).filter(Boolean);
       }
-      return [];
     };
-
+    const themes = parseThemes(story.themes);
     return (
-      <div className="max-w-3xl">
-        <div className="mb-6">
-          <div className="flex items-center gap-2 mb-2">
-            <Sparkles className="w-5 h-5 text-amber-500" />
-            <h2 className="text-2xl font-bold text-[hsl(var(--text-primary))]">
-              {story.title}
-            </h2>
-          </div>
-          {story.story_type && (
-            <span className="inline-block px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-medium">
-              {materialEnumLabel(t, 'storyType', story.story_type)}
-            </span>
-          )}
-        </div>
-
-        <div className="mb-6">
-          <h3 className="text-sm font-semibold text-[hsl(var(--text-secondary))] mb-2">
-            {t("materials:detail.description")}
-          </h3>
-          <MarkdownContent content={story.synopsis} />
-        </div>
-
-        {story.core_objective && (
-          <div className="mb-6">
-            <h3 className="text-sm font-semibold text-[hsl(var(--text-secondary))] mb-2">
-              {t("materials:detail.coreObjective")}
-            </h3>
-            <MarkdownContent content={story.core_objective} />
-          </div>
-        )}
-
-        {story.core_conflict && (
-          <div className="mb-6">
-            <h3 className="text-sm font-semibold text-[hsl(var(--text-secondary))] mb-2">
-              {t("materials:detail.coreConflict")}
-            </h3>
-            <MarkdownContent content={story.core_conflict} />
-          </div>
-        )}
-
-        {story.themes && parseThemes(story.themes).length > 0 && (
-          <div className="mb-6">
-            <h3 className="text-sm font-semibold text-[hsl(var(--text-secondary))] mb-2">
-              {t("materials:detail.themes")}
-            </h3>
-            <div className="flex flex-wrap gap-2">
-              {parseThemes(story.themes).map((theme, index) => (
-                <span
-                  key={index}
-                  className="px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-medium"
-                >
-                  {theme}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {story.chapter_range && (
-          <div>
-            <h3 className="text-sm font-semibold text-[hsl(var(--text-secondary))] mb-2">
-              {t("materials:detail.relatedChapters")}
-            </h3>
-            <div className="flex flex-wrap gap-2">
-              <span
-                className="px-3 py-1 rounded-lg bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--border-color))] text-sm text-[hsl(var(--text-primary))]"
-              >
+      <article className="material-detail material-analysis" aria-labelledby={titleId}>
+        <DetailHeader id={titleId} icon={<Sparkles className="w-5 h-5" />} title={story.title}>
+          {story.story_type && <Badge variant="neutral" size="md">{materialEnumLabel(t, 'storyType', story.story_type)}</Badge>}
+          {story.chapter_range && (
+            <dl className="material-analysis-facts">
+              <DetailMetadata label={t("materials:detail.relatedChapters")}>
                 {t("materials:detail.chapterRange", { range: story.chapter_range })}
-              </span>
-            </div>
-          </div>
+              </DetailMetadata>
+            </dl>
+          )}
+        </DetailHeader>
+        {story.synopsis && (
+          <DetailSection title={t("materials:detail.storySynopsis")}>
+            <MarkdownContent content={story.synopsis} />
+          </DetailSection>
         )}
-      </div>
+        {story.core_objective && (
+          <DetailSection title={t("materials:detail.coreObjective")}>
+            <MarkdownContent content={story.core_objective} />
+          </DetailSection>
+        )}
+        {story.core_conflict && (
+          <DetailSection title={t("materials:detail.coreConflict")}>
+            <MarkdownContent content={story.core_conflict} />
+          </DetailSection>
+        )}
+        {!!themes.length && (
+          <DetailSection title={t("materials:detail.themes")}>
+            <DetailTags values={themes} />
+          </DetailSection>
+        )}
+      </article>
     );
   }
 
   if (item.type === "plot") {
     const plot = item.data as MaterialPlot;
     return (
-      <div className="max-w-3xl">
-        <div className="mb-6">
-          <div className="flex items-center gap-2 mb-2">
-            <File className="w-5 h-5 text-cyan-500" />
-            <h2 className="text-2xl font-bold text-[hsl(var(--text-primary))]">
-              {t("materials:detail.plotTitle")}
-            </h2>
-          </div>
-          <span className="inline-block px-3 py-1 rounded-full bg-cyan-100 text-cyan-700 text-xs font-medium">
-            {materialEnumLabel(t, 'plotType', plot.plot_type)}
-          </span>
-        </div>
-
-        <div className="mb-6">
-          <h3 className="text-sm font-semibold text-[hsl(var(--text-secondary))] mb-2">
-            {t("materials:detail.description")}
-          </h3>
-          <MarkdownContent content={plot.description} />
-        </div>
-
-        {plot.characters && plot.characters.length > 0 && (
-          <div>
-            <h3 className="text-sm font-semibold text-[hsl(var(--text-secondary))] mb-2">
-              {t("materials:detail.involvedCharacters")}
-            </h3>
-            <div className="flex flex-wrap gap-2">
-              {plot.characters.map((char: string, index: number) => (
-                <span
-                  key={index}
-                  className="px-3 py-1 rounded-full bg-purple-100 text-purple-700 text-xs font-medium"
-                >
-                  {char}
-                </span>
-              ))}
-            </div>
-          </div>
+      <article className="material-detail material-analysis" aria-labelledby={titleId}>
+        <DetailHeader id={titleId} icon={<File className="w-5 h-5" />} title={t("materials:detail.plotTitle")}>
+          <Badge variant="neutral" size="md">{materialEnumLabel(t, 'plotType', plot.plot_type)}</Badge>
+        </DetailHeader>
+        {plot.description && (
+          <DetailSection title={t("materials:detail.plotEvent")}>
+            <MarkdownContent content={plot.description} />
+          </DetailSection>
         )}
-      </div>
+        {!!plot.characters?.length && (
+          <DetailSection title={t("materials:detail.involvedCharacters")}>
+            <DetailTags values={plot.characters} />
+          </DetailSection>
+        )}
+      </article>
     );
   }
 
   if (item.type === "storyline") {
     const storyline = item.data as MaterialStoryLine;
     return (
-      <div className="max-w-3xl">
-        <div className="mb-6">
-          <div className="flex items-center gap-2 mb-2">
-            <GitBranch className="w-5 h-5 text-indigo-500" />
-            <h2 className="text-2xl font-bold text-[hsl(var(--text-primary))]">
-              {storyline.title}
-            </h2>
-          </div>
-        </div>
-
+      <article className="material-detail material-analysis" aria-labelledby={titleId}>
+        <DetailHeader id={titleId} icon={<GitBranch className="w-5 h-5" />} title={storyline.title}>
+          <dl className="material-analysis-facts">
+            <DetailMetadata label={t("materials:detail.storiesCount")}>{storyline.stories_count}</DetailMetadata>
+          </dl>
+        </DetailHeader>
         {storyline.description && (
-          <div className="mb-6">
-            <h3 className="text-sm font-semibold text-[hsl(var(--text-secondary))] mb-2">
-              {t("materials:detail.description")}
-            </h3>
+          <DetailSection title={t("materials:detail.storylineOverview")}>
             <MarkdownContent content={storyline.description} />
-          </div>
+          </DetailSection>
         )}
-
-        {storyline.main_characters && storyline.main_characters.length > 0 && (
-          <div className="mb-6">
-            <h3 className="text-sm font-semibold text-[hsl(var(--text-secondary))] mb-2">
-              {t("materials:detail.mainCharacters")}
-            </h3>
-            <div className="flex flex-wrap gap-2">
-              {storyline.main_characters.map((char: string, index: number) => (
-                <span
-                  key={index}
-                  className="px-3 py-1 rounded-full bg-purple-100 text-purple-700 text-xs font-medium"
-                >
-                  {char}
-                </span>
-              ))}
-            </div>
-          </div>
+        {!!storyline.main_characters?.length && (
+          <DetailSection title={t("materials:detail.mainCharacters")}>
+            <DetailTags values={storyline.main_characters} />
+          </DetailSection>
         )}
-
-        {storyline.themes && storyline.themes.length > 0 && (
-          <div className="mb-6">
-            <h3 className="text-sm font-semibold text-[hsl(var(--text-secondary))] mb-2">
-              {t("materials:detail.themes")}
-            </h3>
-            <div className="flex flex-wrap gap-2">
-              {storyline.themes.map((theme: string, index: number) => (
-                <span
-                  key={index}
-                  className="px-3 py-1 rounded-full bg-indigo-100 text-indigo-700 text-xs font-medium"
-                >
-                  {theme}
-                </span>
-              ))}
-            </div>
-          </div>
+        {!!storyline.themes?.length && (
+          <DetailSection title={t("materials:detail.themes")}>
+            <DetailTags values={storyline.themes} />
+          </DetailSection>
         )}
-
-        <div className="text-sm text-[hsl(var(--text-secondary))]">
-          {t("materials:detail.storiesCount")}: {storyline.stories_count}
-        </div>
-      </div>
+      </article>
     );
   }
 
   if (item.type === "relationship") {
     const relationship = item.data as MaterialCharacterRelationship;
+    // Known values are localized; free-form historical descriptions remain intact.
+    const sentiment = relationship.sentiment && t(`materials:enums.sentiment.${relationship.sentiment.trim().toLowerCase()}`, { defaultValue: relationship.sentiment });
     return (
-      <div className="max-w-3xl">
-        <div className="mb-6">
-          <div className="flex items-center gap-2 mb-2">
-            <Users className="w-5 h-5 text-pink-500" />
-            <h2 className="text-2xl font-bold text-[hsl(var(--text-primary))]">
-              {relationship.character_a_name} - {relationship.character_b_name}
-            </h2>
-          </div>
-          <span className="inline-block px-3 py-1 rounded-full bg-pink-100 text-pink-700 text-xs font-medium">
-            {materialEnumLabel(t, 'relationshipType', relationship.relationship_type)}
-          </span>
-        </div>
-
-        {relationship.sentiment && (
-          <div className="mb-6">
-            <h3 className="text-sm font-semibold text-[hsl(var(--text-secondary))] mb-2">
-              {t("materials:detail.sentiment")}
-            </h3>
-            <MarkdownContent content={relationship.sentiment} />
-          </div>
-        )}
-
+      <article className="material-detail material-analysis" aria-labelledby={titleId}>
+        <DetailHeader id={titleId} icon={<Users className="w-5 h-5" />} title={`${relationship.character_a_name} - ${relationship.character_b_name}`}>
+          <Badge variant="neutral" size="md">{materialEnumLabel(t, 'relationshipType', relationship.relationship_type)}</Badge>
+        </DetailHeader>
         {relationship.description && (
-          <div className="mb-6">
-            <h3 className="text-sm font-semibold text-[hsl(var(--text-secondary))] mb-2">
-              {t("materials:detail.description")}
-            </h3>
+          <DetailSection title={t("materials:detail.relationshipDescription")}>
             <MarkdownContent content={relationship.description} />
-          </div>
+          </DetailSection>
         )}
-      </div>
+        {sentiment && (
+          <DetailSection title={t("materials:detail.sentiment")}>
+            <MarkdownContent content={sentiment} />
+          </DetailSection>
+        )}
+      </article>
     );
   }
 
   if (item.type === "goldenfinger") {
     const goldenfinger = item.data as MaterialGoldenFinger;
     return (
-      <div className="max-w-3xl">
-        <div className="mb-6">
-          <div className="flex items-center gap-2 mb-2">
-            <Zap className="w-5 h-5 text-yellow-500" />
-            <h2 className="text-2xl font-bold text-[hsl(var(--text-primary))]">
-              {goldenfinger.name}
-            </h2>
-          </div>
-          <span className="inline-block px-3 py-1 rounded-full bg-[hsl(var(--warning)/0.2)] text-[hsl(var(--warning))] text-xs font-medium">
-            {materialEnumLabel(t, 'goldenFingerType', goldenfinger.type)}
-          </span>
-        </div>
-
+      <article className="material-detail material-analysis" aria-labelledby={titleId}>
+        <DetailHeader id={titleId} icon={<Zap className="w-5 h-5" />} title={goldenfinger.name}>
+          <Badge variant="neutral" size="md">{materialEnumLabel(t, 'goldenFingerType', goldenfinger.type)}</Badge>
+        </DetailHeader>
         {goldenfinger.description && (
-          <div className="mb-6">
-            <h3 className="text-sm font-semibold text-[hsl(var(--text-secondary))] mb-2">
-              {t("materials:detail.description")}
-            </h3>
+          <DetailSection title={t("materials:detail.abilityDescription")}>
             <MarkdownContent content={goldenfinger.description} />
-          </div>
+          </DetailSection>
         )}
-
-        {goldenfinger.evolution_history && goldenfinger.evolution_history.length > 0 && (
-          <div className="mb-6">
-            <h3 className="text-sm font-semibold text-[hsl(var(--text-secondary))] mb-2">
-              {t("materials:detail.evolutionHistory")}
-            </h3>
-            <div className="space-y-3">
-              {goldenfinger.evolution_history.map((item, index) => (
-                <div
-                  key={index}
-                  className="p-4 rounded-lg bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--border-color))]"
-                >
-                  {item.stage && (
-                    <h4 className="font-semibold text-[hsl(var(--text-primary))] mb-2">
-                      {item.stage}
-                    </h4>
-                  )}
-                  {item.description && (
-                    <div className="mb-2">
-                      <MarkdownContent content={item.description} className="text-sm" />
-                    </div>
-                  )}
-                  <div className="flex flex-wrap gap-3 text-xs text-[hsl(var(--text-tertiary))]">
-                    {item.chapter && (
-                      <span>
-                        <span className="font-medium">{t("materials:detail.chapterLabel")}:</span> {item.chapter}
-                      </span>
+        {!!goldenfinger.evolution_history?.length && (
+          <DetailSection title={t("materials:detail.evolutionHistory")}>
+            <ol className="material-analysis-records" role="list">
+              {goldenfinger.evolution_history.map((record, index) => (
+                <li key={index}>
+                  {record.stage && <h4>{record.stage}</h4>}
+                  {(record.chapter != null || record.timestamp) && <dl className="material-analysis-facts">
+                    {record.chapter != null && (
+                      <DetailMetadata label={t("materials:detail.chapterLabel")}>
+                        {record.chapter}
+                      </DetailMetadata>
                     )}
-                    {item.timestamp && (
-                      <span>
-                        <span className="font-medium">{t("materials:detail.timeLabel")}:</span> {item.timestamp}
-                      </span>
+                    {record.timestamp && (
+                      <DetailMetadata label={t("materials:detail.timeLabel")}>
+                        {record.timestamp}
+                      </DetailMetadata>
                     )}
-                  </div>
-                </div>
+                  </dl>}
+                  {record.description && <MarkdownContent content={record.description} />}
+                </li>
               ))}
-            </div>
-          </div>
+            </ol>
+          </DetailSection>
         )}
-      </div>
+      </article>
     );
   }
 
   if (item.type === "worldview") {
     const worldview = item.data as MaterialWorldView;
     return (
-      <div className="max-w-3xl">
-        <div className="mb-6">
-          <div className="flex items-center gap-2 mb-2">
-            <Globe className="w-5 h-5 text-green-500" />
-            <h2 className="text-2xl font-bold text-[hsl(var(--text-primary))]">
-              {t("materials:detail.worldview")}
-            </h2>
-          </div>
-        </div>
-
+      <article className="material-detail material-analysis" aria-labelledby={titleId}>
+        <DetailHeader id={titleId} icon={<Globe className="w-5 h-5" />} title={t("materials:detail.worldview")} />
         {worldview.power_system && (
-          <div className="mb-6">
-            <h3 className="text-sm font-semibold text-[hsl(var(--text-secondary))] mb-2">
-              {t("materials:detail.powerSystem")}
-            </h3>
+          <DetailSection title={t("materials:detail.powerSystem")}>
             <MarkdownContent content={worldview.power_system} />
-          </div>
+          </DetailSection>
         )}
-
         {worldview.world_structure && (
-          <div className="mb-6">
-            <h3 className="text-sm font-semibold text-[hsl(var(--text-secondary))] mb-2">
-              {t("materials:detail.worldStructure")}
-            </h3>
+          <DetailSection title={t("materials:detail.worldStructure")}>
             <MarkdownContent content={worldview.world_structure} />
-          </div>
+          </DetailSection>
         )}
-
-        {worldview.key_factions && worldview.key_factions.length > 0 && (
-          <div className="mb-6">
-            <h3 className="text-sm font-semibold text-[hsl(var(--text-secondary))] mb-2">
-              {t("materials:detail.keyFactions")}
-            </h3>
-            <div className="space-y-3">
+        {!!worldview.key_factions?.length && (
+          <DetailSection title={t("materials:detail.keyFactions")}>
+            <ul className="material-analysis-records" role="list">
               {worldview.key_factions.map((faction, index) => (
-                <div
-                  key={index}
-                  className="p-4 rounded-lg bg-[hsl(var(--bg-secondary))] border border-[hsl(var(--border-color))]"
-                >
-                  <h4 className="font-semibold text-[hsl(var(--text-primary))] mb-2">
-                    {faction.name}
-                  </h4>
-                  {faction.description && (
-                    <div className="mb-2">
-                      <MarkdownContent content={faction.description} className="text-sm" />
-                    </div>
-                  )}
-                  <div className="flex flex-wrap gap-3 text-xs text-[hsl(var(--text-tertiary))]">
+                <li key={index}>
+                  <h4>{faction.name}</h4>
+                  {faction.description && <MarkdownContent content={faction.description} />}
+                  {(faction.leader || faction.territory) && <dl className="material-analysis-facts">
                     {faction.leader && (
-                      <span>
-                        <span className="font-medium">{t("materials:detail.leader")}:</span> {faction.leader}
-                      </span>
+                      <DetailMetadata label={t("materials:detail.leader")}>
+                        {faction.leader}
+                      </DetailMetadata>
                     )}
                     {faction.territory && (
-                      <span>
-                        <span className="font-medium">{t("materials:detail.territory")}:</span> {faction.territory}
-                      </span>
+                      <DetailMetadata label={t("materials:detail.territory")}>
+                        {faction.territory}
+                      </DetailMetadata>
                     )}
-                  </div>
-                </div>
+                  </dl>}
+                </li>
               ))}
-            </div>
-          </div>
+            </ul>
+          </DetailSection>
         )}
-
         {worldview.special_rules && (
-          <div className="mb-6">
-            <h3 className="text-sm font-semibold text-[hsl(var(--text-secondary))] mb-2">
-              {t("materials:detail.specialRules")}
-            </h3>
+          <DetailSection title={t("materials:detail.specialRules")}>
             <MarkdownContent content={worldview.special_rules} />
-          </div>
+          </DetailSection>
         )}
-      </div>
+      </article>
     );
   }
 
@@ -1309,10 +1122,10 @@ function EmptyState({ material }: EmptyStateProps) {
 
   return (
     <div className="flex flex-col items-center justify-center h-full text-center py-12">
-      <div className="w-16 h-16 rounded-2xl bg-[hsl(var(--accent-primary)/0.1)] flex items-center justify-center mb-4">
-        <BookOpen className="w-8 h-8 text-[hsl(var(--accent-primary))]" />
+      <div className="w-12 h-12 rounded-xl bg-[hsl(var(--bg-tertiary))] flex items-center justify-center mb-4">
+        <BookOpen className="w-6 h-6 text-[hsl(var(--text-secondary))]" />
       </div>
-      <h3 className="text-lg font-semibold text-[hsl(var(--text-primary))] mb-2">
+      <h3 className="text-base font-semibold text-[hsl(var(--text-primary))] mb-2">
         {t("materials:detail.emptyTitle")}
       </h3>
       <p className="text-sm text-[hsl(var(--text-secondary))] max-w-md">
@@ -1320,8 +1133,8 @@ function EmptyState({ material }: EmptyStateProps) {
       </p>
 
       {isActiveMaterialStatus(material.status) && (
-        <div className="mt-6 flex items-center gap-2 text-sm text-blue-600">
-          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />
+        <div className="mt-6 flex items-center gap-2 text-sm text-[hsl(var(--text-secondary))]">
+          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[hsl(var(--text-secondary))]" />
           <span>{t(`materials:status.${material.status}`)}</span>
         </div>
       )}
