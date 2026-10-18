@@ -1,13 +1,9 @@
-/* eslint-disable react-hooks/rules-of-hooks */
-import { test as base, expect, Page } from '@playwright/test'
-import { TEST_USERS } from './config'
-import { setupServer, SetupServer } from 'msw/node'
+import { test as base, expect, Page, type TestInfo } from '@playwright/test'
 import {
-  voiceHandlers,
-  mockVoiceNotConfiguredHandler,
-  mockVoiceRecognizeErrorHandler,
-  mockVoiceApiFailedHandler,
-} from './mocks/voice-handlers'
+  cleanupOwnedProject,
+  createOwnedProject,
+  type OwnedProject,
+} from './fixtures/project-test-data'
 
 /**
  * Voice Input E2E Tests
@@ -20,31 +16,11 @@ import {
  * - Error handling
  * - Accessibility
  *
- * Uses MSW to mock the Tencent ASR API responses.
+ * Uses browser routes to mock the Tencent ASR API responses.
  * Microphone permission is granted via Playwright's context.grantPermissions().
  */
 
-// Custom test fixture with MSW server
-const test = base.extend<{
-  mswServer: SetupServer
-}>({
-  // eslint-disable-next-line no-empty-pattern
-  mswServer: async ({}, use) => {
-    // Set up MSW server with all voice handlers
-    const server = setupServer(...voiceHandlers)
-
-    // Start intercepting requests
-    server.listen({
-      onUnhandledRequest: 'warn', // Warn about unhandled requests
-    })
-
-    // Provide server to tests
-    await use(server)
-
-    // Clean up after test
-    server.close()
-  },
-})
+const test = base
 
 const VOICE_INTERACTION_E2E_ENABLED = process.env.E2E_ENABLE_VOICE_INPUT_E2E === 'true'
 const MICROPHONE_PERMISSION_BROWSER_MESSAGE =
@@ -53,92 +29,134 @@ const MICROPHONE_PERMISSION_BROWSER_MESSAGE =
 // UI Selectors for voice input
 const VOICE_INPUT = {
   // Voice button states
-  button: 'button[aria-label*="语音"], button[aria-label*="Voice"], button:has(svg.lucide-mic)',
+  button: '[data-testid="voice-input-button"]',
   recordingButton: 'button:has(.animate-spin), button[class*="bg-[hsl(var(--error))]',
   processingButton: 'button:has(svg.lucide-loader-2)',
   disabledButton: 'button:disabled',
   // Recording UI
-  waveform: '.flex.items-center.gap-0\\.5',
-  duration: 'span.text-xs.font-medium',
-  loaderIcon: 'svg.lucide-loader-2.animate-spin',
+  waveform: '[data-testid="voice-waveform"]',
+  duration: '[data-testid="voice-recording-duration"]',
+  processingIndicator: '[data-testid="voice-processing-indicator"]',
   micOffIcon: 'svg.lucide-mic-off',
   // Toast notifications
-  toast: '.fixed.bottom-20.left-1\\/2',
-  toastError: '.fixed.bottom-20.left-1\\/2.bg-\\[hsl\\(var\\(--error\\)\\)',
+  toastError: '[role="alert"]',
   // Chat input
   textarea: '[data-testid="chat-input"]',
 }
 
-// Helper to login and navigate to project
-async function loginAndNavigateToProject(page: Page) {
-  const TEST_EMAIL = TEST_USERS.standard.email
-  const TEST_PASSWORD = TEST_USERS.standard.password
-  const API_BASE_URL = process.env.E2E_API_BASE_URL || 'http://127.0.0.1:8000'
+type VoiceMock = 'success' | 'recognition-error' | 'api-error' | 'not-configured'
 
-  // Navigate to login page
-  await page.goto('/login')
+type VoiceMockState = { recognizeRequests: number }
 
-  // Wait for page to load
-  await expect(page.locator('h1')).toContainText(/登录|Login/)
+async function mockVoiceEndpoints(page: Page, scenario: VoiceMock = 'success'): Promise<VoiceMockState> {
+  const state = { recognizeRequests: 0 }
+  await page.unroute('**/api/v1/voice/status')
+  await page.unroute('**/api/v1/voice/recognize')
+  await page.route('**/api/v1/voice/status', route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(scenario === 'not-configured'
+      ? { configured: false, error: 'Voice service not configured' }
+      : {
+          configured: true,
+          provider: 'tencent',
+          service: '一句话识别',
+          max_duration_seconds: 60,
+          supported_formats: ['wav', 'pcm', 'ogg-opus'],
+        }),
+  }))
 
-  // Login with test credentials
-  await page.locator('#identifier').fill(TEST_EMAIL)
-  await page.locator('#password').fill(TEST_PASSWORD)
-  await page.locator('button[type="submit"]').click()
-
-  // Wait for redirect to complete (either project or dashboard)
-  await page.waitForURL(/\/(project|dashboard)/, { timeout: 10000 })
-
-  // Prefer API-driven setup to avoid locale/UI-dependent dashboard interactions.
-  if (!page.url().includes('/project/')) {
-    const accessToken = await page.evaluate(() => localStorage.getItem('access_token'))
-    if (!accessToken) {
-      throw new Error('Missing access token after login')
+  await page.route('**/api/v1/voice/recognize', async route => {
+    state.recognizeRequests += 1
+    await new Promise(resolve => setTimeout(resolve, 200))
+    if (scenario === 'not-configured') {
+      return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error_code: 'ERR_VOICE_CREDENTIALS_NOT_CONFIGURED', error_message: '腾讯云 API 凭证未配置' }) })
     }
-
-    const headers = {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    }
-
-    const listResponse = await page.request.get(`${API_BASE_URL}/api/v1/projects`, { headers })
-    if (!listResponse.ok()) {
-      throw new Error(`Failed to list projects: ${listResponse.status()} ${listResponse.statusText()}`)
-    }
-
-    let projects = (await listResponse.json()) as Array<{ id?: string }>
-
-    if (!Array.isArray(projects) || projects.length === 0 || !projects[0]?.id) {
-      const createResponse = await page.request.post(`${API_BASE_URL}/api/v1/projects`, {
-        headers,
-        data: {
-          name: `Voice E2E ${Date.now()}`,
-          project_type: 'novel',
-        },
+    if (scenario === 'recognition-error') {
+      return route.fulfill({
+        status: 422,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          detail: 'ERR_VOICE_AUDIO_DECODE_FAILED',
+          error_code: 'ERR_VOICE_AUDIO_DECODE_FAILED',
+          error_detail: 'Audio data must be strict Base64',
+        }),
       })
-
-      if (!createResponse.ok()) {
-        throw new Error(`Failed to create project: ${createResponse.status()} ${createResponse.statusText()}`)
-      }
-
-      const createdProject = (await createResponse.json()) as { id?: string }
-      if (!createdProject?.id) {
-        throw new Error('Project creation returned no id')
-      }
-      projects = [createdProject]
     }
+    if (scenario === 'api-error') {
+      return route.fulfill({
+        status: 502,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          detail: 'ERR_VOICE_API_REQUEST_FAILED',
+          error_code: 'ERR_VOICE_API_REQUEST_FAILED',
+          error_detail: 'Voice recognition provider unavailable',
+        }),
+      })
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ text: '这是一段测试语音识别结果', success: true, duration_ms: 3500 }) })
+  })
+  return state
+}
 
-    await page.goto(`/project/${projects[0].id}`)
-    await page.waitForURL(/\/project\//, { timeout: 10000 })
-  }
+async function mockMicrophone(page: Page, mode: 'available' | 'denied' = 'available') {
+  await page.addInitScript((microphoneMode) => {
+    const state = { calls: 0, constraints: null as MediaStreamConstraints | null }
+    Object.defineProperty(window, '__voiceE2E', { configurable: true, value: state })
+    const mediaDevices = navigator.mediaDevices ?? {}
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: mediaDevices })
+    Object.defineProperty(mediaDevices, 'getUserMedia', {
+      configurable: true,
+      value: async (constraints: MediaStreamConstraints) => {
+        state.calls += 1
+        state.constraints = constraints
+        if (microphoneMode === 'denied') {
+          throw new DOMException('Permission denied by E2E fixture', 'NotAllowedError')
+        }
+        const context = new AudioContext()
+        const oscillator = context.createOscillator()
+        const destination = context.createMediaStreamDestination()
+        oscillator.connect(destination)
+        oscillator.start()
+        const track = destination.stream.getAudioTracks()[0]
+        track.addEventListener('ended', () => {
+          oscillator.stop()
+          void context.close()
+        }, { once: true })
+        return destination.stream
+      },
+    })
+  }, mode)
+}
+
+async function waitForRecordedAudio(page: Page) {
+  await expect(page.locator(VOICE_INPUT.duration)).toHaveText('0:01')
+}
+
+let voiceProject: OwnedProject | undefined
+
+test.beforeEach(async ({ page }) => {
+  await mockVoiceEndpoints(page)
+})
+
+test.afterEach(async ({ page }) => {
+  await cleanupOwnedProject(page, voiceProject)
+  voiceProject = undefined
+})
+
+// Helper to login and navigate to project
+async function loginAndNavigateToProject(page: Page, testInfo: TestInfo) {
+  voiceProject = await createOwnedProject(page, testInfo, 'E2E-voice')
+  await page.goto(`/project/${voiceProject.id}`)
+  await page.waitForURL(/\/project\//, { timeout: 10000 })
 
   // Wait for chat panel to load
   await page.waitForSelector(VOICE_INPUT.textarea, { timeout: 10000 })
 }
 
 test.describe('Voice Input - Service Status', () => {
-  test.beforeEach(async ({ page }) => {
-    await loginAndNavigateToProject(page)
+  test.beforeEach(async ({ page }, testInfo) => {
+    await loginAndNavigateToProject(page, testInfo)
   })
 
   test('voice status shows configured state', async ({ page }) => {
@@ -171,11 +189,12 @@ test.describe('Voice Input - UI', () => {
     !VOICE_INTERACTION_E2E_ENABLED,
     'Voice interaction E2E depends on real browser recording flow. Set E2E_ENABLE_VOICE_INPUT_E2E=true to run.'
   )
-  test.beforeEach(async ({ page, context, browserName }) => {
+  test.beforeEach(async ({ page, context, browserName }, testInfo) => {
     test.skip(browserName !== 'chromium', MICROPHONE_PERMISSION_BROWSER_MESSAGE)
+    await mockMicrophone(page)
     // Grant microphone permission
     await context.grantPermissions(['microphone'])
-    await loginAndNavigateToProject(page)
+    await loginAndNavigateToProject(page, testInfo)
   })
 
   test('voice input button is visible in chat', async ({ page }) => {
@@ -193,8 +212,7 @@ test.describe('Voice Input - UI', () => {
     expect(ariaLabel?.length).toBeGreaterThan(0)
   })
 
-  test('clicking voice button requests microphone permission', async ({ page }) => {
-    // This test verifies permission flow works
+  test('clicking voice button calls getUserMedia with audio constraints', async ({ page }) => {
     const voiceButton = page.locator(VOICE_INPUT.button).first()
     await expect(voiceButton).toBeVisible()
 
@@ -202,13 +220,23 @@ test.describe('Voice Input - UI', () => {
     await voiceButton.click()
 
     // Wait for recording to start (waveform or processing indicator)
-    await expect(page.locator(VOICE_INPUT.waveform).or(page.locator(VOICE_INPUT.loaderIcon))).toBeVisible({ timeout: 2000 })
-
-    // Either recording started or processing is happening
-    const isRecording = await page.locator(VOICE_INPUT.waveform).isVisible()
-    const isProcessing = await page.locator(VOICE_INPUT.loaderIcon).isVisible()
-
-    expect(isRecording || isProcessing).toBeTruthy()
+    await expect(page.locator(VOICE_INPUT.waveform)).toBeVisible({ timeout: 2000 })
+    const microphoneRequest = await page.evaluate(() => {
+      const state = (window as Window & {
+        __voiceE2E?: { calls: number; constraints: MediaStreamConstraints | null }
+      }).__voiceE2E
+      if (!state) throw new Error('Microphone fixture was not installed')
+      return state
+    })
+    expect(microphoneRequest.calls).toBe(1)
+    expect(microphoneRequest.constraints).toEqual({
+      audio: {
+        sampleRate: 16000,
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+      },
+    })
   })
 
   test('recording shows visual indicator with duration', async ({ page }) => {
@@ -236,12 +264,13 @@ test.describe('Voice Input - UI', () => {
 
     // Verify recording started
     await expect(page.locator(VOICE_INPUT.waveform)).toBeVisible({ timeout: 2000 })
+    await waitForRecordedAudio(page)
 
     // Click again to stop
     await voiceButton.click()
 
     // Should transition to processing
-    await expect(page.locator(VOICE_INPUT.loaderIcon)).toBeVisible({ timeout: 2000 })
+    await expect(page.locator(VOICE_INPUT.processingIndicator)).toBeVisible({ timeout: 2000 })
   })
 })
 
@@ -250,10 +279,11 @@ test.describe('Voice Input - Recognition (Mocked)', () => {
     !VOICE_INTERACTION_E2E_ENABLED,
     'Voice interaction E2E depends on real browser recording flow. Set E2E_ENABLE_VOICE_INPUT_E2E=true to run.'
   )
-  test.beforeEach(async ({ page, context, browserName }) => {
+  test.beforeEach(async ({ page, context, browserName }, testInfo) => {
     test.skip(browserName !== 'chromium', MICROPHONE_PERMISSION_BROWSER_MESSAGE)
+    await mockMicrophone(page)
     await context.grantPermissions(['microphone'])
-    await loginAndNavigateToProject(page)
+    await loginAndNavigateToProject(page, testInfo)
   })
 
   test('voice input inserts text into chat', async ({ page }) => {
@@ -265,6 +295,7 @@ test.describe('Voice Input - Recognition (Mocked)', () => {
 
     // Wait for recording to start
     await expect(page.locator(VOICE_INPUT.waveform)).toBeVisible({ timeout: 2000 })
+    await waitForRecordedAudio(page)
 
     // Stop recording
     await voiceButton.click()
@@ -294,12 +325,13 @@ test.describe('Voice Input - Recognition (Mocked)', () => {
 
     // Wait for recording to start
     await expect(page.locator(VOICE_INPUT.waveform)).toBeVisible({ timeout: 2000 })
+    await waitForRecordedAudio(page)
 
     // Stop recording
     await voiceButton.click()
 
     // Wait for recognition to complete
-    await expect(textarea).not.toBeEmpty({ timeout: 3000 })
+    await expect(textarea).toHaveValue(/现有文本.*测试语音识别结果/, { timeout: 3000 })
 
     // Check that text was appended
     const textareaValue = await textarea.inputValue()
@@ -316,30 +348,33 @@ test.describe('Voice Input - Error Handling', () => {
   test.beforeEach(({ browserName }) => {
     test.skip(browserName !== 'chromium', MICROPHONE_PERMISSION_BROWSER_MESSAGE)
   })
-  test('voice shows error when credentials not configured', async ({ page, context, mswServer }) => {
+  test('voice shows error when credentials not configured', async ({ page, context }, testInfo) => {
     // Override handler to return not configured status
-    mswServer.use(mockVoiceNotConfiguredHandler)
+    const voiceMock = await mockVoiceEndpoints(page, 'not-configured')
 
+    await mockMicrophone(page)
     await context.grantPermissions(['microphone'])
-    await loginAndNavigateToProject(page)
+    await loginAndNavigateToProject(page, testInfo)
 
     const voiceButton = page.locator(VOICE_INPUT.button).first()
     await expect(voiceButton).toBeVisible()
 
-    // Start recording
+    const textarea = page.locator(VOICE_INPUT.textarea)
     await voiceButton.click()
-
-    // Stop recording to trigger recognition
+    await expect(page.locator(VOICE_INPUT.waveform)).toBeVisible()
+    await waitForRecordedAudio(page)
     await voiceButton.click()
-
-    // Wait for recognition to complete (check for text in textarea)
-    await expect(voiceButton).toBeVisible()
+    await expect(page.locator(VOICE_INPUT.toastError)).toHaveText('语音输入暂不可用，请改用键盘输入')
+    await expect(page.locator(VOICE_INPUT.waveform)).toHaveCount(0)
+    await expect(textarea).toBeEmpty()
+    expect(voiceMock.recognizeRequests).toBe(1)
   })
 
-  test('voice shows error when permission denied', async ({ page, context }) => {
+  test('voice shows error when permission denied', async ({ page, context }, testInfo) => {
     // Clear any previously granted permissions
     await context.clearPermissions()
-    await loginAndNavigateToProject(page)
+    await mockMicrophone(page, 'denied')
+    await loginAndNavigateToProject(page, testInfo)
 
     const voiceButton = page.locator(VOICE_INPUT.button).first()
     await expect(voiceButton).toBeVisible()
@@ -353,15 +388,16 @@ test.describe('Voice Input - Error Handling', () => {
 
     // Verify error message contains permission-related text
     const toastText = await errorToast.textContent()
-    expect(toastText).toMatch(/权限|拒绝|permission|denied/i)
+    expect(toastText).toBe('请在浏览器设置中允许使用麦克风')
   })
 
-  test('voice handles recognition errors gracefully', async ({ page, context, mswServer }) => {
+  test('voice handles recognition errors gracefully', async ({ page, context }, testInfo) => {
     // Override handler to return recognition error
-    mswServer.use(mockVoiceRecognizeErrorHandler)
+    const voiceMock = await mockVoiceEndpoints(page, 'recognition-error')
 
+    await mockMicrophone(page)
     await context.grantPermissions(['microphone'])
-    await loginAndNavigateToProject(page)
+    await loginAndNavigateToProject(page, testInfo)
 
     const voiceButton = page.locator(VOICE_INPUT.button).first()
     await expect(voiceButton).toBeVisible()
@@ -371,22 +407,25 @@ test.describe('Voice Input - Error Handling', () => {
 
     // Wait for recording to start
     await expect(page.locator(VOICE_INPUT.waveform)).toBeVisible({ timeout: 2000 })
+    await waitForRecordedAudio(page)
 
     // Stop recording
     await voiceButton.click()
 
-    // Wait for error response
-    // Should show error toast
-    const errorToast = page.locator(VOICE_INPUT.toastError)
-    await expect(errorToast).toBeVisible({ timeout: 3000 })
+    await expect(page.locator(VOICE_INPUT.toastError)).toHaveText('没能识别这段录音，请重新录制')
+    expect(voiceMock.recognizeRequests).toBe(1)
+    await expect(page.locator(VOICE_INPUT.textarea)).toBeEmpty()
+    await expect(page.locator(VOICE_INPUT.waveform)).toHaveCount(0)
+    await expect(page.locator(VOICE_INPUT.processingIndicator)).toHaveCount(0)
   })
 
-  test('voice handles API failures gracefully', async ({ page, context, mswServer }) => {
+  test('voice handles API failures gracefully', async ({ page, context }, testInfo) => {
     // Override handler to return API failure
-    mswServer.use(mockVoiceApiFailedHandler)
+    const voiceMock = await mockVoiceEndpoints(page, 'api-error')
 
+    await mockMicrophone(page)
     await context.grantPermissions(['microphone'])
-    await loginAndNavigateToProject(page)
+    await loginAndNavigateToProject(page, testInfo)
 
     const voiceButton = page.locator(VOICE_INPUT.button).first()
     await expect(voiceButton).toBeVisible()
@@ -396,14 +435,16 @@ test.describe('Voice Input - Error Handling', () => {
 
     // Wait for recording to start
     await expect(page.locator(VOICE_INPUT.waveform)).toBeVisible({ timeout: 2000 })
+    await waitForRecordedAudio(page)
 
     // Stop recording
     await voiceButton.click()
 
-    // Wait for error response
-    // Should show error toast
-    const errorToast = page.locator(VOICE_INPUT.toastError)
-    await expect(errorToast).toBeVisible({ timeout: 3000 })
+    await expect(page.locator(VOICE_INPUT.toastError)).toHaveText('语音识别失败，请稍后重试或改用键盘输入')
+    expect(voiceMock.recognizeRequests).toBe(1)
+    await expect(page.locator(VOICE_INPUT.textarea)).toBeEmpty()
+    await expect(page.locator(VOICE_INPUT.waveform)).toHaveCount(0)
+    await expect(page.locator(VOICE_INPUT.processingIndicator)).toHaveCount(0)
   })
 })
 
@@ -412,13 +453,16 @@ test.describe('Voice Input - Recording Controls', () => {
     !VOICE_INTERACTION_E2E_ENABLED,
     'Voice interaction E2E depends on real browser recording flow. Set E2E_ENABLE_VOICE_INPUT_E2E=true to run.'
   )
-  test.beforeEach(async ({ page, context, browserName }) => {
+  test.beforeEach(async ({ page, context, browserName }, testInfo) => {
     test.skip(browserName !== 'chromium', MICROPHONE_PERMISSION_BROWSER_MESSAGE)
+    await mockMicrophone(page)
     await context.grantPermissions(['microphone'])
-    await loginAndNavigateToProject(page)
+    await loginAndNavigateToProject(page, testInfo)
   })
 
   test('recording has max duration limit', async ({ page }) => {
+    const voiceMock = await mockVoiceEndpoints(page)
+    await page.clock.install()
     const voiceButton = page.locator(VOICE_INPUT.button).first()
     await expect(voiceButton).toBeVisible()
 
@@ -427,17 +471,17 @@ test.describe('Voice Input - Recording Controls', () => {
 
     // Wait for recording to start
     await expect(page.locator(VOICE_INPUT.waveform)).toBeVisible({ timeout: 2000 })
+    await waitForRecordedAudio(page)
 
-    // The hook has maxDuration of 55 seconds
-    // We can't wait 55 seconds in a test, so just verify the duration display
-    const duration = page.locator(VOICE_INPUT.duration)
-    const durationText = await duration.textContent()
+    await page.clock.fastForward(53_000)
+    await expect(page.locator(VOICE_INPUT.duration)).toHaveText('0:54')
+    await expect(page.locator(VOICE_INPUT.waveform)).toBeVisible()
 
-    // Duration should start from 0:00
-    expect(durationText).toMatch(/^0:\d{2}$/)
-
-    // Stop recording to clean up
-    await voiceButton.click()
+    await page.clock.fastForward(1_000)
+    await expect(page.locator(VOICE_INPUT.textarea)).toHaveValue(/测试语音识别结果/)
+    await expect(page.locator(VOICE_INPUT.waveform)).toHaveCount(0)
+    await expect(page.locator(VOICE_INPUT.processingIndicator)).toHaveCount(0)
+    expect(voiceMock.recognizeRequests).toBe(1)
   })
 
   test('button shows processing state during recognition', async ({ page }) => {
@@ -449,18 +493,19 @@ test.describe('Voice Input - Recording Controls', () => {
 
     // Wait for recording to start
     await expect(page.locator(VOICE_INPUT.waveform)).toBeVisible({ timeout: 2000 })
+    await waitForRecordedAudio(page)
 
     // Stop recording
     await voiceButton.click()
 
     // Should show processing state (loader icon)
-    await expect(page.locator(VOICE_INPUT.loaderIcon)).toBeVisible({ timeout: 2000 })
+    await expect(page.locator(VOICE_INPUT.processingIndicator)).toBeVisible({ timeout: 2000 })
 
     // Wait for processing to complete
-    await expect(page.locator(VOICE_INPUT.loaderIcon)).not.toBeVisible({ timeout: 3000 })
+    await expect(page.locator(VOICE_INPUT.processingIndicator)).not.toBeVisible({ timeout: 3000 })
 
     // Button should return to idle state
-    await expect(page.locator(VOICE_INPUT.loaderIcon)).not.toBeVisible({ timeout: 3000 })
+    await expect(page.locator(VOICE_INPUT.processingIndicator)).not.toBeVisible({ timeout: 3000 })
   })
 })
 
@@ -469,10 +514,11 @@ test.describe('Voice Input - Accessibility', () => {
     !VOICE_INTERACTION_E2E_ENABLED,
     'Voice interaction E2E depends on real browser recording flow. Set E2E_ENABLE_VOICE_INPUT_E2E=true to run.'
   )
-  test.beforeEach(async ({ page, context, browserName }) => {
+  test.beforeEach(async ({ page, context, browserName }, testInfo) => {
     test.skip(browserName !== 'chromium', MICROPHONE_PERMISSION_BROWSER_MESSAGE)
+    await mockMicrophone(page)
     await context.grantPermissions(['microphone'])
-    await loginAndNavigateToProject(page)
+    await loginAndNavigateToProject(page, testInfo)
   })
 
   test('voice button has title attribute for tooltip', async ({ page }) => {
@@ -498,6 +544,7 @@ test.describe('Voice Input - Accessibility', () => {
 
     // Wait for recording to start
     await expect(page.locator(VOICE_INPUT.waveform)).toBeVisible({ timeout: 2000 })
+    await waitForRecordedAudio(page)
 
     // Get aria-label during recording
     const recordingLabel = await voiceButton.getAttribute('aria-label')
@@ -507,8 +554,8 @@ test.describe('Voice Input - Accessibility', () => {
     await voiceButton.click()
 
     // Wait for processing to complete
-    await expect(page.locator(VOICE_INPUT.loaderIcon)).toBeVisible({ timeout: 2000 })
-    await expect(page.locator(VOICE_INPUT.loaderIcon)).not.toBeVisible({ timeout: 3000 })
+    await expect(page.locator(VOICE_INPUT.processingIndicator)).toBeVisible({ timeout: 2000 })
+    await expect(page.locator(VOICE_INPUT.processingIndicator)).not.toBeVisible({ timeout: 3000 })
   })
 
   test('processing state has screen reader text', async ({ page }) => {
@@ -520,15 +567,17 @@ test.describe('Voice Input - Accessibility', () => {
 
     // Wait for recording to start
     await expect(page.locator(VOICE_INPUT.waveform)).toBeVisible({ timeout: 2000 })
+    await waitForRecordedAudio(page)
 
     // Stop recording
     await voiceButton.click()
 
     // Should show processing state
-    await expect(page.locator(VOICE_INPUT.loaderIcon)).toBeVisible({ timeout: 2000 })
+    const processingIndicator = page.locator(VOICE_INPUT.processingIndicator)
+    await expect(processingIndicator).toBeVisible({ timeout: 2000 })
 
     // Check for screen reader text (sr-only class)
-    const srOnly = page.locator('.sr-only')
+    const srOnly = processingIndicator.locator('.sr-only')
     const srText = await srOnly.textContent()
     expect(srText).toMatch(/识别|Recognizing/i)
   })

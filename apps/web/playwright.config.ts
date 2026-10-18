@@ -23,6 +23,7 @@ ensureLocalNoProxy()
 const useExternalBackend = process.env.PLAYWRIGHT_EXTERNAL_BACKEND === '1'
 const reuseExistingServer = process.env.E2E_REUSE_EXISTING_SERVER !== 'false'
 const authStateFile = process.env.PLAYWRIGHT_AUTH_FILE
+const e2eApiBaseUrl = process.env.E2E_API_URL || 'http://127.0.0.1:8000'
 const ciMaxFailures = Number.parseInt(process.env.E2E_MAX_FAILURES ?? '5', 10)
 // The full browser regression suite exercises optional modules explicitly.
 // Product defaults remain off; set both flags to false to test the disabled app.
@@ -53,8 +54,9 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   // Retry failed tests in CI for flakiness mitigation and detection
   retries: process.env.CI ? 2 : 0,
-  // Use optimal workers: 1 in CI for stability, 50% of cores locally
-  workers: process.env.CI ? 1 : '50%',
+  // Skills suites share a dedicated quota-bearing account. Keep each runtime
+  // serial; CI shards remain parallel with independent databases.
+  workers: 1,
   // Fail fast in CI for quicker feedback
   maxFailures: process.env.CI ? ciMaxFailures : 0,
   // Multiple reporters for better CI output and flaky test tracking
@@ -145,7 +147,7 @@ export default defineConfig({
     ? [
       {
         command: 'pnpm dev --host 127.0.0.1 --port 5173',
-        env: { VITE_INSPIRATIONS_ENABLED: inspirationWebTestFlag },
+        env: { VITE_INSPIRATIONS_ENABLED: inspirationWebTestFlag, VITE_API_BASE_URL: e2eApiBaseUrl },
         url: process.env.E2E_BASE_URL || 'http://127.0.0.1:5173',
         reuseExistingServer,
         // Reduced from 120s - dev server should start faster
@@ -166,7 +168,7 @@ export default defineConfig({
       },
       {
         command: 'pnpm dev --host 127.0.0.1 --port 5173',
-        env: { VITE_INSPIRATIONS_ENABLED: inspirationWebTestFlag },
+        env: { VITE_INSPIRATIONS_ENABLED: inspirationWebTestFlag, VITE_API_BASE_URL: e2eApiBaseUrl },
         url: process.env.E2E_BASE_URL || 'http://127.0.0.1:5173',
         reuseExistingServer,
         // Reduced from 120s - dev server should start faster

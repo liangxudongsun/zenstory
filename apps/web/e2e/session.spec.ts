@@ -1,5 +1,5 @@
-import { test, expect, Page } from '@playwright/test';
-import { LoginPage } from './fixtures/page-objects';
+import { test, expect, type Page } from '@playwright/test';
+import { LoginPage } from './fixtures/page-objects/LoginPage';
 import { TEST_USERS } from './config';
 
 const AUTHENTICATED_ROUTE_PATTERN = /\/(dashboard|project)(\/|$)/;
@@ -15,6 +15,7 @@ test.describe('Session Management', () => {
     await loginPage.navigateToLogin();
     await loginPage.login(TEST_USERS.standard.email, TEST_USERS.standard.password);
     await expect(page).toHaveURL(AUTHENTICATED_ROUTE_PATTERN);
+    await expect(page.locator('[data-testid="user-menu-button"], [data-testid="dashboard-user-panel-toggle"]').first()).toBeVisible();
   }
 
   test('session persists across page reloads', async ({ page }) => {
@@ -29,10 +30,10 @@ test.describe('Session Management', () => {
     await expect(page.locator('[data-testid="user-menu-button"], [data-testid="dashboard-user-panel-toggle"]').first()).toBeVisible();
   });
 
-  test('session expires after token TTL', async ({ page }) => {
+  test('removing both tokens requires login', async ({ page }) => {
     await loginAndWaitForAuthenticatedRoute(page);
 
-    // Simulate full expiry by clearing both tokens before revisiting a protected route.
+    // Removing both credentials leaves no session that can be refreshed.
     await page.evaluate(() => {
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
@@ -40,24 +41,65 @@ test.describe('Session Management', () => {
       localStorage.removeItem('user');
     });
 
-    await page.goto('/dashboard');
+    await page.goto('/dashboard', { waitUntil: 'commit' });
 
-    await expect(page).toHaveURL(/\/($|login(?:\?.*)?$)/);
+    await expect(page).toHaveURL(/\/login(?:\?.*)?$/);
+    await expect(page.locator('#identifier')).toBeVisible();
   });
 
   test('refresh token flow works correctly', async ({ page }) => {
     await loginAndWaitForAuthenticatedRoute(page);
 
-    const refreshToken = await page.evaluate(() => localStorage.getItem('refresh_token'));
-    expect(refreshToken).toBeTruthy();
+    const originalTokens = await page.evaluate(() => ({
+      accessToken: localStorage.getItem('access_token'),
+      refreshToken: localStorage.getItem('refresh_token'),
+    }));
+    expect(originalTokens.accessToken).toBeTruthy();
+    expect(originalTokens.refreshToken).toBeTruthy();
 
-    await page.evaluate(() => {
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('token_type');
+    const rejectedAccessToken = 'e2e-rejected-access-token';
+
+    await page.evaluate((accessToken) => {
+      localStorage.setItem('access_token', accessToken);
+      localStorage.removeItem('auth_validated_at');
+    }, rejectedAccessToken);
+
+    const rejectedValidation = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.request().method() === 'GET' && url.pathname === '/api/auth/me';
+    });
+    const refreshRequest = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.request().method() === 'POST' && url.pathname === '/api/auth/refresh';
     });
 
-    await page.goto('/dashboard/projects');
-    await expect(page).toHaveURL(/\/(login|dashboard|project)/);
+    await page.goto('/dashboard/projects', { waitUntil: 'domcontentloaded' });
+
+    expect((await rejectedValidation).status()).toBe(401);
+    const refreshResponse = await refreshRequest;
+    expect(refreshResponse.ok()).toBeTruthy();
+    expect(refreshResponse.request().postDataJSON()).toEqual({
+      refresh_token: originalTokens.refreshToken,
+    });
+
+    const refreshed = await refreshResponse.json() as {
+      access_token: string;
+      refresh_token: string;
+    };
+    expect(refreshed.access_token).toBeTruthy();
+    expect(refreshed.refresh_token).toBeTruthy();
+    expect(refreshed.access_token).not.toBe(rejectedAccessToken);
+
+    await expect.poll(() => page.evaluate(() => ({
+      accessToken: localStorage.getItem('access_token'),
+      refreshToken: localStorage.getItem('refresh_token'),
+    }))).toEqual({
+      accessToken: refreshed.access_token,
+      refreshToken: refreshed.refresh_token,
+    });
+    await expect(page).toHaveURL('/dashboard/projects');
+    await expect(page.locator('[data-testid="dashboard-user-panel-toggle"], [data-testid="user-menu-button"]').first()).toBeVisible();
+    await expect(page.locator('#identifier')).toHaveCount(0);
   });
 
   test('concurrent sessions are handled', async ({ browser }) => {
@@ -88,12 +130,18 @@ test.describe('Session Management', () => {
   test('logout clears session data', async ({ page }) => {
     await loginAndWaitForAuthenticatedRoute(page);
 
-    // Click logout
-    await page.locator('[data-testid="user-menu-button"], [data-testid="dashboard-user-panel-toggle"]').first().click();
-    await page.locator('[data-testid="logout-button"], [data-testid="settings-logout-button"]').first().click();
+    // Exercise the dashboard account panel rather than whichever authenticated
+    // surface the login redirect happened to choose.
+    await page.goto('/dashboard', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByTestId('dashboard-composer')).toBeVisible();
+    await page.getByTestId('dashboard-user-panel-toggle').click();
+    const logoutButton = page.getByRole('button', { name: /^(退出登录|Logout)$/ });
+    await expect(logoutButton).toBeVisible();
+    await logoutButton.click();
 
-    // Verify redirect to login
-    await expect(page).toHaveURL(/.*login/);
+    // AuthContext's logout event completes the transition to the login page.
+    await expect(page).toHaveURL('/login');
+    await expect(page.locator('#identifier')).toBeVisible();
 
     const authState = await page.evaluate(() => ({
       access_token: localStorage.getItem('access_token'),

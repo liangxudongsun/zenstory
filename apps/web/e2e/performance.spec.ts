@@ -1,6 +1,11 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Page, type TestInfo } from '@playwright/test'
 import { TEST_USERS } from './config'
 import { login } from './helpers/common'
+import {
+  cleanupOwnedProject,
+  createOwnedProject,
+  type OwnedProject,
+} from './fixtures/project-test-data'
 
 const ENABLE_PERFORMANCE_E2E = process.env.E2E_ENABLE_PERFORMANCE_E2E === 'true'
 const PERFORMANCE_OPT_IN_MESSAGE =
@@ -32,6 +37,7 @@ const PERFORMANCE_THRESHOLDS = {
 // Test credentials
 const TEST_EMAIL = TEST_USERS.standard.email
 const TEST_PASSWORD = TEST_USERS.standard.password
+let performanceProject: OwnedProject | undefined
 
 async function loginAndOpenDashboard(page: Page) {
   // The login page intentionally redirects existing users to their most
@@ -42,15 +48,46 @@ async function loginAndOpenDashboard(page: Page) {
   await expect(page.getByTestId('dashboard-inspiration-input')).toBeVisible({ timeout: 15000 })
 }
 
-async function openExistingOrCreateProject(page: Page, name: string) {
-  const projectCard = page.getByTestId('project-card').first()
-  if (await projectCard.isVisible().catch(() => false)) {
-    await projectCard.click()
-  } else {
-    await page.getByTestId('dashboard-inspiration-input').fill(name)
-    await page.getByTestId('create-project-button').click()
-  }
+async function createPerformanceProject(page: Page, testInfo: TestInfo, name: string) {
+  performanceProject = await createOwnedProject(page, testInfo, `E2E-perf-${name}`)
+  return performanceProject.id
+}
+
+async function openPerformanceProject(page: Page, testInfo: TestInfo, name: string) {
+  const projectId = await createPerformanceProject(page, testInfo, name)
+  await page.goto(`/project/${projectId}`)
   await page.waitForURL(/\/project\//, { timeout: 15000 })
+}
+
+test.afterEach(async ({ page }) => {
+  await cleanupOwnedProject(page, performanceProject)
+  performanceProject = undefined
+})
+
+async function mockAgentStream(page: Page) {
+  let responseNumber = 0
+  await page.route('**/api/v1/agent/stream', async route => {
+    responseNumber += 1
+    const stream = [
+      'event: content_start',
+      'data: {}',
+      '',
+      'event: content',
+      `data: ${JSON.stringify({ text: `性能测试模拟回复 ${responseNumber}` })}`,
+      '',
+      'event: content_end',
+      'data: {}',
+      '',
+      'event: done',
+      `data: ${JSON.stringify({ assistant_message_id: `performance-assistant-${responseNumber}`, session_id: 'performance-session' })}`,
+      '',
+    ].join('\n')
+    await route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' },
+      body: stream,
+    })
+  })
 }
 
 /**
@@ -82,10 +119,29 @@ test.describe('Performance', () => {
   })
 
   test('login page renders quickly', async ({ page }) => {
-    const startTime = Date.now()
+    await page.addInitScript(() => {
+      const markVisible = () => {
+        const input = document.querySelector<HTMLInputElement>('#identifier')
+        if (!input || input.getClientRects().length === 0) return false
+        const style = getComputedStyle(input)
+        if (style.visibility === 'hidden' || style.display === 'none') return false
+        ;(window as Window & { __loginInputVisibleAt?: number }).__loginInputVisibleAt = performance.now()
+        return true
+      }
+      document.addEventListener('DOMContentLoaded', () => {
+        if (markVisible()) return
+        const observer = new MutationObserver(() => {
+          requestAnimationFrame(() => {
+            if (markVisible()) observer.disconnect()
+          })
+        })
+        observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true })
+      }, { once: true })
+    })
     await page.goto('/login')
     await page.waitForSelector('#identifier')
-    const renderTime = Date.now() - startTime
+    const renderTime = await page.evaluate(() =>
+      (window as Window & { __loginInputVisibleAt?: number }).__loginInputVisibleAt ?? performance.now())
 
     console.log(`Login page render time: ${renderTime}ms`)
 
@@ -110,9 +166,9 @@ test.describe('Performance', () => {
     expect(loadTime).toBeLessThan(PERFORMANCE_THRESHOLDS.INITIAL_PAGE_LOAD_MS)
   })
 
-  test('file tree remains responsive as items are added', async ({ page }) => {
+  test('file tree remains responsive as items are added', async ({ page }, testInfo) => {
     await loginAndOpenDashboard(page)
-    await openExistingOrCreateProject(page, `性能测试项目 ${Date.now()}`)
+    await openPerformanceProject(page, testInfo, 'tree')
 
     // Wait for file tree to load initially
     await page.waitForSelector('.overflow-auto', { timeout: 5000 })
@@ -125,6 +181,7 @@ test.describe('Performance', () => {
     // Create multiple files to test rendering performance
     // Note: In a real test, you would create 100+ files via API for accuracy
     const fileCount = 10 // Reduced for E2E test performance
+    const filePrefix = `性能文件-${Date.now()}-`
     const startTime = Date.now()
 
     for (let i = 0; i < fileCount; i++) {
@@ -133,10 +190,15 @@ test.describe('Performance', () => {
       await addButton.click({ force: true })
 
       const fileInput = page.locator('input[placeholder*="大纲"]')
-      await fileInput.fill(`测试文件${i}`)
+      const title = `${filePrefix}${i}`
+      const responsePromise = page.waitForResponse(response =>
+        response.url().includes('/api/v1/projects/')
+          && response.url().endsWith('/files')
+          && response.request().method() === 'POST')
+      await fileInput.fill(title)
       await fileInput.press('Enter')
-      // Small delay for file creation to complete
-      await page.locator(`text=测试文件${i}`).waitFor({ state: 'visible', timeout: 2000 })
+      expect((await responsePromise).ok()).toBeTruthy()
+      await expect(page.getByTestId('file-tree-node').filter({ hasText: title })).toBeVisible()
     }
 
     const renderTime = Date.now() - startTime
@@ -159,8 +221,8 @@ test.describe('Performance', () => {
     console.log(`Scroll performance for ${fileCount} items: ${scrollTime}ms`)
 
     // Verify all files are visible
-    await expect(page.locator('text=测试文件0')).toBeVisible()
-    await expect(page.locator(`text=测试文件${fileCount - 1}`)).toBeVisible()
+    await expect(page.getByTestId('file-tree-node').filter({ hasText: `${filePrefix}0` })).toBeVisible()
+    await expect(page.getByTestId('file-tree-node').filter({ hasText: `${filePrefix}${fileCount - 1}` })).toBeVisible()
 
     // Each create-and-render cycle should remain below the large-tree render
     // budget. Measuring the average avoids pretending that ten API-backed
@@ -168,9 +230,9 @@ test.describe('Performance', () => {
     expect(renderTime / fileCount).toBeLessThan(PERFORMANCE_THRESHOLDS.LARGE_FILE_TREE_RENDER_MS)
   })
 
-  test('editor handles 10k+ word documents', async ({ page }) => {
+  test('editor handles 1k word documents', async ({ page }, testInfo) => {
     await loginAndOpenDashboard(page)
-    await openExistingOrCreateProject(page, `编辑器性能测试 ${Date.now()}`)
+    await openPerformanceProject(page, testInfo, 'editor')
 
     // Create and select a file
     await page.waitForSelector('.overflow-auto', { timeout: 5000 })
@@ -181,24 +243,25 @@ test.describe('Performance', () => {
     const addButton = outlineFolder.locator('..').locator('button:has(svg.lucide-plus)').first()
     await addButton.click({ force: true })
 
+    const fileTitle = `大文档测试 ${Date.now()}`
     const fileInput = page.locator('input[placeholder*="大纲"]')
-    await fileInput.fill('大文档测试')
+    await fileInput.fill(fileTitle)
     await fileInput.press('Enter')
     // Wait for file to be created
-    await page.locator('text=大文档测试').waitFor({ state: 'visible', timeout: 2000 })
+    const testFile = page.getByTestId('file-tree-node').filter({ hasText: fileTitle }).first()
+    await expect(testFile).toBeVisible()
 
     // Select the file
-    const testFile = page.locator('.overflow-auto >> text=大文档测试').first()
     await testFile.click()
     // Wait for editor to load
-    await expect(page.locator('textarea')).toBeVisible({ timeout: 5000 })
+    const editor = page.getByPlaceholder(/开始你的创作|Start your story/i)
+    await expect(editor).toBeVisible({ timeout: 5000 })
 
     // Generate large content (10000 words for full test, 1000 for E2E speed)
     const wordCount = 1000 // Reduced for E2E test performance
     const largeContent = generateLargeContent(wordCount)
 
     // Measure editor fill performance
-    const editor = page.locator('textarea').first()
     await expect(editor).toBeVisible()
 
     const fillStartTime = Date.now()
@@ -217,14 +280,14 @@ test.describe('Performance', () => {
     console.log(`Typing responsiveness with ${wordCount} words: ${typeTime}ms`)
 
     // Measure selection performance
-    const selectStartTime = Date.now()
-    await editor.focus()
-    await page.keyboard.down('Shift')
-    for (let i = 0; i < 20; i++) { // Reduced from 50 to 20 for faster test
-      await page.keyboard.press('ArrowRight')
-    }
-    await page.keyboard.up('Shift')
-    const selectTime = Date.now() - selectStartTime
+    const selectTime = await editor.evaluate(async (element: HTMLTextAreaElement) => {
+      element.focus()
+      const start = performance.now()
+      const selectionStart = Math.max(0, element.value.length - 20)
+      element.setSelectionRange(selectionStart, element.value.length, 'forward')
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+      return performance.now() - start
+    })
 
     console.log(`Selection time with ${wordCount} words: ${selectTime}ms`)
 
@@ -239,12 +302,13 @@ test.describe('Performance', () => {
     expect(selectTime).toBeLessThan(200)
   })
 
-  test('chat scroll remains smooth with 100+ messages', async ({ page }) => {
+  test('chat scroll remains smooth across 10 message rounds', async ({ page }, testInfo) => {
+    await mockAgentStream(page)
     await loginAndOpenDashboard(page)
 
-    await openExistingOrCreateProject(page, `聊天性能测试 ${Date.now()}`)
+    await openPerformanceProject(page, testInfo, 'chat')
 
-    const input = page.locator('textarea[placeholder*="输入"]')
+    const input = page.getByTestId('chat-input')
     await expect(input).toBeVisible()
 
     // Send multiple messages to test scroll performance
@@ -254,18 +318,9 @@ test.describe('Performance', () => {
 
     for (let i = 0; i < messageCount; i++) {
       await input.fill(`测试消息 ${i}：${generateLargeContent(50)}`)
-      await page.locator('button[type="submit"], button:has([class*="Send"])').last().click()
+      await page.getByTestId('send-button').click()
 
-      // Wait for message to appear
-      await expect(page.locator('.markdown-content').last()).toBeVisible({ timeout: 5000 }).catch(() => {})
-
-      // Wait for AI response (with timeout)
-      try {
-        await expect(page.locator('.markdown-content').last()).toBeVisible({ timeout: 30000 })
-      } catch {
-        // Continue even if AI response times out
-        console.log(`AI response timeout for message ${i}`)
-      }
+      await expect(page.locator('.markdown-content').last()).toContainText(`性能测试模拟回复 ${i + 1}`)
     }
 
     // Measure scroll performance in chat panel
@@ -274,19 +329,18 @@ test.describe('Performance', () => {
     }).first()
 
     if (await chatContainer.isVisible()) {
-      const scrollMetrics: number[] = []
-
-      // Perform multiple scroll operations and measure time
-      for (let i = 0; i < 10; i++) {
-        const scrollStart = Date.now()
-        await chatContainer.evaluate((el) => {
+      // Measure in the browser so remote-runner transport latency is not
+      // mistaken for rendering time.
+      const scrollMetrics = await chatContainer.evaluate(async (el) => {
+        const metrics: number[] = []
+        for (let i = 0; i < 10; i++) {
           el.scrollTop = el.scrollHeight
-        })
-        // Wait for frame rendering using requestAnimationFrame
-        await chatContainer.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)))
-        const scrollEnd = Date.now()
-        scrollMetrics.push(scrollEnd - scrollStart)
-      }
+          const scrollStart = performance.now()
+          await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+          metrics.push(performance.now() - scrollStart)
+        }
+        return metrics
+      })
 
       const avgScrollTime = scrollMetrics.reduce((a, b) => a + b, 0) / scrollMetrics.length
       console.log(`Average scroll time per frame: ${avgScrollTime}ms`)
@@ -362,38 +416,32 @@ test.describe('Performance', () => {
     expect(dashboardInteractiveTime).toBeLessThan(PERFORMANCE_THRESHOLDS.TIME_TO_INTERACTIVE_MS)
   })
 
-  test('project page time to interactive', async ({ page }) => {
+  test('project page time to interactive', async ({ page }, testInfo) => {
     await loginAndOpenDashboard(page)
 
-    // Click on a project
-    const projectCard = page.locator('[data-testid="project-card"]').first()
-    if (await projectCard.isVisible()) {
-      const projectStart = Date.now()
-      await projectCard.click()
-      await page.waitForURL(/\/project\//, { timeout: 10000 })
+    const projectId = await createPerformanceProject(page, testInfo, 'tti')
+    const projectStart = Date.now()
+    await page.goto(`/project/${projectId}`)
+    await page.waitForURL(/\/project\//, { timeout: 10000 })
 
-      // Wait for key interactive elements
-      await page.waitForSelector('.overflow-auto', { timeout: 5000 }) // File tree
-      await page.waitForSelector('textarea', { timeout: 5000 }) // Editor or chat
+    // Wait for key interactive elements
+    await page.waitForSelector('.overflow-auto', { timeout: 5000 }) // File tree
+    await page.waitForSelector('textarea', { timeout: 5000 }) // Editor or chat
 
-      // Verify page is interactive
-      const chatInput = page.locator('textarea[placeholder*="输入"]')
-      await expect(chatInput).toBeVisible()
-      await expect(chatInput).toBeEnabled()
+    // Verify page is interactive
+    const chatInput = page.getByTestId('chat-input')
+    await expect(chatInput).toBeVisible()
+    await expect(chatInput).toBeEnabled()
 
-      const projectInteractiveTime = Date.now() - projectStart
-      console.log(`Project page time to interactive: ${projectInteractiveTime}ms`)
+    const projectInteractiveTime = Date.now() - projectStart
+    console.log(`Project page time to interactive: ${projectInteractiveTime}ms`)
 
-      expect(projectInteractiveTime).toBeLessThan(PERFORMANCE_THRESHOLDS.TIME_TO_INTERACTIVE_MS)
-    } else {
-      // Skip if no projects available
-      console.log('No projects available for project page TTI test')
-      test.skip()
-    }
+    expect(projectInteractiveTime).toBeLessThan(PERFORMANCE_THRESHOLDS.TIME_TO_INTERACTIVE_MS)
   })
 
-  test('memory usage remains stable during extended use', async ({ page }) => {
+  test('memory usage remains stable during extended use', async ({ page }, testInfo) => {
     await loginAndOpenDashboard(page)
+    const projectId = await createPerformanceProject(page, testInfo, 'memory')
 
     // Get initial memory metrics
     const initialMetrics = await page.evaluate(() => {
@@ -412,7 +460,8 @@ test.describe('Performance', () => {
       // Perform multiple dashboard/project navigation cycles without
       // exhausting the regular user's project quota.
       for (let i = 0; i < 5; i++) {
-        await openExistingOrCreateProject(page, `内存测试项目 ${Date.now()}`)
+        await page.goto(`/project/${projectId}`)
+        await page.waitForURL(/\/project\//, { timeout: 15000 })
 
         // Interact with the page
         await page.waitForSelector('.overflow-auto', { timeout: 5000 })

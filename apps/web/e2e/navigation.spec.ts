@@ -1,5 +1,7 @@
-import { test, expect, Page, APIRequestContext } from '@playwright/test';
-import { TEST_USERS, config } from './config';
+import { test, expect, type Page, type TestInfo } from '@playwright/test';
+import { getPoolUser, type TestUser } from './config';
+import { cleanupOwnedProject, createOwnedProject, type OwnedProject } from './fixtures/project-test-data';
+import { login } from './helpers/common';
 
 /**
  * E2E Tests for Browser Navigation
@@ -11,94 +13,81 @@ import { TEST_USERS, config } from './config';
  * - Scroll position preservation
  */
 
-const TEST_EMAIL = TEST_USERS.standard.email;
-const TEST_PASSWORD = TEST_USERS.standard.password;
-const AUTHENTICATED_ROUTE_PATTERN = /\/(dashboard|project|onboarding\/persona)/;
+let currentOwner: TestUser;
+let ownedProjects: OwnedProject[] = [];
+let pendingProjectTracking: Promise<string>[] = [];
 
-async function loginAndOpenDashboardHome(page: Page) {
-  await page.addInitScript(() => {
-    const cachedUser = localStorage.getItem('user');
-    if (cachedUser) {
-      localStorage.setItem('auth_validated_at', Date.now().toString());
-    }
+async function loginAndOpenDashboardHome(page: Page, testInfo: TestInfo) {
+  currentOwner = getPoolUser(testInfo.parallelIndex);
+  await login(page, currentOwner.email, currentOwner.password);
+}
+
+async function waitForProjectReady(page: Page) {
+  await expect(page).toHaveURL(/\/project\//, { timeout: 15000 });
+  await expect(page.getByTestId('editor-panel')).toBeVisible();
+}
+
+function registerOwnedProject(projectId: string, accessToken: string): string {
+  if (ownedProjects.some((project) => project.id === projectId)) return projectId;
+  ownedProjects.push({
+    id: projectId,
+    name: `navigation-${projectId}`,
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    owner: currentOwner,
   });
-
-  const inspirationInput = page.locator('[data-testid="dashboard-inspiration-input"]');
-  await page.goto('/dashboard', { waitUntil: 'domcontentloaded' });
-  if (!(await inspirationInput.isVisible({ timeout: 5000 }).catch(() => false))) {
-    await page.goto('/login', { waitUntil: 'domcontentloaded' });
-    await expect(page.locator('#identifier')).toBeVisible({ timeout: 15000 });
-    await page.fill('#identifier', TEST_EMAIL);
-    await page.fill('#password', TEST_PASSWORD);
-    await page.click('button[type="submit"]');
-    await expect(page).toHaveURL(AUTHENTICATED_ROUTE_PATTERN, { timeout: 30000 });
-    await page.goto('/dashboard', { waitUntil: 'domcontentloaded' });
-  }
-  await expect(inspirationInput).toBeVisible({ timeout: 15000 });
+  return projectId;
 }
 
-async function getAuthHeaders(page: Page) {
+async function createProjectFromDashboard(page: Page): Promise<string> {
   const accessToken = await page.evaluate(() => localStorage.getItem('access_token'));
-  if (!accessToken) {
-    throw new Error('Missing access token for navigation e2e setup');
-  }
-  return {
-    Authorization: `Bearer ${accessToken}`,
-    'Content-Type': 'application/json',
-  };
+  if (!accessToken) throw new Error('Missing access token before creating navigation fixture');
+
+  const tracking = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return response.request().method() === 'POST' && url.pathname === '/api/v1/projects';
+  }).then(async (response) => {
+    expect(response.ok()).toBeTruthy();
+    const project = await response.json() as { id?: string };
+    if (!project.id) throw new Error('Project creation response did not include an id');
+    return registerOwnedProject(project.id, accessToken);
+  });
+  pendingProjectTracking.push(tracking);
+  void tracking.catch(() => undefined);
+
+  await page.click('[data-testid="create-project-button"]');
+  return tracking;
 }
 
-async function listProjects(page: Page, request: APIRequestContext) {
-  const headers = await getAuthHeaders(page);
-  const response = await request.get(`${config.apiBaseUrl}/api/v1/projects`, { headers });
-  expect(response.ok()).toBeTruthy();
-  const payload = await response.json();
-  return Array.isArray(payload) ? payload : [];
-}
-
-async function ensureProjectSlotsAvailable(page: Page, request: APIRequestContext, requiredCreates = 1) {
-  const headers = await getAuthHeaders(page);
-  const quotaResponse = await request.get(`${config.apiBaseUrl}/api/v1/subscription/quota`, { headers });
-  expect(quotaResponse.ok()).toBeTruthy();
-  const quota = await quotaResponse.json();
-  const projectLimit = quota?.projects?.limit;
-  if (typeof projectLimit !== 'number' || projectLimit < 0) return;
-
-  const projects = await listProjects(page, request);
-  const targetCount = Math.max(projectLimit - requiredCreates, 0);
-  projects.sort(
-    (a, b) =>
-      new Date(a.updated_at || a.created_at || 0).getTime() -
-      new Date(b.updated_at || b.created_at || 0).getTime()
-  );
-
-  while (projects.length > targetCount) {
-    const project = projects.shift();
-    if (!project?.id) continue;
-    const deleteResponse = await request.delete(`${config.apiBaseUrl}/api/v1/projects/${project.id}`, {
-      headers,
-    });
-    expect(deleteResponse.ok()).toBeTruthy();
-  }
-
-  await page.goto('/dashboard', { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('[data-testid="dashboard-inspiration-input"]')).toBeVisible({ timeout: 15000 });
+async function createTrackedOwnedProject(page: Page, testInfo: TestInfo, prefix: string): Promise<OwnedProject> {
+  const project = await createOwnedProject(page, testInfo, prefix);
+  ownedProjects.push(project);
+  return project;
 }
 
 test.describe('Browser Navigation', () => {
-  test.beforeEach(async ({ page }) => {
-    await loginAndOpenDashboardHome(page);
+  test.beforeEach(async ({ page }, testInfo) => {
+    ownedProjects = [];
+    pendingProjectTracking = [];
+    await loginAndOpenDashboardHome(page, testInfo);
   });
 
-  test('back button returns to previous page', async ({ page, request }) => {
-    await ensureProjectSlotsAvailable(page, request);
+  test.afterEach(async ({ page }) => {
+    const trackingResults = await Promise.allSettled(pendingProjectTracking);
+    for (const project of ownedProjects) await cleanupOwnedProject(page, project);
+    ownedProjects = [];
+    pendingProjectTracking = [];
+    const failedTracking = trackingResults.find((result) => result.status === 'rejected');
+    if (failedTracking?.status === 'rejected') throw failedTracking.reason;
+  });
+
+  test('back button returns to previous page', async ({ page }) => {
     await expect(page).toHaveURL(/\/dashboard/);
 
     // Create a project to navigate to
     const inspirationInput = page.locator('[data-testid="dashboard-inspiration-input"]');
     await inspirationInput.fill(`导航测试项目 ${Date.now()}`);
-    await page.click('[data-testid="create-project-button"]');
-    await expect(page).toHaveURL(/\/project\//, { timeout: 15000 });
+    await createProjectFromDashboard(page);
+    await waitForProjectReady(page);
 
     // Verify we're on project page
     expect(page.url()).toContain('/project/');
@@ -110,15 +99,14 @@ test.describe('Browser Navigation', () => {
     await expect(page).toHaveURL(/\/dashboard/);
   });
 
-  test('forward button advances after back', async ({ page, request }) => {
-    await ensureProjectSlotsAvailable(page, request);
+  test('forward button advances after back', async ({ page }) => {
     await expect(page).toHaveURL(/\/dashboard/);
 
     // Create a project
     const inspirationInput = page.locator('[data-testid="dashboard-inspiration-input"]');
     await inspirationInput.fill(`前进测试项目 ${Date.now()}`);
-    await page.click('[data-testid="create-project-button"]');
-    await expect(page).toHaveURL(/\/project\//, { timeout: 15000 });
+    await createProjectFromDashboard(page);
+    await waitForProjectReady(page);
 
     const projectUrl = page.url();
 
@@ -133,13 +121,12 @@ test.describe('Browser Navigation', () => {
     await expect(page).toHaveURL(new RegExp(projectUrl.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')));
   });
 
-  test('back from login redirect returns to login', async ({ page, request }) => {
-    await ensureProjectSlotsAvailable(page, request);
+  test('back from login redirect returns to login', async ({ page }) => {
 
     const inspirationInput = page.locator('[data-testid="dashboard-inspiration-input"]');
     await inspirationInput.fill(`重定向测试项目 ${Date.now()}`);
-    await page.click('[data-testid="create-project-button"]');
-    await expect(page).toHaveURL(/\/project\//, { timeout: 15000 });
+    await createProjectFromDashboard(page);
+    await waitForProjectReady(page);
 
     const projectUrl = page.url();
 
@@ -151,10 +138,11 @@ test.describe('Browser Navigation', () => {
     await expect(page).toHaveURL('/login');
 
     // Try to access protected route directly
-    await page.goto(projectUrl);
+    await page.goto(projectUrl, { waitUntil: 'commit' });
 
     // Should be redirected to login
     await expect(page).toHaveURL('/login');
+    await expect(page.locator('#identifier')).toBeVisible();
 
     // Click back button - should stay on login (not go to protected route)
     await page.goBack();
@@ -164,66 +152,44 @@ test.describe('Browser Navigation', () => {
     expect(currentUrl).not.toContain('/project/');
   });
 
-  test('navigation preserves scroll position', async ({ page, request }) => {
-    await ensureProjectSlotsAvailable(page, request);
+  test('back navigation resets dashboard scroll position', async ({ page }, testInfo) => {
+    const project = await createTrackedOwnedProject(page, testInfo, 'navigation-scroll');
+    await page.goto('/dashboard', { waitUntil: 'domcontentloaded' });
+    const dashboardScroller = page.locator('main');
+    await expect(page.getByRole('button', { name: `打开项目「${project.name}」` })).toBeVisible();
 
-    const firstProjectCard = page.locator('[data-testid="project-card"]').first();
-    const hasExistingProject = await firstProjectCard.isVisible({ timeout: 3000 }).catch(() => false);
-    if (!hasExistingProject) {
-      const inspirationInput = page.locator('[data-testid="dashboard-inspiration-input"]');
-      await inspirationInput.fill(`滚动测试项目 ${Date.now()}`);
-      await page.click('[data-testid="create-project-button"]');
-      await expect(page).toHaveURL(/\/project\//, { timeout: 15000 });
-      await page.goto('/dashboard', { waitUntil: 'domcontentloaded' });
-    }
-
-    // Scroll down in the dashboard page
-    await page.evaluate(() => {
-      window.scrollTo(0, 300);
+    await dashboardScroller.evaluate((element) => {
+      element.scrollTop = 300;
     });
-
-    // Wait for scroll event to process
-    await page.waitForTimeout(300);
-
-    // Get scroll position
-    const scrollPosition = await page.evaluate(() => window.scrollY);
+    await expect.poll(() => dashboardScroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
 
     // Navigate to a project
-    await page.locator('[data-testid="project-card"]').first().click();
-    await page.waitForURL(/\/project\//, { timeout: 10000 });
+    await page.getByRole('button', { name: `打开项目「${project.name}」` }).click();
+    await expect(page).toHaveURL(`/project/${project.id}`);
+    await expect(page.locator('[data-testid="file-tree-node"][data-file-type="folder"]').first()).toBeVisible();
 
     // Go back
     await page.goBack();
-    await page.waitForSelector('[data-testid="project-card"]', { timeout: 5000 });
-
-    // Check if scroll position is restored (within tolerance)
-    const restoredScrollPosition = await page.evaluate(() => window.scrollY);
-
-    // When the page is scrollable, position should stay near the original.
-    // Otherwise just verify back navigation returned to dashboard safely.
-    if (scrollPosition > 0) {
-      expect(Math.abs(restoredScrollPosition - scrollPosition)).toBeLessThan(50);
-    } else {
-      await expect(page).toHaveURL(/\/dashboard/);
-    }
+    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page.getByRole('button', { name: `打开项目「${project.name}」` })).toBeVisible();
+    await expect.poll(() => dashboardScroller.evaluate((element) => element.scrollTop)).toBe(0);
   });
 
-  test('navigation from project to project works', async ({ page, request }) => {
-    await ensureProjectSlotsAvailable(page, request, 2);
+  test('navigation from project to project works', async ({ page }) => {
 
     // Create first project
     const inspirationInput = page.locator('[data-testid="dashboard-inspiration-input"]');
     await inspirationInput.fill(`项目A ${Date.now()}`);
-    await page.click('[data-testid="create-project-button"]');
-    await expect(page).toHaveURL(/\/project\//, { timeout: 15000 });
+    await createProjectFromDashboard(page);
+    await waitForProjectReady(page);
 
     const projectAUrl = page.url();
 
     // Go back to dashboard and create second project
     await page.goto('/dashboard', { waitUntil: 'domcontentloaded' });
     await inspirationInput.fill(`项目B ${Date.now()}`);
-    await page.click('[data-testid="create-project-button"]');
-    await expect(page).toHaveURL(/\/project\//, { timeout: 15000 });
+    await createProjectFromDashboard(page);
+    await waitForProjectReady(page);
 
     const projectBUrl = page.url();
 
@@ -233,20 +199,21 @@ test.describe('Browser Navigation', () => {
     // Navigate back to project A via direct URL
     await page.goto(projectAUrl);
     await expect(page).toHaveURL(new RegExp(projectAUrl.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')));
+    await expect(page.getByTestId('editor-panel')).toBeVisible();
 
     // Navigate to project B via direct URL
     await page.goto(projectBUrl);
     await expect(page).toHaveURL(new RegExp(projectBUrl.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')));
+    await expect(page.getByTestId('editor-panel')).toBeVisible();
   });
 
-  test('refresh on project page maintains state', async ({ page, request }) => {
-    await ensureProjectSlotsAvailable(page, request);
+  test('refresh on project page maintains state', async ({ page }) => {
 
     // Create a project
     const inspirationInput = page.locator('[data-testid="dashboard-inspiration-input"]');
     await inspirationInput.fill(`刷新测试项目 ${Date.now()}`);
-    await page.click('[data-testid="create-project-button"]');
-    await expect(page).toHaveURL(/\/project\//, { timeout: 15000 });
+    await createProjectFromDashboard(page);
+    await waitForProjectReady(page);
 
     // Create a file
     await page.waitForSelector('.overflow-auto', { timeout: 5000 });
@@ -285,22 +252,21 @@ test.describe('Browser Navigation', () => {
     await expect(page.locator('[data-editor-scroll-container] textarea').first()).toBeVisible();
   });
 
-  test('navigation history is correct after multiple navigations', async ({ page, request }) => {
-    await ensureProjectSlotsAvailable(page, request, 2);
+  test('navigation history is correct after multiple navigations', async ({ page }) => {
     await page.goto('/dashboard', { waitUntil: 'domcontentloaded' });
 
     // Create two projects
     const inspirationInput = page.locator('[data-testid="dashboard-inspiration-input"]');
 
     await inspirationInput.fill(`历史测试A ${Date.now()}`);
-    await page.click('[data-testid="create-project-button"]');
-    await expect(page).toHaveURL(/\/project\//, { timeout: 15000 });
+    await createProjectFromDashboard(page);
+    await waitForProjectReady(page);
 
     await page.goto('/dashboard', { waitUntil: 'domcontentloaded' });
 
     await inspirationInput.fill(`历史测试B ${Date.now()}`);
-    await page.click('[data-testid="create-project-button"]');
-    await expect(page).toHaveURL(/\/project\//, { timeout: 15000 });
+    await createProjectFromDashboard(page);
+    await waitForProjectReady(page);
 
     // Go back - should go to dashboard
     await page.goBack();
@@ -318,17 +284,72 @@ test.describe('Browser Navigation', () => {
     await page.goForward();
     await expect(page).toHaveURL(/\/project\//);
   });
+
+  test('chunk recovery remains active after cancelling a document navigation', async ({ page }) => {
+    // Browsers only show beforeunload confirmation after a trusted user gesture.
+    await page.getByTestId('dashboard-inspiration-input').click();
+    await page.evaluate(() => {
+      const record = (event: string) => {
+        const events = JSON.parse(localStorage.getItem('zenstory:e2e-navigation-events') || '[]');
+        localStorage.setItem('zenstory:e2e-navigation-events', JSON.stringify([...events, event]));
+      };
+      window.addEventListener('beforeunload', (event) => {
+        record('beforeunload');
+        event.preventDefault();
+        event.returnValue = '';
+      });
+    });
+
+    const cancelDialogPromise = page.waitForEvent('dialog');
+    const cancelledNavigation = page.goto('/robots.txt').catch((error: unknown) => error);
+    const cancelDialog = await cancelDialogPromise;
+    await cancelDialog.dismiss();
+    expect(await cancelledNavigation).toBeInstanceOf(Error);
+    await expect(page).toHaveURL(/\/dashboard/);
+    await expect.poll(() => page.evaluate(() => (
+      JSON.parse(localStorage.getItem('zenstory:e2e-navigation-events') || '[]') as string[]
+    ))).toContain('beforeunload');
+
+    const reload = page.waitForEvent('load');
+    const acceptDialogPromise = page.waitForEvent('dialog');
+    const dispatchRecovery = page.evaluate(() => {
+      const event = new Event('vite:preloadError') as Event & { payload?: unknown };
+      event.payload = new Error('Failed to fetch dynamically imported module: /assets/stale.js');
+      window.dispatchEvent(event);
+    }).catch(() => undefined);
+    const acceptDialog = await acceptDialogPromise;
+    await acceptDialog.accept();
+    await dispatchRecovery;
+    await reload;
+
+    await expect(page.getByTestId('dashboard-composer')).toBeVisible();
+    expect(await page.evaluate(() => sessionStorage.getItem('zenstory:chunk-reload-once')))
+      .toBe('vite:preloadError');
+  });
 });
 
 test.describe('Navigation with Authentication', () => {
-  test('protected route stores redirect for post-login', async ({ page, request }) => {
-    await loginAndOpenDashboardHome(page);
-    await ensureProjectSlotsAvailable(page, request);
+  test.beforeEach(async () => {
+    ownedProjects = [];
+    pendingProjectTracking = [];
+  });
+
+  test.afterEach(async ({ page }) => {
+    const trackingResults = await Promise.allSettled(pendingProjectTracking);
+    for (const project of ownedProjects) await cleanupOwnedProject(page, project);
+    ownedProjects = [];
+    pendingProjectTracking = [];
+    const failedTracking = trackingResults.find((result) => result.status === 'rejected');
+    if (failedTracking?.status === 'rejected') throw failedTracking.reason;
+  });
+
+  test('protected route stores redirect for post-login', async ({ page }, testInfo) => {
+    await loginAndOpenDashboardHome(page, testInfo);
 
     const inspirationInput = page.locator('[data-testid="dashboard-inspiration-input"]');
     await inspirationInput.fill(`重定向测试项目 ${Date.now()}`);
-    await page.click('[data-testid="create-project-button"]');
-    await expect(page).toHaveURL(/\/project\//, { timeout: 15000 });
+    await createProjectFromDashboard(page);
+    await waitForProjectReady(page);
 
     const projectUrl = page.url();
 
@@ -340,27 +361,29 @@ test.describe('Navigation with Authentication', () => {
     await expect(page).toHaveURL('/login');
 
     // Try to access the project URL directly
-    await page.goto(projectUrl);
+    await page.goto(projectUrl, { waitUntil: 'commit' });
 
     // Should be on login page
     await expect(page).toHaveURL('/login');
+    await expect(page.locator('#identifier')).toBeVisible();
 
     // Login again
-    await page.fill('#identifier', TEST_EMAIL);
-    await page.fill('#password', TEST_PASSWORD);
+    await page.fill('#identifier', currentOwner.email);
+    await page.fill('#password', currentOwner.password);
     await page.click('button[type="submit"]');
 
     // Should redirect back to the originally requested URL or dashboard
     await page.waitForURL(/\/(project|dashboard)/, { timeout: 10000 });
   });
 
-  test('login page redirects to dashboard when already authenticated', async ({ page }) => {
-    await loginAndOpenDashboardHome(page);
+  test('login page redirects to dashboard when already authenticated', async ({ page }, testInfo) => {
+    await loginAndOpenDashboardHome(page, testInfo);
 
     // Try to go to login page again
-    await page.goto('/login', { waitUntil: 'domcontentloaded' });
+    await page.goto('/login', { waitUntil: 'commit' });
 
     // Should be redirected away from login (to dashboard or project)
     await expect(page).toHaveURL(/\/(dashboard|project)/, { timeout: 5000 });
+    await expect(page.locator('[data-testid="dashboard-composer"], [data-testid="user-menu-button"]').first()).toBeVisible();
   });
 });
