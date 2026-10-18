@@ -96,3 +96,20 @@
 
 - 精确候选 `c0d67a47` fresh：303 前端单测文件 / 4,747 passed / 1 既有 skipped，完整 typecheck/build、lint 0 error/3 既有 warning、token/i18n 检查通过。独立 code-reviewer APPROVE、architect 静态 CLEAR。
 - 原生双标签四场景×20 轮×两引擎全部首轮通过：161/161 incl setup、retries=0、无 flaky。含单次 POST 恢复两个原请求及 logout/other-user/new-family 不恢复旧会话。先前真实 Firefox 失败不再复现；新 note 移至 implemented，旧决策未反写。全量 main / provider 门槛仍未完成。
+
+## Exact-main tail repair
+
+PR #259 已合并为 `3c03449d`，精确 push CI/E2E/CodeQL 成功（默认 E2E 836 passed / 242 opt-in/既有 skipped / 0 failed/flaky），随后仅一次 dispatch full `39090867679`：2098 passed / 1 failed / 53 skipped / 4 flaky；该轮保留为失败证据，不放行。
+
+- [x] 归因历史 compare 全局选择器、跨会话/Accessibility 未提交导航、订阅 reload 后重复登录及滚动 RPC 计时。
+- [x] 最小修复对应 5 个 E2E 文件，产品源码/重试/超时/阈值/skip 不改；版本至少两行改为断言，移除隐藏比较的条件空跑。
+- [ ] 冻结双引擎相关文件实跑及独立审阅；新 PR 正常合并后，再按新精确 main push→full 顺序验证。
+- [x] 用户最新范围：本批次仅完成修复/测试并保持 main 正常；不创建 tag、不发布生产，不做生产迁移或工作池操作。Vercel 登录不再是本批次阻塞。
+
+候选 `9848f10f` 原 5 处失败相关双引擎定向 15/15，retries=0，clean/stable。独立 code-reviewer/architect 又指出本次触及的 rollback/cancel/split/inline 四处必需控件仍有旧 visibility 条件；已改为可见性断言后无条件交互，保留终态断言，待新候选精确源码实跑。
+
+`4f99ec45` 必需控件双引擎首轮 7 passed / 2 failed，红灯准确揭示旧 AlignLeft CSS class 已不匹配实际图标；页面快照中「内联视图」按钮存在。改用 dialog 内的真实 accessible name（split 同步使用标题语义），不改产品或加入条件略过。
+
+最终 selector 候选 `873413a` 必需控件 9/9 首轮通过，独立静态复审 APPROVE/CLEAR。随后 5 文件双引擎 255 项为 229 passed / 4 failed / 6 既有 skipped / 16 串行阻断未跑；保留失败，不计为完成。两处 keyboard 创建仍按旧「创建项目」文案认焦点，trace 实际已经聚焦「开始创作」按钮；改为现有 test ID + 真实 activeElement，继续真实键盘提交并必须 found。项目搜索旧用例只建两项目却条件测试 >6 项才出现的 Dashboard 搜索，且立即打断未提交项目导航；准确验证始终可用的 ProjectSwitcher 搜索，两份真实唯一名称、自有数据、实际过滤和清空恢复，不增加免费项目数或跳过。
+
+另一次版本 fixture PUT 经 Vite 相对路径超时，backend 日志显示请求延后到清理后才到达（404）；同页直接 API 请求正常。3 个版本 fixture API 操作统一使用既有 config.apiBaseUrl，与 owned fixture 同源，不走前端 proxy、不重试/延长超时。后续重跑改变的 accessibility/projects/versions 两引擎全文件；large-document/subscription 字节未变，复用同一冻结批次已通过的家族证据，并在最终 main full 重新覆盖。
