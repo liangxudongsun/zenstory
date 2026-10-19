@@ -52,7 +52,7 @@ class RouterFailure(ValueError):
 
     def __init__(
         self,
-        category: Literal["invalid_enum", "schema", "empty_output", "truncated", "provider_failure"],
+        category: Literal["invalid_enum", "schema", "empty_output", "truncated", "provider_failure", "declined"],
         *,
         usage: dict[str, Any] | None = None,
         error_info: StreamErrorInfo | None = None,
@@ -62,6 +62,11 @@ class RouterFailure(ValueError):
         super().__init__(f"Router failed: {category}")
         self.category = category
         self.usage = usage
+        if error_info is None and category == "declined":
+            # The model answered in prose instead of routing (in practice a content
+            # refusal). Resending the same request gets the same answer, so the card
+            # offers no retry; nothing ran, so the round is still refunded.
+            error_info = StreamErrorInfo(ErrorCode.AGENT_REQUEST_DECLINED, False, True)
         self.error_info = error_info or StreamErrorInfo(ErrorCode.AGENT_ROUTING_FAILED, True, True)
         self.failed_fields = failed_fields
         self.parse_path = parse_path
@@ -271,8 +276,10 @@ async def _route_with_deepseek_chat(user_message: str) -> dict[str, Any]:
             # deepseek-flash is a reasoning model: chain-of-thought reasoning_tokens count
             # against completion tokens. A tight budget can be fully consumed by reasoning,
             # leaving an empty JSON answer (historically this silently fell back to writer/quick).
-            # Keep the existing generous budget; empty answers now return a routing failure.
-            max_tokens=2048,
+            # 2048 was hit by 4 of 686 production routing calls in three days (ledger
+            # output_tokens == 2048); a truncated answer is a routing failure, so leave
+            # reasoning room. Only tokens actually generated are billed.
+            max_tokens=4096,
         )
     _meter_router_call(response)
     choice = response.choices[0] if response.choices else None
@@ -422,10 +429,19 @@ def _extract_router_payload(text: str, *, diagnostics: dict[str, str] | None = N
 
     diagnostics["parse_path"] = "two_line"
     lines = [line.strip().lower() for line in text.splitlines() if line.strip()]
-    if len(lines) == 2 and not any(character in text for character in "{}[]"):
+    if len(lines) == 2 and all(_ENUM_TOKEN_RE.fullmatch(line) for line in lines):
         return {"agent_type": lines[0], "workflow_type": lines[1]}
+    if "{" not in text:
+        # No object at all: the model replied in prose. Live replays of the
+        # production failures were content refusals; a two-line refusal used to be
+        # read as two invalid enum values.
+        diagnostics["parse_path"] = "prose"
+        raise RouterFailure("declined", failed_fields=("content",))
     diagnostics["parse_path"] = "unparseable"
     raise RouterFailure("schema", failed_fields=("content",))
+
+
+_ENUM_TOKEN_RE = re.compile(r"[a-z_]+")
 
 
 def _iter_json_object_candidates(text: str) -> list[str]:
@@ -785,8 +801,14 @@ def resume_route_after_exhaustion(state: WritingState) -> dict[str, Any] | None:
     if agent_type is None:
         return None
 
-    workflow_type = "review_only" if agent_type == "quality_reviewer" else "quick"
     scope_fields = _inherited_scope_fields(routing)
+    remaining = _remaining_planned_agents(routing, agent_type)
+    if remaining:
+        # 截停时原计划还没走完（例如规划师还在规划、writer 还没开始）：接着走剩下的阶段，
+        # 不把「先规划再写第1—3章」缩成只剩规划（#269）。
+        workflow_type = str(routing.get("workflow_type")).strip()
+    else:
+        workflow_type = "review_only" if agent_type == "quality_reviewer" else "quick"
     log_with_context(
         logger,
         20,  # INFO
@@ -795,11 +817,12 @@ def resume_route_after_exhaustion(state: WritingState) -> dict[str, Any] | None:
         previous_stop_reason=stop_reason or None,
         read_only=scope_fields["read_only"],
         has_scope=bool(scope_fields["scope"]),
+        remaining_agents=remaining,
     )
     return {
         "current_agent": agent_type,
         "workflow_plan": workflow_type,
-        "workflow_agents": [],
+        "workflow_agents": remaining,
         "routing_metadata": {
             "agent_type": agent_type,
             "workflow_type": workflow_type,
@@ -809,6 +832,30 @@ def resume_route_after_exhaustion(state: WritingState) -> dict[str, Any] | None:
             **scope_fields,
         },
     }
+
+
+def _remaining_planned_agents(routing: dict[str, Any], agent_type: str) -> list[str]:
+    """上一轮落库路由的计划序列里，排在被恢复的 agent 之后、还没跑的阶段。
+
+    只用结构化的落库路由重算（同一个 plan_workflow_agents，按 write_content / read_only 裁剪），
+    不从回复文字猜进度。审稿人恢复时不接写作阶段；路由不完整或 agent 不在原计划里时为空。
+    """
+    initial = _valid_agent(routing.get("initial_agent"))
+    workflow = str(routing.get("workflow_type") or "").strip()
+    if initial is None or workflow not in WORKFLOW_AGENTS or agent_type == "quality_reviewer":
+        return []
+    try:
+        decision = RouterDecision(
+            agent_type=initial,  # type: ignore[arg-type]
+            workflow_type=workflow,  # type: ignore[arg-type]
+            **_inherited_scope_fields(routing),
+        )
+    except ValidationError:
+        return []
+    sequence = [initial, *plan_workflow_agents(decision)]
+    if agent_type not in sequence:
+        return []
+    return sequence[sequence.index(agent_type) + 1:]
 
 
 def _is_review_task(routing: dict[str, Any]) -> bool:

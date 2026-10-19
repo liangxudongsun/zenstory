@@ -230,11 +230,16 @@ class DoneEventData(BaseModel):
     written_files: list[dict[str, Any]] | None = Field(
         default=None,
         description=(
-            "Stopped rounds only, when non-empty: files this round wrote text into "
-            "([{id, title, words?}], same as message_metadata.stop_outcome.written_files)"
+            "When non-empty: files this round confirmed writing text into "
+            "([{id, title, words?, partial?}], same as message_metadata.stop_outcome.written_files). "
+            "Built from tool results and save receipts only, never from the reply text."
         ),
     )
     unwritten_files: list[dict[str, Any]] | None = None
+    no_file_changes: bool | None = Field(
+        default=None,
+        description="Completed rounds only: the author asked for body writes and nothing was written",
+    )
 
 
 class ToolCallEventData(BaseModel):
@@ -452,7 +457,7 @@ def done_event(
         unwritten_files=unwritten_files or None,
     ).model_dump()
     # 只有提供这些可选回执时才带字段，其余 done 帧保持原样。
-    for key in ("stop_reason", "produced_output", "written_files", "unwritten_files"):
+    for key in ("stop_reason", "produced_output", "written_files", "unwritten_files", "no_file_changes"):
         if data.get(key) is None:
             data.pop(key, None)
     return StreamEvent(type=EventType.DONE, data=data)
